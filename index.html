@@ -61,8 +61,8 @@ header.topbar .hint{color:#ccc;}
         <option value="10">10 rows (double line)</option>
       </select>
     </label>
-    <label>Card width(mm): <input type="number" id="cardWmm" min="20" max="210" step="1"></label>
-    <label>Card height(mm): <input type="number" id="cardHmm" min="20" max="297" step="1"></label>
+    <label>Card width(mm): <input type="number" id="cardWmm" min="20" max="210" step="0.01"></label>
+    <label>Card height(mm): <input type="number" id="cardHmm" min="20" max="297" step="0.01"></label>
     <span id="gridInfo" class="hint"></span>
     <label>Header color: <input type="color" id="headerColor" value="#000000"></label>
     <label>Date: <input type="text" id="headerDate" size="10"></label>
@@ -123,7 +123,8 @@ header.topbar .hint{color:#ccc;}
 
 /* ---------- constants ---------- */
 var PAGE_W_MM = 210, PAGE_H_MM = 297;
-var DEFAULT_CARD_W_MM = 65, DEFAULT_CARD_H_MM = 90;
+/* ISO/IEC 7810 ID-1 (standard credit card), rotated to portrait */
+var DEFAULT_CARD_W_MM = 53.98, DEFAULT_CARD_H_MM = 85.60;
 var STORE_KEY = "ccp_state_v1";
 
 /* cards are always placed edge-to-edge (no gap between them); only the
