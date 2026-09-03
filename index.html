@@ -36,6 +36,7 @@ table#contactsTable th, table#contactsTable td{border:1px solid #ddd; padding:3p
 table#contactsTable input, table#contactsTable select{width:100%; border:1px solid #ccc; font-size:12px; padding:2px;}
 .contactsWrap{margin:10px; background:#fff; border:1px solid #ccc; border-radius:6px; padding:8px; overflow:auto;}
 .hint{font-weight:normal; color:#888; text-transform:none; font-size:11px;}
+header.topbar .hint{color:#ccc;}
 #printArea{display:none;}
 @media print{
   body *{display:none !important;}
@@ -60,6 +61,9 @@ table#contactsTable input, table#contactsTable select{width:100%; border:1px sol
         <option value="10">10 rows (double line)</option>
       </select>
     </label>
+    <label>Card width(mm): <input type="number" id="cardWmm" min="20" max="210" step="1"></label>
+    <label>Card height(mm): <input type="number" id="cardHmm" min="20" max="297" step="1"></label>
+    <span id="gridInfo" class="hint"></span>
     <label>Header color: <input type="color" id="headerColor" value="#000000"></label>
     <label>Date: <input type="text" id="headerDate" size="10"></label>
     <label>DPI: <input type="number" id="dpiInput" min="96" max="300" step="1"></label>
@@ -119,9 +123,19 @@ table#contactsTable input, table#contactsTable select{width:100%; border:1px sol
 
 /* ---------- constants ---------- */
 var PAGE_W_MM = 210, PAGE_H_MM = 297;
-var CARD_W_MM = 85.6, CARD_H_MM = 53.98;
-var GAP_MM = 3, COLS = 2, ROWS = 5;
+var DEFAULT_CARD_W_MM = 65, DEFAULT_CARD_H_MM = 90;
 var STORE_KEY = "ccp_state_v1";
+
+/* cards are always placed edge-to-edge (no gap between them); only the
+   leftover space around the whole block is used to center it on the page */
+function gridDims(cardWmm, cardHmm){
+  return {
+    cols: Math.max(1, Math.floor(PAGE_W_MM / cardWmm)),
+    rows: Math.max(1, Math.floor(PAGE_H_MM / cardHmm))
+  };
+}
+function currentGridDims(){ return gridDims(state.cardWmm, state.cardHmm); }
+function cardsPerPage(){ var g = currentGridDims(); return g.cols*g.rows; }
 
 /* ---------- state ---------- */
 function defaultColumns(){
@@ -132,15 +146,16 @@ function defaultColumns(){
   };
 }
 function blankCard(){ return { contactIds:[], freeText:"" }; }
-function blankPage(id){
+function blankPage(id, count){
   var front=[], back=[];
-  for(var i=0;i<ROWS*COLS;i++){ front.push(blankCard()); back.push(blankCard()); }
+  for(var i=0;i<count;i++){ front.push(blankCard()); back.push(blankCard()); }
   return { id:id, front:front, back:back,
     fillerFront:"empty", fillerBack:"empty",
     printFront:true, printBack:true,
     imgFront:null, imgBack:null };
 }
 function defaultState(){
+  var g = gridDims(DEFAULT_CARD_W_MM, DEFAULT_CARD_H_MM);
   return {
     contacts:[],
     nextContactId:1,
@@ -150,7 +165,9 @@ function defaultState(){
     headerDate:new Date().toISOString().slice(0,10),
     dpi:200,
     flipEdge:"long",
-    pages:[ blankPage(1) ],
+    cardWmm: DEFAULT_CARD_W_MM,
+    cardHmm: DEFAULT_CARD_H_MM,
+    pages:[ blankPage(1, g.cols*g.rows) ],
     nextPageId:2,
     activePage:0,
     activeSide:"front",
@@ -158,6 +175,11 @@ function defaultState(){
   };
 }
 var state = loadState() || defaultState();
+if(!state.cardWmm || !state.cardHmm){
+  state.cardWmm = DEFAULT_CARD_W_MM;
+  state.cardHmm = DEFAULT_CARD_H_MM;
+  resizePages();
+}
 
 function saveState(){
   try{
@@ -190,6 +212,18 @@ function el(tag, attrs, children){
 }
 function cardCapacity(){ return state.cardType==="20" ? 20 : 10; }
 function contactById(id){ return state.contacts.find(function(c){ return c.id===id; }); }
+
+function resizePages(){
+  var count = cardsPerPage();
+  state.pages.forEach(function(p){
+    ["front","back"].forEach(function(side){
+      var arr = p[side];
+      while(arr.length < count) arr.push(blankCard());
+      while(arr.length > count) arr.pop();
+    });
+  });
+  if(state.activeCard >= count) state.activeCard = count-1;
+}
 
 function isChiefDept(dept){ return /^c\.?\s+/i.test((dept||"").trim()); }
 function deptGroupKey(dept){ return (dept||"").trim().replace(/^c\.?\s+/i,"").toLowerCase(); }
@@ -393,7 +427,7 @@ function renderPagesUI(){
 
   var cardBox = $("#cardTabs");
   cardBox.innerHTML = "";
-  for(var i=0;i<ROWS*COLS;i++){
+  for(var i=0;i<cardsPerPage();i++){
     (function(i){
       var arr = state.pages[state.activePage][state.activeSide];
       var full = arr[i].contactIds.length >= cardCapacity();
@@ -699,11 +733,11 @@ function drawRowFields(ctx, xPx, rowTop, wPx, rowH, cols, dpi, values){
   ctx.restore();
 }
 
-function gridPosition(index, isBack){
-  var row = Math.floor(index/COLS), col = index%COLS;
+function gridPosition(index, isBack, cols, rows){
+  var row = Math.floor(index/cols), col = index%cols;
   if(isBack){
-    if(state.flipEdge === "long") col = COLS-1-col;
-    else row = ROWS-1-row;
+    if(state.flipEdge === "long") col = cols-1-col;
+    else row = rows-1-row;
   }
   return {row:row, col:col};
 }
@@ -724,8 +758,10 @@ function renderPageCanvas(page, side){
   var filler = side==="front" ? page.fillerFront : page.fillerBack;
   var img = side==="front" ? page.imgFront : page.imgBack;
 
-  var blockWMM = COLS*CARD_W_MM + (COLS-1)*GAP_MM;
-  var blockHMM = ROWS*CARD_H_MM + (ROWS-1)*GAP_MM;
+  var g = currentGridDims();
+  var cardWmm = state.cardWmm, cardHmm = state.cardHmm;
+  var blockWMM = g.cols*cardWmm;
+  var blockHMM = g.rows*cardHmm;
   var startXMM = (PAGE_W_MM - blockWMM)/2;
   var startYMM = (PAGE_H_MM - blockHMM)/2;
 
@@ -739,12 +775,12 @@ function renderPageCanvas(page, side){
     return canvas;
   }
 
-  for(var i=0;i<ROWS*COLS;i++){
-    var pos = gridPosition(i, side==="back");
-    var xMM = startXMM + pos.col*(CARD_W_MM+GAP_MM);
-    var yMM = startYMM + pos.row*(CARD_H_MM+GAP_MM);
+  for(var i=0;i<g.cols*g.rows;i++){
+    var pos = gridPosition(i, side==="back", g.cols, g.rows);
+    var xMM = startXMM + pos.col*cardWmm;
+    var yMM = startYMM + pos.row*cardHmm;
     var xPx = mmToPx(xMM,dpi), yPx = mmToPx(yMM,dpi);
-    var wPx = mmToPx(CARD_W_MM,dpi), hPx = mmToPx(CARD_H_MM,dpi);
+    var wPx = mmToPx(cardWmm,dpi), hPx = mmToPx(cardHmm,dpi);
 
     if(!used){
       if(filler === "empty10") drawEmptyCardGrid(ctx, xPx, yPx, wPx, hPx, dpi, 10);
@@ -784,6 +820,10 @@ function renderAll(){
   $("#headerDate").value = state.headerDate;
   $("#dpiInput").value = state.dpi;
   $("#flipEdge").value = state.flipEdge;
+  $("#cardWmm").value = state.cardWmm;
+  $("#cardHmm").value = state.cardHmm;
+  var g = currentGridDims();
+  $("#gridInfo").textContent = g.cols+" x "+g.rows+" = "+(g.cols*g.rows)+" cards/side, edge-to-edge";
   renderColumnControls();
   renderDeptList();
   renderUnassignedList();
@@ -830,9 +870,18 @@ function initEvents(){
     saveState(); renderPreview();
   });
   $("#flipEdge").addEventListener("change", function(){ state.flipEdge = $("#flipEdge").value; saveState(); renderPreview(); });
+  function onCardSizeChange(){
+    var w = parseFloat($("#cardWmm").value), h = parseFloat($("#cardHmm").value);
+    if(w>=20 && w<=PAGE_W_MM) state.cardWmm = w;
+    if(h>=20 && h<=PAGE_H_MM) state.cardHmm = h;
+    resizePages();
+    saveState(); renderAll();
+  }
+  $("#cardWmm").addEventListener("change", onCardSizeChange);
+  $("#cardHmm").addEventListener("change", onCardSizeChange);
 
   $("#addPageBtn").addEventListener("click", function(){
-    state.pages.push(blankPage(state.nextPageId++));
+    state.pages.push(blankPage(state.nextPageId++, cardsPerPage()));
     state.activePage = state.pages.length-1;
     saveState(); renderAll();
   });
