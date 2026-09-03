@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compact Contact Card Printer</title>
+<style>
+:root{color-scheme:light dark;}
+*{box-sizing:border-box;}
+body{font:14px/1.4 Arial, sans-serif; margin:0; background:#f2f2f2; color:#111;}
+header.topbar{background:#1c1c1c; color:#fff; padding:10px 14px;}
+header.topbar h1{font-size:16px; margin:0 0 8px;}
+.toolbar-row{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:6px;}
+.toolbar-row label{display:flex; gap:4px; align-items:center; font-size:12px;}
+.toolbar-row input[type=number]{width:60px;}
+button{cursor:pointer; border:1px solid #888; background:#fff; border-radius:4px; padding:4px 8px; font-size:12px;}
+button:hover{background:#eee;}
+button.active{background:#333; color:#fff;}
+#dropzone{border:2px dashed #888; padding:6px 10px; border-radius:4px; font-size:12px; cursor:pointer;}
+#dropzone.drag{background:#333;}
+main.layout{display:grid; grid-template-columns:260px 380px 1fr; gap:10px; padding:10px; align-items:start;}
+section{background:#fff; border:1px solid #ccc; border-radius:6px; padding:8px; max-height:80vh; overflow:auto;}
+h2{font-size:13px; margin:0 0 6px; text-transform:uppercase; letter-spacing:.03em; color:#444;}
+h3{font-size:12px; margin:10px 0 4px; color:#555;}
+.deptRow, .contactRow{display:flex; justify-content:space-between; align-items:center; gap:6px; padding:2px 0; border-bottom:1px solid #eee; font-size:12px;}
+.deptRow button, .contactRow button{font-size:11px; padding:2px 6px;}
+.tabsRow{display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px;}
+.tabsRow button{min-width:26px;}
+.cardSlotRow{display:flex; justify-content:space-between; align-items:center; gap:6px; padding:3px 4px; border-bottom:1px solid #eee; font-size:12px;}
+.cardSlotRow button{font-size:11px; padding:1px 6px;}
+.fillerRow{font-size:12px; display:flex; gap:6px; align-items:center; margin-top:6px;}
+#previewArea{display:flex; flex-direction:column; gap:12px; align-items:flex-start;}
+#previewArea canvas{border:1px solid #999; width:300px; height:auto; background:#fff;}
+table#contactsTable{border-collapse:collapse; width:100%; font-size:12px;}
+table#contactsTable th, table#contactsTable td{border:1px solid #ddd; padding:3px 4px;}
+table#contactsTable input, table#contactsTable select{width:100%; border:1px solid #ccc; font-size:12px; padding:2px;}
+.contactsWrap{margin:10px; background:#fff; border:1px solid #ccc; border-radius:6px; padding:8px; overflow:auto;}
+.hint{font-weight:normal; color:#888; text-transform:none; font-size:11px;}
+#printArea{display:none;}
+@media print{
+  body *{display:none !important;}
+  #printArea, #printArea *{display:block !important;}
+  #printArea{position:absolute; top:0; left:0;}
+  #printArea canvas{width:210mm; height:297mm; display:block; page-break-after:always;}
+  @page{ size:A4; margin:0; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Compact Contact Card Printer</h1>
+  <div class="toolbar-row">
+    <label id="dropzone" for="csvInput">Drop CSV here or click to choose
+      <input type="file" id="csvInput" accept=".csv,text/csv" style="display:none">
+    </label>
+    <label>Card type:
+      <select id="cardTypeSelect">
+        <option value="20">20 rows (single line)</option>
+        <option value="10">10 rows (double line)</option>
+      </select>
+    </label>
+    <label>Header color: <input type="color" id="headerColor" value="#000000"></label>
+    <label>Date: <input type="text" id="headerDate" size="10"></label>
+    <label>DPI: <input type="number" id="dpiInput" min="96" max="300" step="1"></label>
+    <label>Duplex flip:
+      <select id="flipEdge">
+        <option value="long">Long edge (default)</option>
+        <option value="short">Short edge</option>
+      </select>
+    </label>
+    <button id="addPageBtn">+ Add page</button>
+    <button id="printBtn">Print</button>
+  </div>
+  <div class="toolbar-row" id="columnControls"></div>
+</header>
+
+<main class="layout">
+  <section class="pool">
+    <h2>Departments</h2>
+    <div id="deptList"></div>
+    <h3>Unassigned contacts <span class="hint">(+ adds to active card)</span></h3>
+    <div id="unassignedList"></div>
+  </section>
+
+  <section class="editor">
+    <h2>Pages</h2>
+    <div id="pagesTabs" class="tabsRow"></div>
+    <div id="sideTabs" class="tabsRow"></div>
+    <div id="cardTabs" class="tabsRow"></div>
+    <div id="cardEditor"></div>
+    <div id="fillerControls"></div>
+  </section>
+
+  <section class="preview">
+    <h2>Preview</h2>
+    <div id="previewArea"></div>
+  </section>
+</main>
+
+<div class="contactsWrap">
+  <h2>Edit contacts <button id="addContactBtn">+ Add contact</button></h2>
+  <table id="contactsTable">
+    <thead>
+      <tr>
+        <th>Name</th><th>Department</th><th>Phone</th><th>Row2 mode</th>
+        <th>Field2</th><th>Label2</th><th>Phone2</th><th>Email</th><th>Field2b</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="contactsBody"></tbody>
+  </table>
+</div>
+
+<div id="printArea"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ---------- constants ---------- */
+var PAGE_W_MM = 210, PAGE_H_MM = 297;
+var CARD_W_MM = 85.6, CARD_H_MM = 53.98;
+var GAP_MM = 3, COLS = 2, ROWS = 5;
+var STORE_KEY = "ccp_state_v1";
+
+/* ---------- state ---------- */
+function defaultColumns(){
+  return {
+    name:{ width:38, font:5 },
+    department:{ width:34, font:5 },
+    phone:{ width:28, font:5 }
+  };
+}
+function blankCard(){ return { contactIds:[], freeText:"" }; }
+function blankPage(id){
+  var front=[], back=[];
+  for(var i=0;i<ROWS*COLS;i++){ front.push(blankCard()); back.push(blankCard()); }
+  return { id:id, front:front, back:back,
+    fillerFront:"empty", fillerBack:"empty",
+    printFront:true, printBack:true,
+    imgFront:null, imgBack:null };
+}
+function defaultState(){
+  return {
+    contacts:[],
+    nextContactId:1,
+    cardType:"20",
+    columns: defaultColumns(),
+    headerColor:"#000000",
+    headerDate:new Date().toISOString().slice(0,10),
+    dpi:200,
+    flipEdge:"long",
+    pages:[ blankPage(1) ],
+    nextPageId:2,
+    activePage:0,
+    activeSide:"front",
+    activeCard:0
+  };
+}
+var state = loadState() || defaultState();
+
+function saveState(){
+  try{
+    var copy = JSON.parse(JSON.stringify(state));
+    copy.pages.forEach(function(p){ p.imgFront=null; p.imgBack=null; });
+    localStorage.setItem(STORE_KEY, JSON.stringify(copy));
+  }catch(e){ /* storage full or unavailable: ignore, in-memory state still works */ }
+}
+function loadState(){
+  try{
+    var raw = localStorage.getItem(STORE_KEY);
+    if(!raw) return null;
+    var s = JSON.parse(raw);
+    if(!s || !s.pages || !s.pages.length) return null;
+    return s;
+  }catch(e){ return null; }
+}
+
+/* ---------- helpers ---------- */
+function $(sel){ return document.querySelector(sel); }
+function el(tag, attrs, children){
+  var e = document.createElement(tag);
+  if(attrs) for(var k in attrs){
+    if(k==="text") e.textContent = attrs[k];
+    else if(k==="html") e.innerHTML = attrs[k];
+    else e.setAttribute(k, attrs[k]);
+  }
+  (children||[]).forEach(function(c){ e.appendChild(c); });
+  return e;
+}
+function cardCapacity(){ return state.cardType==="20" ? 20 : 10; }
+function contactById(id){ return state.contacts.find(function(c){ return c.id===id; }); }
+
+function isChiefDept(dept){ return /^c\.?\s+/i.test((dept||"").trim()); }
+function deptGroupKey(dept){ return (dept||"").trim().replace(/^c\.?\s+/i,"").toLowerCase(); }
+
+function sortContacts(list){
+  return list.slice().sort(function(a,b){
+    var gk = deptGroupKey(a.department).localeCompare(deptGroupKey(b.department));
+    if(gk!==0) return gk;
+    var ca = isChiefDept(a.department), cb = isChiefDept(b.department);
+    if(ca!==cb) return ca ? -1 : 1;
+    return (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"});
+  });
+}
+
+function assignedContactIdSet(){
+  var s = new Set();
+  state.pages.forEach(function(p){
+    p.front.concat(p.back).forEach(function(card){
+      card.contactIds.forEach(function(id){ s.add(id); });
+    });
+  });
+  return s;
+}
+
+/* ---------- CSV parsing ---------- */
+function parseCSV(text){
+  var rows = [], row = [], field = "", inQuotes = false;
+  for(var i=0;i<text.length;i++){
+    var c = text[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(text[i+1] === '"'){ field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if(c === '"') inQuotes = true;
+      else if(c === ","){ row.push(field); field=""; }
+      else if(c === "\n" || c === "\r"){
+        if(c === "\r" && text[i+1] === "\n") i++;
+        row.push(field); field=""; rows.push(row); row=[];
+      } else field += c;
+    }
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows.filter(function(r){ return r.length>1 || (r[0]||"").trim()!==""; });
+}
+
+function headerIndex(headers, names){
+  for(var i=0;i<headers.length;i++){
+    var h = headers[i].trim().toLowerCase();
+    if(names.indexOf(h) !== -1) return i;
+  }
+  return -1;
+}
+
+function importCSV(text){
+  var rows = parseCSV(text);
+  if(!rows.length) return;
+  var headers = rows[0];
+  var idx = {
+    name: headerIndex(headers, ["name"]),
+    department: headerIndex(headers, ["department","dept"]),
+    phone: headerIndex(headers, ["phone","number"]),
+    mode: headerIndex(headers, ["mode"]),
+    field2: headerIndex(headers, ["field2"]),
+    label2: headerIndex(headers, ["label2"]),
+    phone2: headerIndex(headers, ["phone2"]),
+    email: headerIndex(headers, ["email"]),
+    field2b: headerIndex(headers, ["field2b"])
+  };
+  var added = [];
+  for(var r=1;r<rows.length;r++){
+    var row = rows[r];
+    var get = function(i){ return i===-1 ? "" : (row[i]||"").trim(); };
+    var name = get(idx.name);
+    if(!name) continue;
+    added.push({
+      id: state.nextContactId++,
+      name: name,
+      department: get(idx.department),
+      phone: get(idx.phone),
+      mode: get(idx.mode) === "email" ? "email" : "label",
+      field2: get(idx.field2),
+      label2: get(idx.label2),
+      phone2: get(idx.phone2),
+      email: get(idx.email),
+      field2b: get(idx.field2b)
+    });
+  }
+  state.contacts = state.contacts.concat(added);
+  saveState();
+  renderAll();
+}
+
+/* ---------- assignment ---------- */
+function activeCard(){
+  var p = state.pages[state.activePage];
+  if(!p) return null;
+  var arr = state.activeSide === "front" ? p.front : p.back;
+  return arr[state.activeCard];
+}
+function addContactToActiveCard(id){
+  var card = activeCard();
+  if(!card) return;
+  if(card.contactIds.length >= cardCapacity()){
+    alert("This card is full ("+cardCapacity()+" rows). Switch to another card.");
+    return;
+  }
+  if(card.contactIds.indexOf(id) !== -1) return;
+  card.contactIds.push(id);
+  saveState(); renderAll();
+}
+function addDeptToActiveCard(dept){
+  var card = activeCard();
+  if(!card) return;
+  var assigned = assignedContactIdSet();
+  var list = sortContacts(state.contacts.filter(function(c){
+    return c.department === dept && !assigned.has(c.id);
+  }));
+  var room = cardCapacity() - card.contactIds.length;
+  if(list.length > room){
+    alert("Only "+room+" of "+list.length+" contacts in \""+dept+"\" fit on this card. "+
+          "Add them individually if you want to split the group, or switch to an emptier card.");
+    return;
+  }
+  list.forEach(function(c){ card.contactIds.push(c.id); });
+  saveState(); renderAll();
+}
+function removeContactFromCard(pageIdx, side, cardIdx, contactId){
+  var arr = state.pages[pageIdx][side];
+  var card = arr[cardIdx];
+  var i = card.contactIds.indexOf(contactId);
+  if(i !== -1) card.contactIds.splice(i,1);
+  saveState(); renderAll();
+}
+
+/* ---------- rendering: side panels ---------- */
+function renderDeptList(){
+  var box = $("#deptList");
+  box.innerHTML = "";
+  var assigned = assignedContactIdSet();
+  var counts = {};
+  state.contacts.forEach(function(c){
+    var d = c.department || "(none)";
+    counts[d] = counts[d] || {total:0, left:0};
+    counts[d].total++;
+    if(!assigned.has(c.id)) counts[d].left++;
+  });
+  var depts = Object.keys(counts).sort(function(a,b){
+    var gk = deptGroupKey(a).localeCompare(deptGroupKey(b));
+    if(gk!==0) return gk;
+    var ca=isChiefDept(a), cb=isChiefDept(b);
+    if(ca!==cb) return ca?-1:1;
+    return a.localeCompare(b);
+  });
+  depts.forEach(function(d){
+    var row = el("div",{class:"deptRow"},[
+      el("span",{text:d+" — "+counts[d].left+"/"+counts[d].total+" left"}),
+      el("button",{text:"Add all → active card"})
+    ]);
+    row.querySelector("button").addEventListener("click", function(){ addDeptToActiveCard(d); });
+    box.appendChild(row);
+  });
+  if(!depts.length) box.appendChild(el("div",{class:"hint",text:"Import a CSV to see departments here."}));
+}
+
+function renderUnassignedList(){
+  var box = $("#unassignedList");
+  box.innerHTML = "";
+  var assigned = assignedContactIdSet();
+  var list = sortContacts(state.contacts.filter(function(c){ return !assigned.has(c.id); }));
+  list.forEach(function(c){
+    var row = el("div",{class:"contactRow"},[
+      el("span",{text:c.name+" ("+(c.department||"—")+")"}),
+      el("button",{text:"+"})
+    ]);
+    row.querySelector("button").addEventListener("click", function(){ addContactToActiveCard(c.id); });
+    box.appendChild(row);
+  });
+  if(!list.length) box.appendChild(el("div",{class:"hint",text:"All contacts are assigned."}));
+}
+
+function renderPagesUI(){
+  var pagesBox = $("#pagesTabs");
+  pagesBox.innerHTML = "";
+  state.pages.forEach(function(p,i){
+    var b = el("button",{text:"Page "+p.id});
+    if(i===state.activePage) b.className="active";
+    b.addEventListener("click", function(){ state.activePage=i; state.activeCard=0; saveState(); renderAll(); });
+    pagesBox.appendChild(b);
+  });
+
+  var sideBox = $("#sideTabs");
+  sideBox.innerHTML = "";
+  ["front","back"].forEach(function(side){
+    var b = el("button",{text:side});
+    if(side===state.activeSide) b.className="active";
+    b.addEventListener("click", function(){ state.activeSide=side; state.activeCard=0; saveState(); renderAll(); });
+    sideBox.appendChild(b);
+  });
+
+  var cardBox = $("#cardTabs");
+  cardBox.innerHTML = "";
+  for(var i=0;i<ROWS*COLS;i++){
+    (function(i){
+      var arr = state.pages[state.activePage][state.activeSide];
+      var full = arr[i].contactIds.length >= cardCapacity();
+      var b = el("button",{text:String(i+1)+(full?"✓":"")});
+      if(i===state.activeCard) b.className="active";
+      b.addEventListener("click", function(){ state.activeCard=i; saveState(); renderAll(); });
+      cardBox.appendChild(b);
+    })(i);
+  }
+}
+
+function renderCardEditor(){
+  var box = $("#cardEditor");
+  box.innerHTML = "";
+  var p = state.pages[state.activePage];
+  var card = p[state.activeSide][state.activeCard];
+  card.contactIds.forEach(function(id){
+    var c = contactById(id);
+    if(!c) return;
+    var row = el("div",{class:"cardSlotRow"},[
+      el("span",{text:c.name+" / "+(c.department||"—")+" / "+(c.phone||"—")}),
+      el("button",{text:"remove"})
+    ]);
+    row.querySelector("button").addEventListener("click", function(){
+      removeContactFromCard(state.activePage, state.activeSide, state.activeCard, id);
+    });
+    box.appendChild(row);
+  });
+  if(!card.contactIds.length) box.appendChild(el("div",{class:"hint",text:"No contacts assigned to this card yet."}));
+
+  if(state.cardType === "10"){
+    var ft = el("input",{type:"text", value:card.freeText, placeholder:"Header free text (right side)"});
+    ft.addEventListener("input", function(){ card.freeText = ft.value; saveState(); renderPreview(); });
+    box.appendChild(el("div",{},[ el("label",{text:"Free text: "}), ft ]));
+  }
+
+  // filler controls for the active side, only meaningful when it's empty
+  var fBox = $("#fillerControls");
+  fBox.innerHTML = "";
+  var side = state.activeSide;
+  var used = p[side].some(function(cd){ return cd.contactIds.length>0; });
+  if(!used){
+    var row = el("div",{class:"fillerRow"});
+    row.appendChild(el("span",{text:"This "+side+" side is empty. Fill with:"}));
+    var sel = el("select",{});
+    [["empty","Blank"],["empty10","Empty card grid (10, no header)"],["empty20","Empty card grid (20, no header)"],["image","Custom image"]].forEach(function(opt){
+      var o = el("option",{value:opt[0], text:opt[1]});
+      if((side==="front"?p.fillerFront:p.fillerBack) === opt[0]) o.setAttribute("selected","selected");
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function(){
+      if(side==="front") p.fillerFront = sel.value; else p.fillerBack = sel.value;
+      saveState(); renderPreview();
+    });
+    row.appendChild(sel);
+    if((side==="front"?p.fillerFront:p.fillerBack) === "image"){
+      var fileInput = el("input",{type:"file", accept:"image/*"});
+      fileInput.addEventListener("change", function(){
+        var f = fileInput.files[0];
+        if(!f) return;
+        var reader = new FileReader();
+        reader.onload = function(){
+          var img = new Image();
+          img.onload = function(){
+            if(side==="front") p.imgFront = img; else p.imgBack = img;
+            renderPreview();
+          };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(f);
+      });
+      row.appendChild(fileInput);
+    }
+    fBox.appendChild(row);
+  }
+
+  var printRow = el("div",{class:"fillerRow"});
+  ["front","back"].forEach(function(s){
+    var cb = el("input",{type:"checkbox"});
+    cb.checked = s==="front" ? p.printFront : p.printBack;
+    cb.addEventListener("change", function(){
+      if(s==="front") p.printFront = cb.checked; else p.printBack = cb.checked;
+      saveState();
+    });
+    printRow.appendChild(el("label",{},[cb, document.createTextNode(" print "+s)]));
+  });
+  fBox.appendChild(printRow);
+}
+
+function renderColumnControls(){
+  var box = $("#columnControls");
+  box.innerHTML = "";
+  ["name","department","phone"].forEach(function(key){
+    var col = state.columns[key];
+    var wLabel = el("label",{text:key+" width:"});
+    var w = el("input",{type:"number", min:"5", max:"90", value:col.width});
+    w.addEventListener("input", function(){ col.width = parseFloat(w.value)||col.width; saveState(); renderPreview(); });
+    var fLabel = el("label",{text:"font(pt):"});
+    var f = el("input",{type:"number", min:"5", max:"36", value:col.font});
+    f.addEventListener("input", function(){ col.font = parseFloat(f.value)||col.font; saveState(); renderPreview(); });
+    box.appendChild(wLabel); box.appendChild(w); box.appendChild(fLabel); box.appendChild(f);
+  });
+}
+
+function renderContactsTable(){
+  var body = $("#contactsBody");
+  body.innerHTML = "";
+  sortContacts(state.contacts).forEach(function(c){
+    var tr = document.createElement("tr");
+    function cell(field, type, options){
+      var td = document.createElement("td");
+      var inp;
+      if(type==="select"){
+        inp = document.createElement("select");
+        options.forEach(function(o){
+          var op = el("option",{value:o, text:o});
+          if(c[field]===o) op.setAttribute("selected","selected");
+          inp.appendChild(op);
+        });
+      } else {
+        inp = document.createElement("input");
+        inp.type = "text";
+        inp.value = c[field] || "";
+      }
+      inp.addEventListener("input", function(){ c[field] = inp.value; saveState(); renderAll(); });
+      td.appendChild(inp);
+      return td;
+    }
+    tr.appendChild(cell("name"));
+    tr.appendChild(cell("department"));
+    tr.appendChild(cell("phone"));
+    tr.appendChild(cell("mode","select",["label","email"]));
+    tr.appendChild(cell("field2"));
+    tr.appendChild(cell("label2"));
+    tr.appendChild(cell("phone2"));
+    tr.appendChild(cell("email"));
+    tr.appendChild(cell("field2b"));
+    var del = el("button",{text:"delete"});
+    del.addEventListener("click", function(){
+      state.contacts = state.contacts.filter(function(x){ return x.id!==c.id; });
+      state.pages.forEach(function(p){
+        p.front.concat(p.back).forEach(function(card){
+          var i = card.contactIds.indexOf(c.id);
+          if(i!==-1) card.contactIds.splice(i,1);
+        });
+      });
+      saveState(); renderAll();
+    });
+    var tdDel = document.createElement("td");
+    tdDel.appendChild(del);
+    tr.appendChild(tdDel);
+    body.appendChild(tr);
+  });
+}
+
+/* ---------- canvas rendering ---------- */
+function mmToPx(mm, dpi){ return Math.round(mm * dpi / 25.4); }
+function ptToPx(pt, dpi){ return pt * dpi / 72; }
+
+function contrastColor(hex){
+  var h = hex.replace("#","");
+  if(h.length===3) h = h.split("").map(function(c){return c+c;}).join("");
+  var r = parseInt(h.substr(0,2),16), g = parseInt(h.substr(2,2),16), b = parseInt(h.substr(4,2),16);
+  var lum = (0.299*r + 0.587*g + 0.114*b)/255;
+  return lum > 0.55 ? "#000000" : "#ffffff";
+}
+
+function truncateText(ctx, text, maxWidth){
+  if(ctx.measureText(text).width <= maxWidth) return text;
+  var lo = 0, hi = text.length;
+  while(lo < hi){
+    var mid = (lo+hi+1) >> 1;
+    var candidate = text.slice(0, mid) + ".";
+    if(ctx.measureText(candidate).width <= maxWidth) lo = mid; else hi = mid-1;
+  }
+  return lo <= 0 ? "." : text.slice(0, lo) + ".";
+}
+
+function colOffsets(){
+  var cols = state.columns;
+  var total = cols.name.width + cols.department.width + cols.phone.width;
+  var nameW = cols.name.width/total, deptW = cols.department.width/total, phoneW = cols.phone.width/total;
+  return [
+    {key:"name", start:0, w:nameW, font:cols.name.font},
+    {key:"department", start:nameW, w:deptW, font:cols.department.font},
+    {key:"phone", start:nameW+deptW, w:phoneW, font:cols.phone.font}
+  ];
+}
+
+function drawEmptyCardGrid(ctx, xPx, yPx, wPx, hPx, dpi, withRows){
+  ctx.strokeStyle = "#000"; ctx.lineWidth = Math.max(1, mmToPx(0.3,dpi));
+  ctx.strokeRect(xPx+0.5, yPx+0.5, wPx, hPx);
+  if(withRows){
+    var rows = withRows;
+    var rowH = hPx/rows;
+    ctx.strokeStyle = "#000"; ctx.lineWidth = Math.max(1, mmToPx(0.15,dpi));
+    var inset = mmToPx(3,dpi);
+    for(var i=1;i<rows;i++){
+      var ly = yPx + rowH*i;
+      ctx.beginPath();
+      ctx.moveTo(xPx+inset, ly);
+      ctx.lineTo(xPx+wPx-inset, ly);
+      ctx.stroke();
+    }
+  }
+}
+
+function drawCard(ctx, xPx, yPx, wPx, hPx, card, dpi){
+  ctx.save();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(xPx, yPx, wPx, hPx);
+  ctx.strokeStyle = "#000"; ctx.lineWidth = Math.max(1, mmToPx(0.3,dpi));
+  ctx.strokeRect(xPx+0.5, yPx+0.5, wPx, hPx);
+
+  var headerH = hPx * 0.16;
+  ctx.fillStyle = state.headerColor;
+  ctx.fillRect(xPx, yPx, wPx, headerH);
+  var textColor = contrastColor(state.headerColor);
+  ctx.fillStyle = textColor;
+  var headerFontPx = Math.max(8, headerH*0.5);
+  ctx.font = headerFontPx + "px Arial, sans-serif";
+  ctx.textBaseline = "middle";
+  var pad = mmToPx(2, dpi);
+  ctx.textAlign = "left";
+  ctx.fillText(state.headerDate, xPx+pad, yPx+headerH/2);
+
+  var rightText;
+  if(state.cardType === "10"){
+    rightText = card.freeText || "";
+  } else {
+    var depts = [];
+    card.contactIds.forEach(function(id){
+      var c = contactById(id);
+      if(c && c.department && depts.indexOf(c.department)===-1) depts.push(c.department);
+    });
+    rightText = depts.join(", ");
+  }
+  ctx.textAlign = "right";
+  var maxRightW = wPx*0.6 - pad;
+  ctx.fillText(truncateText(ctx, rightText, maxRightW), xPx+wPx-pad, yPx+headerH/2);
+
+  var bodyY = yPx + headerH;
+  var bodyH = hPx - headerH;
+  var cols = colOffsets();
+  var capacity = cardCapacity();
+  var rowH = bodyH / capacity;
+  var lineInset = mmToPx(2.5, dpi);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#000000";
+
+  for(var i=0;i<capacity;i++){
+    var id = card.contactIds[i];
+    var rowTop = bodyY + rowH*i;
+    if(i>0){
+      ctx.strokeStyle = "rgba(0,0,0,0.5)";
+      ctx.lineWidth = Math.max(1, mmToPx(0.12,dpi));
+      ctx.beginPath();
+      ctx.moveTo(xPx+lineInset, rowTop);
+      ctx.lineTo(xPx+wPx-lineInset, rowTop);
+      ctx.stroke();
+    }
+    if(!id) continue;
+    var c = contactById(id);
+    if(!c) continue;
+
+    if(state.cardType === "20"){
+      drawRowFields(ctx, xPx, rowTop, wPx, rowH, cols, dpi, [c.name, c.department, c.phone]);
+    } else {
+      var line1H = rowH/2, line2H = rowH/2;
+      drawRowFields(ctx, xPx, rowTop, wPx, line1H, cols, dpi, [c.name, c.department, c.phone]);
+      if(c.mode === "email"){
+        drawRowFields(ctx, xPx, rowTop+line1H, wPx, line2H, cols, dpi, [c.email, c.field2b, ""]);
+      } else {
+        drawRowFields(ctx, xPx, rowTop+line1H, wPx, line2H, cols, dpi, [c.field2, c.label2, c.phone2]);
+      }
+      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.lineWidth = Math.max(1, mmToPx(0.08,dpi));
+      ctx.beginPath();
+      ctx.moveTo(xPx+lineInset, rowTop+line1H);
+      ctx.lineTo(xPx+wPx-lineInset, rowTop+line1H);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawRowFields(ctx, xPx, rowTop, wPx, rowH, cols, dpi, values){
+  var pad = mmToPx(2, dpi);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(xPx, rowTop, wPx, rowH);
+  ctx.clip();
+  cols.forEach(function(col, idx){
+    var colX = xPx + wPx*col.start + (idx===0 ? pad : pad/2);
+    var colW = wPx*col.w - pad;
+    var fontPx = ptToPx(col.font, dpi);
+    ctx.font = fontPx + "px Arial, sans-serif";
+    ctx.textBaseline = "middle";
+    var text = truncateText(ctx, values[idx] || "", colW);
+    ctx.fillText(text, colX, rowTop + rowH/2);
+  });
+  ctx.restore();
+}
+
+function gridPosition(index, isBack){
+  var row = Math.floor(index/COLS), col = index%COLS;
+  if(isBack){
+    if(state.flipEdge === "long") col = COLS-1-col;
+    else row = ROWS-1-row;
+  }
+  return {row:row, col:col};
+}
+
+function renderPageCanvas(page, side){
+  var dpi = state.dpi;
+  var canvas = document.createElement("canvas");
+  canvas.width = mmToPx(PAGE_W_MM, dpi);
+  canvas.height = mmToPx(PAGE_H_MM, dpi);
+  canvas.style.width = PAGE_W_MM + "mm";
+  canvas.style.height = PAGE_H_MM + "mm";
+  var ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  var slots = page[side];
+  var used = slots.some(function(c){ return c.contactIds.length>0; });
+  var filler = side==="front" ? page.fillerFront : page.fillerBack;
+  var img = side==="front" ? page.imgFront : page.imgBack;
+
+  var blockWMM = COLS*CARD_W_MM + (COLS-1)*GAP_MM;
+  var blockHMM = ROWS*CARD_H_MM + (ROWS-1)*GAP_MM;
+  var startXMM = (PAGE_W_MM - blockWMM)/2;
+  var startYMM = (PAGE_H_MM - blockHMM)/2;
+
+  if(!used && filler === "empty"){
+    return canvas;
+  }
+  if(!used && filler === "image" && img){
+    var scale = Math.min(canvas.width/img.width, canvas.height/img.height);
+    var dw = img.width*scale, dh = img.height*scale;
+    ctx.drawImage(img, (canvas.width-dw)/2, (canvas.height-dh)/2, dw, dh);
+    return canvas;
+  }
+
+  for(var i=0;i<ROWS*COLS;i++){
+    var pos = gridPosition(i, side==="back");
+    var xMM = startXMM + pos.col*(CARD_W_MM+GAP_MM);
+    var yMM = startYMM + pos.row*(CARD_H_MM+GAP_MM);
+    var xPx = mmToPx(xMM,dpi), yPx = mmToPx(yMM,dpi);
+    var wPx = mmToPx(CARD_W_MM,dpi), hPx = mmToPx(CARD_H_MM,dpi);
+
+    if(!used){
+      if(filler === "empty10") drawEmptyCardGrid(ctx, xPx, yPx, wPx, hPx, dpi, 10);
+      else if(filler === "empty20") drawEmptyCardGrid(ctx, xPx, yPx, wPx, hPx, dpi, 20);
+      continue;
+    }
+    drawCard(ctx, xPx, yPx, wPx, hPx, slots[i], dpi);
+  }
+  return canvas;
+}
+
+function renderPreview(){
+  var box = $("#previewArea");
+  box.innerHTML = "";
+  var p = state.pages[state.activePage];
+  ["front","back"].forEach(function(side){
+    box.appendChild(el("div",{text:"Page "+p.id+" — "+side}));
+    box.appendChild(renderPageCanvas(p, side));
+  });
+}
+
+/* ---------- print ---------- */
+function doPrint(){
+  var area = $("#printArea");
+  area.innerHTML = "";
+  state.pages.forEach(function(p){
+    if(p.printFront) area.appendChild(renderPageCanvas(p, "front"));
+    if(p.printBack) area.appendChild(renderPageCanvas(p, "back"));
+  });
+  window.print();
+}
+
+/* ---------- wiring ---------- */
+function renderAll(){
+  $("#cardTypeSelect").value = state.cardType;
+  $("#headerColor").value = state.headerColor;
+  $("#headerDate").value = state.headerDate;
+  $("#dpiInput").value = state.dpi;
+  $("#flipEdge").value = state.flipEdge;
+  renderColumnControls();
+  renderDeptList();
+  renderUnassignedList();
+  renderPagesUI();
+  renderCardEditor();
+  renderContactsTable();
+  renderPreview();
+}
+
+function initEvents(){
+  var dz = $("#dropzone"), fileInput = $("#csvInput");
+  dz.addEventListener("click", function(){ fileInput.click(); });
+  dz.addEventListener("dragover", function(e){ e.preventDefault(); dz.classList.add("drag"); });
+  dz.addEventListener("dragleave", function(){ dz.classList.remove("drag"); });
+  dz.addEventListener("drop", function(e){
+    e.preventDefault(); dz.classList.remove("drag");
+    var f = e.dataTransfer.files[0];
+    if(f) f.text().then(importCSV);
+  });
+  fileInput.addEventListener("change", function(){
+    var f = fileInput.files[0];
+    if(f) f.text().then(importCSV);
+    fileInput.value = "";
+  });
+
+  $("#cardTypeSelect").addEventListener("change", function(){
+    var newType = $("#cardTypeSelect").value;
+    var cap = newType==="20" ? 20 : 10;
+    state.pages.forEach(function(p){
+      p.front.concat(p.back).forEach(function(card){
+        if(card.contactIds.length > cap){
+          card.contactIds.splice(cap);
+        }
+      });
+    });
+    state.cardType = newType;
+    saveState(); renderAll();
+  });
+  $("#headerColor").addEventListener("input", function(){ state.headerColor = $("#headerColor").value; saveState(); renderPreview(); });
+  $("#headerDate").addEventListener("input", function(){ state.headerDate = $("#headerDate").value; saveState(); renderPreview(); });
+  $("#dpiInput").addEventListener("change", function(){
+    var v = parseInt($("#dpiInput").value,10);
+    state.dpi = (v>=96 && v<=300) ? v : state.dpi;
+    saveState(); renderPreview();
+  });
+  $("#flipEdge").addEventListener("change", function(){ state.flipEdge = $("#flipEdge").value; saveState(); renderPreview(); });
+
+  $("#addPageBtn").addEventListener("click", function(){
+    state.pages.push(blankPage(state.nextPageId++));
+    state.activePage = state.pages.length-1;
+    saveState(); renderAll();
+  });
+  $("#printBtn").addEventListener("click", doPrint);
+
+  $("#addContactBtn").addEventListener("click", function(){
+    state.contacts.push({ id: state.nextContactId++, name:"New contact", department:"", phone:"",
+      mode:"label", field2:"", label2:"", phone2:"", email:"", field2b:"" });
+    saveState(); renderAll();
+  });
+}
+
+initEvents();
+renderAll();
+
+})();
+</script>
+</body>
+</html>
