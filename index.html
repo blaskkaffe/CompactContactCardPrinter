@@ -402,13 +402,49 @@ function formatDeptForRow(dept){
   return prefix + base;
 }
 
-function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, values){
+/* XXX-XXX XX XX for a 10-digit number, XXX-XX XX XX for 9 digits; anything
+   else has no defined grouping and is left as originally entered */
+function formatPhoneNumber(raw){
+  var digits = (raw||"").replace(/\D/g, "");
+  if(digits.length === 10){
+    return digits.slice(0,3)+"-"+digits.slice(3,6)+" "+digits.slice(6,8)+" "+digits.slice(8,10);
+  }
+  if(digits.length === 9){
+    return digits.slice(0,3)+"-"+digits.slice(3,5)+" "+digits.slice(5,7)+" "+digits.slice(7,9);
+  }
+  return raw || "";
+}
+
+/* the phone column is sized to fit the longest formatted phone
+   (XXX-XXX XX XX, 13 chars) exactly, in the phone font, so a correctly
+   formatted number is never truncated -- name/department split whatever
+   width is left over. Horizontal cards get a second phone column since
+   they have the width to spare. */
+function layoutRowColumns(ctx, wPx, dpi){
   var pad = mmToPx(1.5, dpi);
-  var cols = [
-    { start:0, w:0.40, pt:NAME_FONT_PT },
-    { start:0.40, w:0.32, pt:DEPT_FONT_PT },
-    { start:0.72, w:0.28, pt:PHONE_FONT_PT }
-  ];
+  var gap = pad/2;
+  ctx.font = ptToPx(PHONE_FONT_PT, dpi) + "px " + FONT_FAMILY;
+  var phoneW = ctx.measureText("000-000 00 00").width + pad*0.5;
+  var showPhone2 = state.cardOrientation === "horizontal";
+  var phoneCount = showPhone2 ? 2 : 1;
+  var reserved = (phoneW + gap) * phoneCount;
+  var nameDeptTotal = Math.max(0, wPx - pad*2 - gap - reserved);
+  var nameW = nameDeptTotal * 0.55;
+  var deptW = nameDeptTotal * 0.45;
+
+  var cols = [];
+  var x = pad;
+  cols.push({ x:x, w:nameW, pt:NAME_FONT_PT, key:"name" }); x += nameW + gap;
+  cols.push({ x:x, w:deptW, pt:DEPT_FONT_PT, key:"department" }); x += deptW + gap;
+  cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone" }); x += phoneW + gap;
+  if(showPhone2){
+    cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone2" });
+  }
+  return cols;
+}
+
+function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact){
+  var cols = layoutRowColumns(ctx, wPx, dpi);
   ctx.save();
   ctx.beginPath();
   ctx.rect(xPx, rowTop, wPx, rowH);
@@ -416,11 +452,12 @@ function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, values){
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.fillStyle = "#000";
-  cols.forEach(function(col, i){
-    var colX = xPx + wPx*col.start + (i===0 ? pad : pad/2);
-    var colW = wPx*col.w - pad;
+  cols.forEach(function(col){
+    var raw = col.key === "name" ? (contact.name||"")
+      : col.key === "department" ? formatDeptForRow(contact.department)
+      : formatPhoneNumber(contact[col.key]);
     ctx.font = ptToPx(col.pt, dpi) + "px " + FONT_FAMILY;
-    ctx.fillText(truncateText(ctx, values[i]||"", colW), colX, rowTop + rowH/2);
+    ctx.fillText(truncateText(ctx, raw, col.w), xPx + col.x, rowTop + rowH/2);
   });
   ctx.restore();
 }
@@ -473,7 +510,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi){
     }
     var c = contacts[i];
     if(!c) continue;
-    drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, [c.name, formatDeptForRow(c.department), c.phone]);
+    drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, c);
   }
   ctx.restore();
 }
