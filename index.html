@@ -37,7 +37,15 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 
 #dropOverlay{position:fixed; inset:0; background:rgba(20,20,20,.75); color:#fff; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:bold; z-index:1000; pointer-events:none;}
 #dropOverlay[hidden]{display:none;}
+
+#printArea{display:none;}
+@media print{
+  body > *:not(#printArea){display:none !important;}
+  #printArea{display:block !important;}
+  #printArea canvas{display:block; page-break-after:always;}
+}
 </style>
+<style id="pageSizeStyle"></style>
 </head>
 <body>
 
@@ -47,7 +55,7 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
   <label class="tool">Paper:
     <select id="paperSize"></select>
   </label>
-  <button id="orientationBtn"></button>
+  <button id="cardOrientationBtn"></button>
   <button id="viewModeBtn"></button>
 
   <label class="tool">Card w(mm): <input type="number" id="cardWmm" min="10" max="200" step="0.01" style="width:60px;"></label>
@@ -62,10 +70,12 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
   <button id="prevBtn">&larr; Prev</button>
   <span id="pageIndicator"></span>
   <button id="nextBtn">Next &rarr;</button>
+  <button id="printBtn">Print</button>
 </header>
 
 <main id="viewerWrap"></main>
 <div id="dropOverlay" hidden>Drop CSV or XLSX file to import contacts</div>
+<div id="printArea"></div>
 
 <script>
 (function(){
@@ -80,10 +90,10 @@ var CARD_CAPACITY = 20; /* rows per card -- single card type for now */
 
 var state = {
   paperSize: "A4",
-  orientation: "portrait",   /* "portrait" | "landscape" -- affects the PAGE only, never the card */
+  cardOrientation: "vertical", /* "vertical" | "horizontal" -- the card's own shape; toggled by the user */
   viewMode: "single",        /* "single" | "all" */
   currentPage: 0,            /* 0-indexed */
-  cardWmm: 53.98,            /* exact ISO/IEC 7810 ID-1 credit card, used portrait */
+  cardWmm: 53.98,            /* exact ISO/IEC 7810 ID-1 credit card */
   cardHmm: 85.60,
   marginMm: 10,              /* printer-unsafe border to keep clear on every edge */
   contacts: []
@@ -100,23 +110,30 @@ function el(tag, attrs, children){
   return e;
 }
 
-function effectiveDims(){
-  var p = PAPER_SIZES[state.paperSize];
-  return state.orientation === "portrait"
-    ? { w:p.wMM, h:p.hMM }
-    : { w:p.hMM, h:p.wMM };
-}
-
-/* how many cards fit edge-to-edge inside the page once the printer-safe
-   margin is removed from every side; the card itself is never rotated */
-function gridForPage(){
-  var dims = effectiveDims();
+/* how many cards fit edge-to-edge on a page of the given size, once the
+   printer-safe margin is removed from every side */
+function gridForDims(dims){
   var usableW = dims.w - 2*state.marginMm;
   var usableH = dims.h - 2*state.marginMm;
   var cols = Math.max(0, Math.floor(usableW / state.cardWmm));
   var rows = Math.max(0, Math.floor(usableH / state.cardHmm));
   return { cols:cols, rows:rows, count:cols*rows };
 }
+
+/* the card orientation is the user's choice (the toggle button); the PAGE
+   orientation is whichever of portrait/landscape fits the most cards for
+   that card shape -- it is never chosen directly by the user */
+function pickPageOrientation(){
+  var p = PAPER_SIZES[state.paperSize];
+  var portrait = { w:p.wMM, h:p.hMM, name:"portrait" };
+  if(p.wMM === p.hMM) return portrait;
+  var landscape = { w:p.hMM, h:p.wMM, name:"landscape" };
+  return gridForDims(landscape).count > gridForDims(portrait).count ? landscape : portrait;
+}
+
+function effectiveDims(){ return pickPageOrientation(); }
+
+function gridForPage(){ return gridForDims(effectiveDims()); }
 
 /* ================= contact sorting (alphabetical, chief dept first) ================= */
 function isChiefDept(dept){ return /^c\.?\s+/i.test((dept||"").trim()); }
@@ -564,11 +581,12 @@ function updateIndicator(){
 }
 function updateGridInfo(){
   var g = gridForPage();
-  $("#gridInfo").textContent = g.cols+" x "+g.rows+" = "+g.count+" cards/page";
+  var page = pickPageOrientation();
+  $("#gridInfo").textContent = g.cols+" x "+g.rows+" = "+g.count+" cards/page (page auto-set to "+page.name+")";
 }
 
 function renderToolbar(){
-  $("#orientationBtn").textContent = state.orientation === "portrait" ? "Portrait" : "Landscape";
+  $("#cardOrientationBtn").textContent = "Card: " + (state.cardOrientation === "vertical" ? "Vertical" : "Horizontal");
   $("#viewModeBtn").textContent = state.viewMode === "single" ? "View: Single" : "View: All";
   $("#cardWmm").value = state.cardWmm;
   $("#cardHmm").value = state.cardHmm;
@@ -590,6 +608,23 @@ function scrollToPage(idx){
 }
 function goPrev(){ scrollToPage(state.currentPage - 1); }
 function goNext(){ scrollToPage(state.currentPage + 1); }
+
+/* ================= print ================= */
+function doPrint(){
+  var dims = effectiveDims();
+  $("#pageSizeStyle").textContent = "@page { size: " + dims.w + "mm " + dims.h + "mm; margin: 0; }";
+  var area = $("#printArea");
+  area.innerHTML = "";
+  var total = totalPagesCount();
+  for(var i=0;i<total;i++){
+    var canvas = document.createElement("canvas");
+    canvas.style.width = dims.w + "mm";
+    canvas.style.height = dims.h + "mm";
+    renderCardsOntoCanvas(canvas, i);
+    area.appendChild(canvas);
+  }
+  window.print();
+}
 
 var wheelCooldown = false;
 function onWheel(e){
@@ -614,9 +649,10 @@ function populatePaperSizes(){
 
 function initEvents(){
   $("#paperSize").addEventListener("change", function(){ state.paperSize = $("#paperSize").value; renderViewer(); });
-  $("#orientationBtn").addEventListener("click", function(){
-    /* swaps the PAGE dimensions only -- card width/height are never touched */
-    state.orientation = state.orientation === "portrait" ? "landscape" : "portrait";
+  $("#cardOrientationBtn").addEventListener("click", function(){
+    /* rotates the CARD; the page then re-picks whichever orientation fits the most of them */
+    var tmp = state.cardWmm; state.cardWmm = state.cardHmm; state.cardHmm = tmp;
+    state.cardOrientation = state.cardOrientation === "vertical" ? "horizontal" : "vertical";
     renderToolbar(); renderViewer();
   });
   $("#viewModeBtn").addEventListener("click", function(){
@@ -640,6 +676,7 @@ function initEvents(){
   });
   $("#prevBtn").addEventListener("click", goPrev);
   $("#nextBtn").addEventListener("click", goNext);
+  $("#printBtn").addEventListener("click", doPrint);
   $("#viewerWrap").addEventListener("wheel", onWheel, { passive:false });
   window.addEventListener("resize", function(){
     if(state.viewMode === "single"){
