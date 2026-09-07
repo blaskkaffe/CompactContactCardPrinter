@@ -494,6 +494,7 @@ var PHONE_FONT_PT = 7;
 var DEPT_FONT_PT = 6;
 var DEPT_MAX_CHARS = 5; /* plus the "C " chief prefix, kept separately */
 var LABEL_MAX_CHARS = 6; /* number-type tags on the 10-contact layout, e.g. "Work"/"Home" */
+var EMAIL_FONT_PT = 7; /* the 10-contact layout's email line only -- independent of NAME_FONT_PT */
 
 function truncateText(ctx, text, maxWidth){
   if(ctx.measureText(text).width <= maxWidth) return text;
@@ -694,6 +695,13 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor){
   if(layout.doubleRow){
     var subRowH = bodyH / (capacity*2);
     var cols = layoutDoubleRowColumns(ctx, wPx, dpi);
+    /* email gets its own font size (independent of the name font) so the
+       two can be tuned separately when trying to fit a long address --
+       geometry (x/w) is unaffected since column widths are budgeted from
+       the phone/label columns, not from the name font's own metrics */
+    var colsEmail = cols.map(function(col, i){
+      return i===0 ? { x:col.x, w:col.w, pt:EMAIL_FONT_PT } : col;
+    });
     for(var i=0;i<capacity;i++){
       var top1 = bodyY + subRowH*2*i;
       var top2 = top1 + subRowH;
@@ -701,7 +709,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor){
       var c = contacts[i];
       if(!c) continue;
       drawGenericRow(ctx, xPx, top1, wPx, subRowH, dpi, cols, [c.name, formatLabelForRow(c.label1), formatPhoneNumber(c.phone)]);
-      drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, cols, [c.email, formatLabelForRow(c.label2), formatPhoneNumber(c.phone2)]);
+      drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, colsEmail, [c.email, formatLabelForRow(c.label2), formatPhoneNumber(c.phone2)]);
     }
   } else {
     var rowH = bodyH / capacity;
@@ -1240,6 +1248,7 @@ function initDebugPanel(){
   var settings = [
     { label:"Header font (pt)", get:function(){ return HEADER_FONT_PT; }, set:function(v){ HEADER_FONT_PT=v; } },
     { label:"Name font (pt)",   get:function(){ return NAME_FONT_PT; },   set:function(v){ NAME_FONT_PT=v; } },
+    { label:"Email font (pt)",  get:function(){ return EMAIL_FONT_PT; },  set:function(v){ EMAIL_FONT_PT=v; } },
     { label:"Phone font (pt)",  get:function(){ return PHONE_FONT_PT; },  set:function(v){ PHONE_FONT_PT=v; } },
     { label:"Dept font (pt)",   get:function(){ return DEPT_FONT_PT; },   set:function(v){ DEPT_FONT_PT=v; } },
     { label:"Dept max chars",   get:function(){ return DEPT_MAX_CHARS; }, set:function(v){ DEPT_MAX_CHARS=v; } },
