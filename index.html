@@ -301,7 +301,8 @@ function rowsToContacts(rows){
     firstName: headerIndex(headers, ["first name","firstname","first"]),
     lastName: headerIndex(headers, ["last name","lastname","last","surname"]),
     department: headerIndex(headers, ["department","dept"]),
-    phone: headerIndex(headers, ["phone","number"])
+    phone: headerIndex(headers, ["phone","number","phone1","phone 1"]),
+    phone2: headerIndex(headers, ["phone2","phone 2"])
   };
   var out = [];
   for(var r=1;r<rows.length;r++){
@@ -312,7 +313,7 @@ function rowsToContacts(rows){
       name = (get(idx.firstName) + " " + get(idx.lastName)).trim();
     }
     if(!name) continue;
-    out.push({ name:name, department:get(idx.department), phone:get(idx.phone) });
+    out.push({ name:name, department:get(idx.department), phone:get(idx.phone), phone2:get(idx.phone2) });
   }
   return out;
 }
@@ -474,11 +475,13 @@ function buildCardChunks(){
   return chunks;
 }
 
+/* each page shows exactly one card design, duplicated into every slot the
+   grid has room for -- one page per chunk, padded to an even count with a
+   blank page so double-sided printing always has a matching back side */
 function totalPagesCount(){
-  var grid = gridForPage();
-  if(grid.count <= 0) return 1;
   var chunks = buildCardChunks();
-  return Math.max(1, Math.ceil(chunks.length / grid.count));
+  if(!chunks.length) return 1;
+  return (chunks.length % 2 === 0) ? chunks.length : chunks.length + 1;
 }
 
 function renderCardsOntoCanvas(canvas, pageIndex){
@@ -500,17 +503,16 @@ function renderCardsOntoCanvas(canvas, pageIndex){
     return;
   }
 
-  var startIdx = pageIndex * grid.count;
-  var pageChunks = chunks.slice(startIdx, startIdx + grid.count);
   var blockWmm = grid.cols * state.cardWmm;
   var blockHmm = grid.rows * state.cardHmm;
   var startXmm = (dims.w - blockWmm) / 2;
   var startYmm = (dims.h - blockHmm) / 2;
 
-  /* draw every slot the full centered cluster has room for, not just the
-     ones with data, so the cluster's position/size is always visible */
+  /* this page's single card design (duplicated into every slot), or null
+     for the even-padding blank page appended after the last real chunk */
+  var chunk = pageIndex < chunks.length ? chunks[pageIndex] : null;
+
   for(var i=0;i<grid.count;i++){
-    var chunk = pageChunks[i];
     var col = i % grid.cols, row = Math.floor(i / grid.cols);
     var xPx = mmToPx(startXmm + col*state.cardWmm, RENDER_DPI);
     var yPx = mmToPx(startYmm + row*state.cardHmm, RENDER_DPI);
