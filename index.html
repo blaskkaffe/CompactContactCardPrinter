@@ -525,47 +525,31 @@ function formatLabelForRow(label){
   return s;
 }
 
-/* XXX-XXX XX XX for a 10-digit number, XXX-XX XX XX for 9 digits, applied
-   to whatever's left after stripping an optional +46 / +46(0) country
-   prefix; anything else has no defined grouping and is left as entered */
+/* XXX-XXX XX XX for a 10-digit number, XXX-XX XX XX for 9 digits; anything
+   else has no defined grouping and is left as entered. Numbers never carry
+   a country-code prefix and never exceed 10 digits. */
 function formatPhoneNumber(raw){
-  var s = (raw||"").trim();
-  var prefix = "";
-  if(s.indexOf("+46(0)") === 0){ prefix = "+46(0)"; s = s.slice(6); }
-  else if(s.indexOf("+46") === 0){ prefix = "+46"; s = s.slice(3); }
-  var digits = s.replace(/\D/g, "");
-  var grouped;
+  var digits = (raw||"").replace(/\D/g, "");
   if(digits.length === 10){
-    grouped = digits.slice(0,3)+"-"+digits.slice(3,6)+" "+digits.slice(6,8)+" "+digits.slice(8,10);
-  } else if(digits.length === 9){
-    grouped = digits.slice(0,3)+"-"+digits.slice(3,5)+" "+digits.slice(5,7)+" "+digits.slice(7,9);
-  } else {
-    grouped = digits || s;
+    return digits.slice(0,3)+"-"+digits.slice(3,6)+" "+digits.slice(6,8)+" "+digits.slice(8,10);
   }
-  return prefix ? (prefix + " " + grouped) : grouped;
+  if(digits.length === 9){
+    return digits.slice(0,3)+"-"+digits.slice(3,5)+" "+digits.slice(5,7)+" "+digits.slice(7,9);
+  }
+  return digits || (raw||"").trim();
 }
 
-/* the phone column is sized to fit the longest formatted phone number
-   actually present in the loaded data (never narrower than the plain
-   10-digit format), so it stays compact for local numbers but still
-   guarantees fit for longer ones like a +46(0) country prefix. Cached
-   per contacts array so it isn't recomputed for every row of every card. */
-var _phoneWidthCache = { contacts:null, pt:null, width:0 };
+/* the phone column is always exactly wide enough for the 10-digit grouped
+   format -- that's the longest a number can ever be, so there's nothing to
+   measure per-dataset. Cached per PHONE_FONT_PT since it only depends on
+   the debug-panel font size, not on the loaded contacts. */
+var _phoneWidthCache = { pt:null, width:0 };
 function maxFormattedPhoneWidth(ctx, dpi){
-  if(_phoneWidthCache.contacts === state.contacts && _phoneWidthCache.pt === PHONE_FONT_PT){
-    return _phoneWidthCache.width;
-  }
+  if(_phoneWidthCache.pt === PHONE_FONT_PT) return _phoneWidthCache.width;
   ctx.font = ptToPx(PHONE_FONT_PT, dpi) + "px " + FONT_FAMILY;
-  var maxW = ctx.measureText("000-000 00 00").width;
-  state.contacts.forEach(function(c){
-    [c.phone, c.phone2].forEach(function(p){
-      if(!p) return;
-      var w = ctx.measureText(formatPhoneNumber(p)).width;
-      if(w > maxW) maxW = w;
-    });
-  });
-  _phoneWidthCache = { contacts:state.contacts, pt:PHONE_FONT_PT, width:maxW };
-  return maxW;
+  var w = ctx.measureText("000-000 00 00").width;
+  _phoneWidthCache = { pt:PHONE_FONT_PT, width:w };
+  return w;
 }
 
 /* the "middle" column (department, or a number-type label) is sized to
