@@ -86,7 +86,11 @@ var PAPER_SIZES = {
   A4: { label:"A4", wMM:210, hMM:297 }
 };
 var RENDER_DPI = 150;
-var CARD_CAPACITY = 20; /* rows per card -- single card type for now */
+/* rows per card -- fewer on horizontal cards since they're shorter,
+   kept to an even number as specified */
+var CARD_CAPACITY_VERTICAL = 20;
+var CARD_CAPACITY_HORIZONTAL = 12;
+function cardCapacity(){ return state.cardOrientation === "horizontal" ? CARD_CAPACITY_HORIZONTAL : CARD_CAPACITY_VERTICAL; }
 
 var state = {
   paperSize: "A4",
@@ -367,10 +371,14 @@ function mmToPx(mm, dpi){ return mm * dpi / 25.4; }
 function ptToPx(pt, dpi){ return pt * dpi / 72; }
 
 var FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
-var HEADER_FONT_PT = 16;
-var NAME_FONT_PT = 12;
-var PHONE_FONT_PT = 12;
-var DEPT_FONT_PT = 11;
+/* real prints came out at roughly half the intended physical size (a
+   print-scaling issue outside this app's control), so sizes are set a
+   bit above half of the originally-specified 16/12/12/11pt to match
+   what actually ends up on paper */
+var HEADER_FONT_PT = 9;
+var NAME_FONT_PT = 7;
+var PHONE_FONT_PT = 7;
+var DEPT_FONT_PT = 6;
 var DEPT_MAX_CHARS = 5; /* plus the "C " chief prefix, kept separately */
 
 function truncateText(ctx, text, maxWidth){
@@ -450,9 +458,10 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi){
   ctx.restore();
 
   var bodyY = yPx+headerH, bodyH = hPx-headerH;
-  var rowH = bodyH / CARD_CAPACITY;
+  var capacity = cardCapacity();
+  var rowH = bodyH / capacity;
   var lineInset = mmToPx(2, dpi);
-  for(var i=0;i<CARD_CAPACITY;i++){
+  for(var i=0;i<capacity;i++){
     var rowTop = bodyY + rowH*i;
     if(i>0){
       ctx.strokeStyle = "rgba(0,0,0,.5)";
@@ -492,8 +501,9 @@ function drawEmptyCardOutline(ctx, xPx, yPx, wPx, hPx, dpi){
 
 function buildCardChunks(){
   var chunks = [];
-  for(var i=0;i<state.contacts.length;i+=CARD_CAPACITY){
-    chunks.push(state.contacts.slice(i, i+CARD_CAPACITY));
+  var capacity = cardCapacity();
+  for(var i=0;i<state.contacts.length;i+=capacity){
+    chunks.push(state.contacts.slice(i, i+capacity));
   }
   return chunks;
 }
