@@ -20,7 +20,10 @@ label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
 #dataStatus{font-size:12px; color:#ccc;}
 #gridInfo{font-size:12px; color:#ccc;}
 
-main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden;}
+/* holds the page viewer and the debug settings panel side by side */
+#mainRow{flex:1 1 auto; display:flex; overflow:hidden;}
+
+main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0;}
 main#viewerWrap.mode-single{display:flex; align-items:center; justify-content:center;}
 main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 
@@ -34,6 +37,8 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 .page canvas{display:block; width:100%; height:100%;}
 
 .pageLabel{position:absolute; top:6px; left:8px; font-size:11px; color:#999; pointer-events:none; z-index:1;}
+.pageControls{position:absolute; top:4px; right:4px; z-index:2; display:flex; flex-direction:column; gap:2px; align-items:flex-end;}
+.pageControls select, .pageControls input{font-size:10px; padding:1px 3px;}
 
 #dropOverlay{position:fixed; inset:0; background:rgba(20,20,20,.75); color:#fff; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:bold; z-index:1000; pointer-events:none;}
 #dropOverlay[hidden]{display:none;}
@@ -44,6 +49,13 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
   #printArea{display:block !important;}
   #printArea canvas{display:block; page-break-after:always;}
 }
+
+/* ===================== DEBUG PANEL (temporary -- see initDebugPanel) ===================== */
+#debugPanel{flex:0 0 220px; background:#222; color:#eee; overflow-y:auto; padding:10px; font-size:12px; border-left:1px solid #000;}
+#debugPanel h2{font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#f90; margin:0 0 8px;}
+#debugPanel .row{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:6px;}
+#debugPanel input{width:70px; font-size:12px; padding:2px 4px;}
+/* ===================== END DEBUG PANEL ===================== */
 </style>
 <style id="pageSizeStyle"></style>
 </head>
@@ -73,7 +85,11 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
   <button id="printBtn">Print</button>
 </header>
 
-<main id="viewerWrap"></main>
+<div id="mainRow">
+  <main id="viewerWrap"></main>
+  <!-- DEBUG PANEL (temporary, remove this whole <aside> + initDebugPanel() + its CSS block to drop the feature) -->
+  <aside id="debugPanel"></aside>
+</div>
 <div id="dropOverlay" hidden>Drop CSV or XLSX file to import contacts</div>
 <div id="printArea"></div>
 
@@ -81,26 +97,41 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 (function(){
 "use strict";
 
+/* ================= layout types ================= */
+/* row counts are separate mutable vars (not baked into LAYOUTS) so the
+   debug panel can tune them live */
+var ROWS_V20 = 20;
+var ROWS_V10 = 10;
+var ROWS_H2 = 12;
+function layoutRows(key){
+  if(key === "v20") return ROWS_V20;
+  if(key === "v10") return ROWS_V10;
+  if(key === "h2") return ROWS_H2;
+  return 0;
+}
+var LAYOUTS = {
+  v20:   { key:"v20",   label:"20-row vertical",     orientation:"vertical",   phones:1, showDept:true },
+  v10:   { key:"v10",   label:"10-row vertical",     orientation:"vertical",   phones:1, showDept:true },
+  h2:    { key:"h2",    label:"2-number horizontal", orientation:"horizontal", phones:2, showDept:false },
+  empty: { key:"empty", label:"Empty page",          orientation:"vertical",  phones:0, showDept:false }
+};
+
 /* ================= paper / page geometry ================= */
 var PAPER_SIZES = {
   A4: { label:"A4", wMM:210, hMM:297 }
 };
 var RENDER_DPI = 150;
-/* rows per card -- fewer on horizontal cards since they're shorter,
-   kept to an even number as specified */
-var CARD_CAPACITY_VERTICAL = 20;
-var CARD_CAPACITY_HORIZONTAL = 12;
-function cardCapacity(){ return state.cardOrientation === "horizontal" ? CARD_CAPACITY_HORIZONTAL : CARD_CAPACITY_VERTICAL; }
 
 var state = {
   paperSize: "A4",
-  cardOrientation: "vertical", /* "vertical" | "horizontal" -- the card's own shape; toggled by the user */
-  viewMode: "single",        /* "single" | "all" */
-  currentPage: 0,            /* 0-indexed */
-  cardWmm: 53.98,            /* exact ISO/IEC 7810 ID-1 credit card */
+  cardOrientation: "vertical", /* default orientation used when auto-generating NEW pages */
+  viewMode: "single",          /* "single" | "all" */
+  currentPage: 0,              /* 0-indexed */
+  cardWmm: 53.98,              /* exact ISO/IEC 7810 ID-1 credit card -- always the VERTICAL shape */
   cardHmm: 85.60,
-  marginMm: 10,              /* printer-unsafe border to keep clear on every edge */
-  contacts: []
+  marginMm: 10,                /* printer-unsafe border to keep clear on every edge */
+  contacts: [],
+  pages: []                    /* [{layout, contacts, emptyMode, image}] -- one entry per generated page */
 };
 
 function $(sel){ return document.querySelector(sel); }
@@ -114,30 +145,41 @@ function el(tag, attrs, children){
   return e;
 }
 
+function cardDimsForOrientation(orientation){
+  return orientation === "horizontal"
+    ? { w: state.cardHmm, h: state.cardWmm }
+    : { w: state.cardWmm, h: state.cardHmm };
+}
+
 /* how many cards fit edge-to-edge on a page of the given size, once the
    printer-safe margin is removed from every side */
-function gridForDims(dims){
-  var usableW = dims.w - 2*state.marginMm;
-  var usableH = dims.h - 2*state.marginMm;
-  var cols = Math.max(0, Math.floor(usableW / state.cardWmm));
-  var rows = Math.max(0, Math.floor(usableH / state.cardHmm));
+function gridForDims(pageDims, cardDims){
+  var usableW = pageDims.w - 2*state.marginMm;
+  var usableH = pageDims.h - 2*state.marginMm;
+  var cols = Math.max(0, Math.floor(usableW / cardDims.w));
+  var rows = Math.max(0, Math.floor(usableH / cardDims.h));
   return { cols:cols, rows:rows, count:cols*rows };
 }
 
-/* the card orientation is the user's choice (the toggle button); the PAGE
-   orientation is whichever of portrait/landscape fits the most cards for
+/* the card orientation is chosen per-page (via that page's layout); the
+   PAGE orientation is whichever of portrait/landscape fits the most of
    that card shape -- it is never chosen directly by the user */
-function pickPageOrientation(){
+function pickPageOrientation(cardDims){
   var p = PAPER_SIZES[state.paperSize];
   var portrait = { w:p.wMM, h:p.hMM, name:"portrait" };
   if(p.wMM === p.hMM) return portrait;
   var landscape = { w:p.hMM, h:p.wMM, name:"landscape" };
-  return gridForDims(landscape).count > gridForDims(portrait).count ? landscape : portrait;
+  return gridForDims(landscape, cardDims).count > gridForDims(portrait, cardDims).count ? landscape : portrait;
 }
 
-function effectiveDims(){ return pickPageOrientation(); }
-
-function gridForPage(){ return gridForDims(effectiveDims()); }
+/* full geometry for one page, given its layout key */
+function pageGeometry(layoutKey){
+  var layout = LAYOUTS[layoutKey] || LAYOUTS.v20;
+  var cardDims = cardDimsForOrientation(layout.orientation);
+  var pageDims = pickPageOrientation(cardDims);
+  var grid = gridForDims(pageDims, cardDims);
+  return { layout:layout, cardDims:cardDims, pageDims:pageDims, grid:grid };
+}
 
 /* ================= contact sorting (alphabetical, chief dept first) ================= */
 function isChiefDept(dept){ return /^c\.?\s+/i.test((dept||"").trim()); }
@@ -322,6 +364,26 @@ function rowsToContacts(rows){
   return out;
 }
 
+/* ================= page generation ================= */
+/* auto-chunks contacts sequentially into pages using the current default
+   orientation's layout, padded to an even count with a blank page. Each
+   page keeps its own contacts snapshot, so changing one page's layout
+   later doesn't reshuffle any other page. */
+function regeneratePages(){
+  var defaultLayout = state.cardOrientation === "horizontal" ? "h2" : "v20";
+  var capacity = layoutRows(defaultLayout);
+  var pages = [];
+  if(capacity > 0){
+    for(var i=0;i<state.contacts.length;i+=capacity){
+      pages.push({ layout:defaultLayout, contacts:state.contacts.slice(i,i+capacity), emptyMode:"blank", image:null });
+    }
+  }
+  if(pages.length && pages.length % 2 !== 0){
+    pages.push({ layout:"empty", emptyMode:"rows", contacts:[], image:null });
+  }
+  state.pages = pages;
+}
+
 /* ================= file drop handling ================= */
 async function handleFile(file){
   try{
@@ -335,6 +397,7 @@ async function handleFile(file){
     if(!contacts.length){ setStatus("No contacts found in \""+file.name+"\" (need a Name column)"); return; }
     state.contacts = sortContacts(contacts);
     state.currentPage = 0;
+    regeneratePages();
     setStatus(state.contacts.length + " contacts loaded from " + file.name);
     renderViewer();
   } catch(err){
@@ -374,7 +437,7 @@ var FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
 /* real prints came out at roughly half the intended physical size (a
    print-scaling issue outside this app's control), so sizes are set a
    bit above half of the originally-specified 16/12/12/11pt to match
-   what actually ends up on paper */
+   what actually ends up on paper. All adjustable live via the debug panel. */
 var HEADER_FONT_PT = 9;
 var NAME_FONT_PT = 7;
 var PHONE_FONT_PT = 7;
@@ -445,32 +508,35 @@ function maxFormattedPhoneWidth(ctx, dpi){
   return maxW;
 }
 
-/* horizontal cards get a second phone column since they have the width
-   to spare; name/department split whatever width is left over */
-function layoutRowColumns(ctx, wPx, dpi){
+/* name/department (if shown) split whatever width the phone column(s)
+   don't need; a 2-phone layout has no department column at all */
+function layoutRowColumns(ctx, wPx, dpi, layout){
   var pad = mmToPx(1.5, dpi);
   var gap = pad/2;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
-  var showPhone2 = state.cardOrientation === "horizontal";
-  var phoneCount = showPhone2 ? 2 : 1;
-  var reserved = (phoneW + gap) * phoneCount;
-  var nameDeptTotal = Math.max(0, wPx - pad*2 - gap - reserved);
-  var nameW = nameDeptTotal * 0.55;
-  var deptW = nameDeptTotal * 0.45;
+  var phoneCount = layout.phones;
+  var segCount = (layout.showDept ? 2 : 1) + phoneCount;
+  var totalGaps = gap * (segCount - 1);
+  var afterPhones = Math.max(0, wPx - pad*2 - phoneW*phoneCount - totalGaps);
 
   var cols = [];
   var x = pad;
-  cols.push({ x:x, w:nameW, pt:NAME_FONT_PT, key:"name" }); x += nameW + gap;
-  cols.push({ x:x, w:deptW, pt:DEPT_FONT_PT, key:"department" }); x += deptW + gap;
+  if(layout.showDept){
+    var nameW = afterPhones * 0.55, deptW = afterPhones * 0.45;
+    cols.push({ x:x, w:nameW, pt:NAME_FONT_PT, key:"name" }); x += nameW + gap;
+    cols.push({ x:x, w:deptW, pt:DEPT_FONT_PT, key:"department" }); x += deptW + gap;
+  } else {
+    cols.push({ x:x, w:afterPhones, pt:NAME_FONT_PT, key:"name" }); x += afterPhones + gap;
+  }
   cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone" }); x += phoneW + gap;
-  if(showPhone2){
+  if(phoneCount === 2){
     cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone2" });
   }
   return cols;
 }
 
-function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact){
-  var cols = layoutRowColumns(ctx, wPx, dpi);
+function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact, layout){
+  var cols = layoutRowColumns(ctx, wPx, dpi, layout);
   ctx.save();
   ctx.beginPath();
   ctx.rect(xPx, rowTop, wPx, rowH);
@@ -488,7 +554,7 @@ function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact){
   ctx.restore();
 }
 
-function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi){
+function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout){
   ctx.save();
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(xPx, yPx, wPx, hPx);
@@ -511,17 +577,19 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi){
   ctx.fillText(truncateText(ctx, new Date().toISOString().slice(0,10), halfW-pad), xPx+pad, yPx+headerH/2);
   ctx.restore();
 
-  var depts = [];
-  contacts.forEach(function(c){ if(c && c.department && depts.indexOf(c.department)===-1) depts.push(c.department); });
-  ctx.save();
-  ctx.beginPath(); ctx.rect(xPx+halfW, yPx, wPx-halfW, headerH); ctx.clip();
-  ctx.fillStyle = "#fff";
-  ctx.textAlign = "right";
-  ctx.fillText(truncateText(ctx, depts.join(", "), halfW-pad), xPx+wPx-pad, yPx+headerH/2);
-  ctx.restore();
+  if(layout.showDept){
+    var depts = [];
+    contacts.forEach(function(c){ if(c && c.department && depts.indexOf(c.department)===-1) depts.push(c.department); });
+    ctx.save();
+    ctx.beginPath(); ctx.rect(xPx+halfW, yPx, wPx-halfW, headerH); ctx.clip();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "right";
+    ctx.fillText(truncateText(ctx, depts.join(", "), halfW-pad), xPx+wPx-pad, yPx+headerH/2);
+    ctx.restore();
+  }
 
   var bodyY = yPx+headerH, bodyH = hPx-headerH;
-  var capacity = cardCapacity();
+  var capacity = layoutRows(layout.key);
   var rowH = bodyH / capacity;
   var lineInset = mmToPx(2, dpi);
   for(var i=0;i<capacity;i++){
@@ -536,7 +604,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi){
     }
     var c = contacts[i];
     if(!c) continue;
-    drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, c);
+    drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, c, layout);
   }
   ctx.restore();
 }
@@ -562,76 +630,144 @@ function drawEmptyCardOutline(ctx, xPx, yPx, wPx, hPx, dpi){
   ctx.restore();
 }
 
-function buildCardChunks(){
-  var chunks = [];
-  var capacity = cardCapacity();
-  for(var i=0;i<state.contacts.length;i+=capacity){
-    chunks.push(state.contacts.slice(i, i+capacity));
+/* fully empty / bordered-grid / custom-image variants of the filler page */
+function drawEmptyPageContent(ctx, wPx, hPx, geo, pageState){
+  if(pageState.emptyMode === "image" && pageState.image){
+    var img = pageState.image;
+    var scale = Math.min(wPx/img.width, hPx/img.height);
+    var dw = img.width*scale, dh = img.height*scale;
+    ctx.drawImage(img, (wPx-dw)/2, (hPx-dh)/2, dw, dh);
+    return;
   }
-  return chunks;
+  if(pageState.emptyMode === "rows"){
+    var grid = geo.grid;
+    if(grid.count <= 0) return;
+    var blockWmm = grid.cols*geo.cardDims.w, blockHmm = grid.rows*geo.cardDims.h;
+    var startXmm = (geo.pageDims.w-blockWmm)/2, startYmm = (geo.pageDims.h-blockHmm)/2;
+    for(var i=0;i<grid.count;i++){
+      var col = i%grid.cols, row = Math.floor(i/grid.cols);
+      var xPx = mmToPx(startXmm+col*geo.cardDims.w, RENDER_DPI);
+      var yPx = mmToPx(startYmm+row*geo.cardDims.h, RENDER_DPI);
+      var wPxCard = mmToPx(geo.cardDims.w, RENDER_DPI), hPxCard = mmToPx(geo.cardDims.h, RENDER_DPI);
+      drawEmptyCardOutline(ctx, xPx, yPx, wPxCard, hPxCard, RENDER_DPI);
+    }
+    return;
+  }
+  /* "blank": nothing further -- caller already filled white */
 }
 
-/* each page shows exactly one card design, duplicated into every slot the
-   grid has room for -- one page per chunk, padded to an even count with a
-   blank page so double-sided printing always has a matching back side */
-function totalPagesCount(){
-  var chunks = buildCardChunks();
-  if(!chunks.length) return 1;
-  return (chunks.length % 2 === 0) ? chunks.length : chunks.length + 1;
-}
+function totalPagesCount(){ return state.pages.length || 1; }
 
 function renderCardsOntoCanvas(canvas, pageIndex){
-  var dims = effectiveDims();
+  var pageState = state.pages[pageIndex];
+  var layoutKey = pageState ? pageState.layout : "v20";
+  var geo = pageGeometry(layoutKey);
+  var dims = geo.pageDims;
   canvas.width = Math.round(mmToPx(dims.w, RENDER_DPI));
   canvas.height = Math.round(mmToPx(dims.h, RENDER_DPI));
   var ctx = canvas.getContext("2d");
   ctx.fillStyle = "#fff";
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  var grid = gridForPage();
-  if(grid.count <= 0){
-    drawCenteredMessage(ctx, canvas.width, canvas.height, "Cards don't fit the page with the current size/margin settings");
-    return;
-  }
-  var chunks = buildCardChunks();
-  if(!chunks.length){
+  if(!pageState){
     drawCenteredMessage(ctx, canvas.width, canvas.height, "Drop a CSV or XLSX file to begin");
     return;
   }
+  if(layoutKey === "empty"){
+    drawEmptyPageContent(ctx, canvas.width, canvas.height, geo, pageState);
+    return;
+  }
+  if(geo.grid.count <= 0){
+    drawCenteredMessage(ctx, canvas.width, canvas.height, "Cards don't fit the page with the current size/margin settings");
+    return;
+  }
 
-  var blockWmm = grid.cols * state.cardWmm;
-  var blockHmm = grid.rows * state.cardHmm;
+  var blockWmm = geo.grid.cols * geo.cardDims.w;
+  var blockHmm = geo.grid.rows * geo.cardDims.h;
   var startXmm = (dims.w - blockWmm) / 2;
   var startYmm = (dims.h - blockHmm) / 2;
 
-  /* this page's single card design (duplicated into every slot), or null
-     for the even-padding blank page appended after the last real chunk */
-  var chunk = pageIndex < chunks.length ? chunks[pageIndex] : null;
-
-  for(var i=0;i<grid.count;i++){
-    var col = i % grid.cols, row = Math.floor(i / grid.cols);
-    var xPx = mmToPx(startXmm + col*state.cardWmm, RENDER_DPI);
-    var yPx = mmToPx(startYmm + row*state.cardHmm, RENDER_DPI);
-    var wPx = mmToPx(state.cardWmm, RENDER_DPI);
-    var hPx = mmToPx(state.cardHmm, RENDER_DPI);
-    if(chunk) drawCard(ctx, xPx, yPx, wPx, hPx, chunk, RENDER_DPI);
-    else drawEmptyCardOutline(ctx, xPx, yPx, wPx, hPx, RENDER_DPI);
+  for(var i=0;i<geo.grid.count;i++){
+    var col = i % geo.grid.cols, row = Math.floor(i / geo.grid.cols);
+    var xPx = mmToPx(startXmm + col*geo.cardDims.w, RENDER_DPI);
+    var yPx = mmToPx(startYmm + row*geo.cardDims.h, RENDER_DPI);
+    var wPx = mmToPx(geo.cardDims.w, RENDER_DPI);
+    var hPx = mmToPx(geo.cardDims.h, RENDER_DPI);
+    drawCard(ctx, xPx, yPx, wPx, hPx, pageState.contacts, RENDER_DPI, geo.layout);
   }
 }
 
 /* ================= page element + viewer (navigation/scroll/orientation) ================= */
+function pageLayoutOptionsSelect(currentKey, onChange){
+  var sel = document.createElement("select");
+  ["v20","v10","h2","empty"].forEach(function(key){
+    sel.appendChild(el("option", { value:key, text:LAYOUTS[key].label }));
+  });
+  sel.value = currentKey;
+  sel.addEventListener("change", function(){ onChange(sel.value); });
+  return sel;
+}
+
+function buildPageControls(index){
+  var box = el("div", { class:"pageControls" });
+  var pageState = state.pages[index];
+  if(!pageState) return box; /* no data yet -- nothing to configure */
+
+  box.appendChild(pageLayoutOptionsSelect(pageState.layout, function(newKey){
+    pageState.layout = newKey;
+    if(newKey === "empty" && !pageState.emptyMode) pageState.emptyMode = "blank";
+    renderViewer();
+  }));
+
+  if(pageState.layout === "empty"){
+    var modeSel = document.createElement("select");
+    [["blank","Blank"],["rows","Empty grid"],["image","Custom image"]].forEach(function(opt){
+      modeSel.appendChild(el("option", { value:opt[0], text:opt[1] }));
+    });
+    modeSel.value = pageState.emptyMode;
+    modeSel.addEventListener("change", function(){ pageState.emptyMode = modeSel.value; renderViewer(); });
+    box.appendChild(modeSel);
+
+    if(pageState.emptyMode === "image"){
+      var fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = "image/*";
+      fileInput.addEventListener("change", function(){
+        var f = fileInput.files[0];
+        if(!f) return;
+        var reader = new FileReader();
+        reader.onload = function(){
+          var img = new Image();
+          img.onload = function(){ pageState.image = img; renderViewer(); };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(f);
+      });
+      box.appendChild(fileInput);
+    }
+  }
+  return box;
+}
+
 function buildPageEl(index){
   var page = el("div", { class:"page", "data-index":String(index) });
   page.appendChild(el("span", { class:"pageLabel", text:"Page " + (index+1) + " / " + totalPagesCount() }));
+  page.appendChild(buildPageControls(index));
   var canvas = document.createElement("canvas");
   page.appendChild(canvas);
   renderCardsOntoCanvas(canvas, index);
   return page;
 }
 
-function fitSinglePage(pageEl){
+function currentPageDims(index){
+  var pageState = state.pages[index];
+  var layoutKey = pageState ? pageState.layout : "v20";
+  return pageGeometry(layoutKey).pageDims;
+}
+
+function fitSinglePage(pageEl, index){
   var wrap = $("#viewerWrap");
-  var dims = effectiveDims();
+  var dims = currentPageDims(index);
   var cw = wrap.clientWidth * 0.92;
   var ch = wrap.clientHeight * 0.92;
   var scale = Math.min(cw/dims.w, ch/dims.h);
@@ -662,22 +798,22 @@ function renderViewer(){
   wrap.className = state.viewMode === "single" ? "mode-single" : "mode-all";
   wrap.innerHTML = "";
 
-  var dims = effectiveDims();
-  var ratio = dims.w + " / " + dims.h;
   var total = totalPagesCount();
   if(state.currentPage > total-1) state.currentPage = total-1;
   if(state.currentPage < 0) state.currentPage = 0;
 
   if(state.viewMode === "single"){
     var page = buildPageEl(state.currentPage);
-    page.style.setProperty("--ratio", ratio);
+    var dims = currentPageDims(state.currentPage);
+    page.style.setProperty("--ratio", dims.w + " / " + dims.h);
     wrap.appendChild(page);
-    fitSinglePage(page);
+    fitSinglePage(page, state.currentPage);
   } else {
     var container = el("div", { class:"pagesAll" });
     for(var i=0;i<total;i++){
       var p = buildPageEl(i);
-      p.style.setProperty("--ratio", ratio);
+      var d = currentPageDims(i);
+      p.style.setProperty("--ratio", d.w + " / " + d.h);
       container.appendChild(p);
     }
     wrap.appendChild(container);
@@ -692,13 +828,18 @@ function updateIndicator(){
   $("#pageIndicator").textContent = "Page " + (state.currentPage+1) + " / " + totalPagesCount();
 }
 function updateGridInfo(){
-  var g = gridForPage();
-  var page = pickPageOrientation();
-  $("#gridInfo").textContent = g.cols+" x "+g.rows+" = "+g.count+" cards/page (page auto-set to "+page.name+")";
+  var pageState = state.pages[state.currentPage];
+  var layoutKey = pageState ? pageState.layout : "v20";
+  var geo = pageGeometry(layoutKey);
+  if(layoutKey === "empty"){
+    $("#gridInfo").textContent = "Empty page (" + geo.pageDims.name + ")";
+  } else {
+    $("#gridInfo").textContent = geo.grid.cols+" x "+geo.grid.rows+" = "+geo.grid.count+" cards ("+geo.layout.label+", "+geo.pageDims.name+")";
+  }
 }
 
 function renderToolbar(){
-  $("#cardOrientationBtn").textContent = "Card: " + (state.cardOrientation === "vertical" ? "Vertical" : "Horizontal");
+  $("#cardOrientationBtn").textContent = "New pages: " + (state.cardOrientation === "vertical" ? "Vertical" : "Horizontal");
   $("#viewModeBtn").textContent = state.viewMode === "single" ? "View: Single" : "View: All";
   $("#cardWmm").value = state.cardWmm;
   $("#cardHmm").value = state.cardHmm;
@@ -722,13 +863,18 @@ function goPrev(){ scrollToPage(state.currentPage - 1); }
 function goNext(){ scrollToPage(state.currentPage + 1); }
 
 /* ================= print ================= */
+/* CSS @page can only declare one physical size for the whole print job,
+   so mixed page orientations/sizes across pages print using the first
+   page's size -- a real limitation of print CSS, not something this app
+   can route around. Each canvas still gets its own correct mm CSS size. */
 function doPrint(){
-  var dims = effectiveDims();
-  $("#pageSizeStyle").textContent = "@page { size: " + dims.w + "mm " + dims.h + "mm; margin: 0; }";
+  var total = totalPagesCount();
+  var firstDims = currentPageDims(0);
+  $("#pageSizeStyle").textContent = "@page { size: " + firstDims.w + "mm " + firstDims.h + "mm; margin: 0; }";
   var area = $("#printArea");
   area.innerHTML = "";
-  var total = totalPagesCount();
   for(var i=0;i<total;i++){
+    var dims = currentPageDims(i);
     var canvas = document.createElement("canvas");
     canvas.style.width = dims.w + "mm";
     canvas.style.height = dims.h + "mm";
@@ -762,10 +908,10 @@ function populatePaperSizes(){
 function initEvents(){
   $("#paperSize").addEventListener("change", function(){ state.paperSize = $("#paperSize").value; renderViewer(); });
   $("#cardOrientationBtn").addEventListener("click", function(){
-    /* rotates the CARD; the page then re-picks whichever orientation fits the most of them */
-    var tmp = state.cardWmm; state.cardWmm = state.cardHmm; state.cardHmm = tmp;
+    /* only affects the default layout used for newly-generated pages on
+       the next file drop -- existing pages keep whatever layout they have */
     state.cardOrientation = state.cardOrientation === "vertical" ? "horizontal" : "vertical";
-    renderToolbar(); renderViewer();
+    renderToolbar();
   });
   $("#viewModeBtn").addEventListener("click", function(){
     state.viewMode = state.viewMode === "single" ? "all" : "single";
@@ -793,15 +939,55 @@ function initEvents(){
   window.addEventListener("resize", function(){
     if(state.viewMode === "single"){
       var page = $("#viewerWrap .page");
-      if(page) fitSinglePage(page);
+      if(page) fitSinglePage(page, state.currentPage);
     }
   });
   setupDropZone();
 }
 
+/* ===================== DEBUG PANEL (temporary) =====================
+   Exposes the module-level tuning constants as live inputs. Reads/writes
+   the same vars the renderer already uses, so deleting this whole
+   function (+ its call below, + the <aside id="debugPanel"> element and
+   its CSS block) fully removes the feature -- nothing else depends on it. */
+function initDebugPanel(){
+  var panel = $("#debugPanel");
+  if(!panel) return;
+  panel.innerHTML = "";
+  panel.appendChild(el("h2", { text:"Debug settings" }));
+
+  var settings = [
+    { label:"Header font (pt)", get:function(){ return HEADER_FONT_PT; }, set:function(v){ HEADER_FONT_PT=v; } },
+    { label:"Name font (pt)",   get:function(){ return NAME_FONT_PT; },   set:function(v){ NAME_FONT_PT=v; } },
+    { label:"Phone font (pt)",  get:function(){ return PHONE_FONT_PT; },  set:function(v){ PHONE_FONT_PT=v; } },
+    { label:"Dept font (pt)",   get:function(){ return DEPT_FONT_PT; },   set:function(v){ DEPT_FONT_PT=v; } },
+    { label:"Dept max chars",   get:function(){ return DEPT_MAX_CHARS; }, set:function(v){ DEPT_MAX_CHARS=v; } },
+    { label:"Rows: 20-row vert.", get:function(){ return ROWS_V20; }, set:function(v){ ROWS_V20=v; } },
+    { label:"Rows: 10-row vert.", get:function(){ return ROWS_V10; }, set:function(v){ ROWS_V10=v; } },
+    { label:"Rows: 2-num horiz.", get:function(){ return ROWS_H2; },  set:function(v){ ROWS_H2=v; } }
+  ];
+
+  settings.forEach(function(s){
+    var row = el("div", { class:"row" });
+    row.appendChild(el("label", { text:s.label }));
+    var input = document.createElement("input");
+    input.type = "number";
+    input.step = "0.5";
+    input.value = s.get();
+    input.addEventListener("change", function(){
+      var v = parseFloat(input.value);
+      if(!isNaN(v) && v > 0){ s.set(v); renderViewer(); }
+    });
+    row.appendChild(input);
+    panel.appendChild(row);
+  });
+}
+/* ===================== END DEBUG PANEL ===================== */
+
 populatePaperSizes();
 renderToolbar();
 initEvents();
+initDebugPanel();
 renderViewer();
 
 })();
