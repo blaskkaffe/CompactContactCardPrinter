@@ -109,11 +109,15 @@ function layoutRows(key){
   if(key === "h2") return ROWS_H2;
   return 0;
 }
+/* v10 is 10 CONTACTS, each spanning two printed lines:
+     line 1: name | label1 (number type, e.g. "Work") | phone1
+     line 2: email | label2                            | phone2
+   layoutRows("v10") is the contact count (10), not the printed line count. */
 var LAYOUTS = {
-  v20:   { key:"v20",   label:"20-row vertical",     orientation:"vertical",   phones:1, showDept:true },
-  v10:   { key:"v10",   label:"10-row vertical",     orientation:"vertical",   phones:1, showDept:true },
-  h2:    { key:"h2",    label:"2-number horizontal", orientation:"horizontal", phones:2, showDept:false },
-  empty: { key:"empty", label:"Empty page",          orientation:"vertical",  phones:0, showDept:false }
+  v20:   { key:"v20",   label:"20-row vertical",              orientation:"vertical",   phones:1, showDept:true,  doubleRow:false },
+  v10:   { key:"v10",   label:"10-contact vertical (2 lines)", orientation:"vertical",   phones:2, showDept:false, doubleRow:true },
+  h2:    { key:"h2",    label:"2-number horizontal",           orientation:"horizontal", phones:2, showDept:false, doubleRow:false },
+  empty: { key:"empty", label:"Empty page",                    orientation:"vertical",   phones:0, showDept:false, doubleRow:false }
 };
 
 /* header background presets -- all verified >=8:1 WCAG contrast ratio
@@ -388,7 +392,10 @@ function rowsToContacts(rows){
     lastName: headerIndex(headers, ["last name","lastname","last","surname"]),
     department: headerIndex(headers, ["department","dept"]),
     phone: headerIndex(headers, ["phone","number","phone1","phone 1"]),
-    phone2: headerIndex(headers, ["phone2","phone 2"])
+    phone2: headerIndex(headers, ["phone2","phone 2"]),
+    label1: headerIndex(headers, ["label1","label 1","type1","type 1","number type"]),
+    label2: headerIndex(headers, ["label2","label 2","type2","type 2"]),
+    email: headerIndex(headers, ["email","e-mail"])
   };
   var out = [];
   for(var r=1;r<rows.length;r++){
@@ -399,7 +406,10 @@ function rowsToContacts(rows){
       name = (get(idx.firstName) + " " + get(idx.lastName)).trim();
     }
     if(!name) continue;
-    out.push({ name:name, department:get(idx.department), phone:get(idx.phone), phone2:get(idx.phone2) });
+    out.push({
+      name:name, department:get(idx.department), phone:get(idx.phone), phone2:get(idx.phone2),
+      label1:get(idx.label1), label2:get(idx.label2), email:get(idx.email)
+    });
   }
   return out;
 }
@@ -483,6 +493,7 @@ var NAME_FONT_PT = 7;
 var PHONE_FONT_PT = 7;
 var DEPT_FONT_PT = 6;
 var DEPT_MAX_CHARS = 5; /* plus the "C " chief prefix, kept separately */
+var LABEL_MAX_CHARS = 6; /* number-type tags on the 10-contact layout, e.g. "Work"/"Home" */
 
 function truncateText(ctx, text, maxWidth){
   if(ctx.measureText(text).width <= maxWidth) return text;
@@ -503,6 +514,14 @@ function formatDeptForRow(dept){
   if(m){ prefix = m[1] + " "; base = m[2]; }
   if(base.length > DEPT_MAX_CHARS) base = base.slice(0, DEPT_MAX_CHARS) + ".";
   return prefix + base;
+}
+
+/* number-type label column (Work/Home/Mobile/...): plain character cap,
+   no chief-prefix handling needed */
+function formatLabelForRow(label){
+  var s = (label||"").trim();
+  if(s.length > LABEL_MAX_CHARS) s = s.slice(0, LABEL_MAX_CHARS) + ".";
+  return s;
 }
 
 /* XXX-XXX XX XX for a 10-digit number, XXX-XX XX XX for 9 digits, applied
@@ -548,25 +567,32 @@ function maxFormattedPhoneWidth(ctx, dpi){
   return maxW;
 }
 
-/* name/department (if shown) split whatever width the phone column(s)
-   don't need; a 2-phone layout has no department column at all */
+/* the "middle" column (department, or a number-type label) is sized to
+   its own worst-case capped content, not a share of the row -- it's the
+   least important field, so it gets only as much room as it needs */
+function measureMiddleColWidth(ctx, dpi, fontPt, maxChars, hasChiefPrefix){
+  ctx.font = ptToPx(fontPt, dpi) + "px " + FONT_FAMILY;
+  var sample = (hasChiefPrefix ? "C " : "") + "0".repeat(maxChars) + ".";
+  return ctx.measureText(sample).width;
+}
+
+/* name gets all the width the phone column(s) and (if shown) the middle
+   column don't need; a 2-phone layout has no department column at all */
 function layoutRowColumns(ctx, wPx, dpi, layout){
   var pad = mmToPx(1.5, dpi);
   var gap = pad/2;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
   var phoneCount = layout.phones;
+  var middleW = layout.showDept ? (measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, DEPT_MAX_CHARS, true) + pad*0.5) : 0;
   var segCount = (layout.showDept ? 2 : 1) + phoneCount;
   var totalGaps = gap * (segCount - 1);
-  var afterPhones = Math.max(0, wPx - pad*2 - phoneW*phoneCount - totalGaps);
+  var nameW = Math.max(0, wPx - pad*2 - phoneW*phoneCount - middleW - totalGaps);
 
   var cols = [];
   var x = pad;
+  cols.push({ x:x, w:nameW, pt:NAME_FONT_PT, key:"name" }); x += nameW + gap;
   if(layout.showDept){
-    var nameW = afterPhones * 0.55, deptW = afterPhones * 0.45;
-    cols.push({ x:x, w:nameW, pt:NAME_FONT_PT, key:"name" }); x += nameW + gap;
-    cols.push({ x:x, w:deptW, pt:DEPT_FONT_PT, key:"department" }); x += deptW + gap;
-  } else {
-    cols.push({ x:x, w:afterPhones, pt:NAME_FONT_PT, key:"name" }); x += afterPhones + gap;
+    cols.push({ x:x, w:middleW, pt:DEPT_FONT_PT, key:"department" }); x += middleW + gap;
   }
   cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone" }); x += phoneW + gap;
   if(phoneCount === 2){
@@ -575,8 +601,25 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
   return cols;
 }
 
-function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact, layout){
-  var cols = layoutRowColumns(ctx, wPx, dpi, layout);
+/* the 10-contact double-row layout: both printed lines of a contact share
+   the same column geometry (wide name/email, small label, min-10-digit
+   phone) -- only which field fills each slot differs between the lines */
+function layoutDoubleRowColumns(ctx, wPx, dpi){
+  var pad = mmToPx(1.5, dpi);
+  var gap = pad/2;
+  var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
+  var middleW = measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, LABEL_MAX_CHARS, false) + pad*0.5;
+  var nameW = Math.max(0, wPx - pad*2 - phoneW - middleW - gap*2);
+  var x = pad;
+  var wide = { x:x, w:nameW, pt:NAME_FONT_PT }; x += nameW + gap;
+  var mid = { x:x, w:middleW, pt:DEPT_FONT_PT }; x += middleW + gap;
+  var phone = { x:x, w:phoneW, pt:PHONE_FONT_PT };
+  return [wide, mid, phone];
+}
+
+/* draws one printed line from a positional (not keyed) column layout --
+   used for both flat single-line rows and each line of a double-row card */
+function drawGenericRow(ctx, xPx, rowTop, wPx, rowH, dpi, cols, values){
   ctx.save();
   ctx.beginPath();
   ctx.rect(xPx, rowTop, wPx, rowH);
@@ -584,14 +627,21 @@ function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact, layout){
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.fillStyle = "#000";
-  cols.forEach(function(col){
-    var raw = col.key === "name" ? (contact.name||"")
-      : col.key === "department" ? formatDeptForRow(contact.department)
-      : formatPhoneNumber(contact[col.key]);
+  cols.forEach(function(col, i){
     ctx.font = ptToPx(col.pt, dpi) + "px " + FONT_FAMILY;
-    ctx.fillText(truncateText(ctx, raw, col.w), xPx + col.x, rowTop + rowH/2);
+    ctx.fillText(truncateText(ctx, values[i]||"", col.w), xPx + col.x, rowTop + rowH/2);
   });
   ctx.restore();
+}
+
+function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact, layout){
+  var cols = layoutRowColumns(ctx, wPx, dpi, layout);
+  var values = cols.map(function(col){
+    return col.key === "name" ? (contact.name||"")
+      : col.key === "department" ? formatDeptForRow(contact.department)
+      : formatPhoneNumber(contact[col.key]);
+  });
+  drawGenericRow(ctx, xPx, rowTop, wPx, rowH, dpi, cols, values);
 }
 
 function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor){
@@ -630,21 +680,39 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor){
 
   var bodyY = yPx+headerH, bodyH = hPx-headerH;
   var capacity = layoutRows(layout.key);
-  var rowH = bodyH / capacity;
   var lineInset = mmToPx(2, dpi);
-  for(var i=0;i<capacity;i++){
-    var rowTop = bodyY + rowH*i;
-    if(i>0){
-      ctx.strokeStyle = "rgba(0,0,0,.5)";
-      ctx.lineWidth = Math.max(1, mmToPx(0.1, dpi));
-      ctx.beginPath();
-      ctx.moveTo(xPx+lineInset, rowTop);
-      ctx.lineTo(xPx+wPx-lineInset, rowTop);
-      ctx.stroke();
+
+  function divider(y, alpha, widthMm){
+    ctx.strokeStyle = "rgba(0,0,0,"+alpha+")";
+    ctx.lineWidth = Math.max(1, mmToPx(widthMm, dpi));
+    ctx.beginPath();
+    ctx.moveTo(xPx+lineInset, y);
+    ctx.lineTo(xPx+wPx-lineInset, y);
+    ctx.stroke();
+  }
+
+  if(layout.doubleRow){
+    var subRowH = bodyH / (capacity*2);
+    var cols = layoutDoubleRowColumns(ctx, wPx, dpi);
+    for(var i=0;i<capacity;i++){
+      var top1 = bodyY + subRowH*2*i;
+      var top2 = top1 + subRowH;
+      if(i>0) divider(top1, 0.5, 0.1);
+      var c = contacts[i];
+      if(!c) continue;
+      drawGenericRow(ctx, xPx, top1, wPx, subRowH, dpi, cols, [c.name, formatLabelForRow(c.label1), formatPhoneNumber(c.phone)]);
+      divider(top2, 0.25, 0.08);
+      drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, cols, [c.email, formatLabelForRow(c.label2), formatPhoneNumber(c.phone2)]);
     }
-    var c = contacts[i];
-    if(!c) continue;
-    drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, c, layout);
+  } else {
+    var rowH = bodyH / capacity;
+    for(var j=0;j<capacity;j++){
+      var rowTop = bodyY + rowH*j;
+      if(j>0) divider(rowTop, 0.5, 0.1);
+      var contact = contacts[j];
+      if(!contact) continue;
+      drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact, layout);
+    }
   }
   ctx.restore();
 }
@@ -867,11 +935,111 @@ function buildPageControls(index){
   return box;
 }
 
+/* ================= click-to-edit ================= */
+/* every editable field's box within ONE card, relative to that card's own
+   top-left corner -- shared by both drawing (implicitly, via the same
+   column-layout functions) and click hit-testing */
+function getEditableRegions(ctx, wPx, hPx, dpi, layout){
+  var regions = [];
+  var headerH = hPx * 0.1;
+  var bodyY = headerH, bodyH = hPx - headerH;
+  var capacity = layoutRows(layout.key);
+  if(layout.doubleRow){
+    var subRowH = bodyH / (capacity*2);
+    var cols = layoutDoubleRowColumns(ctx, wPx, dpi);
+    var fieldsLine1 = ["name","label1","phone"];
+    var fieldsLine2 = ["email","label2","phone2"];
+    for(var i=0;i<capacity;i++){
+      var top1 = bodyY + subRowH*2*i, top2 = top1 + subRowH;
+      cols.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine1[ci], x:col.x, y:top1, w:col.w, h:subRowH }); });
+      cols.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine2[ci], x:col.x, y:top2, w:col.w, h:subRowH }); });
+    }
+  } else {
+    var rowH = bodyH / capacity;
+    var cols2 = layoutRowColumns(ctx, wPx, dpi, layout);
+    for(var j=0;j<capacity;j++){
+      var top = bodyY + rowH*j;
+      cols2.forEach(function(col){ regions.push({ contactIndex:j, field:col.key, x:col.x, y:top, w:col.w, h:rowH }); });
+    }
+  }
+  return regions;
+}
+
+function openEditOverlay(pageEl, contact, field, left, top, width, height){
+  var existing = pageEl.querySelector(".editOverlayInput");
+  if(existing) existing.remove();
+  var input = document.createElement("input");
+  input.className = "editOverlayInput";
+  input.type = "text";
+  input.value = contact[field] || "";
+  input.style.position = "absolute";
+  input.style.left = left + "px";
+  input.style.top = top + "px";
+  input.style.width = Math.max(width, 50) + "px";
+  input.style.height = Math.max(height, 16) + "px";
+  input.style.font = "12px monospace";
+  input.style.zIndex = "10";
+  input.style.border = "2px solid #0080ff";
+  input.style.padding = "0 2px";
+  input.style.boxSizing = "border-box";
+  var committed = false;
+  function commit(){
+    if(committed) return;
+    committed = true;
+    contact[field] = input.value.trim();
+    input.remove();
+    renderViewer();
+  }
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); input.blur(); }
+    else if(e.key === "Escape"){ e.preventDefault(); committed = true; input.remove(); }
+  });
+  pageEl.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+function onCanvasClick(e, canvas, pageIndex){
+  var pageState = state.pages[pageIndex];
+  if(!pageState || pageState.layout === "empty") return;
+  var geo = pageGeometryForIndex(pageIndex);
+  if(geo.grid.count <= 0) return;
+
+  var rect = canvas.getBoundingClientRect();
+  var scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+  var pxX = (e.clientX - rect.left) * scaleX, pxY = (e.clientY - rect.top) * scaleY;
+
+  var blockWmm = geo.grid.cols * geo.cardDims.w, blockHmm = geo.grid.rows * geo.cardDims.h;
+  var startXmm = (geo.pageDims.w - blockWmm) / 2, startYmm = (geo.pageDims.h - blockHmm) / 2;
+  var blockXpx = mmToPx(startXmm, RENDER_DPI), blockYpx = mmToPx(startYmm, RENDER_DPI);
+  var cardWpx = mmToPx(geo.cardDims.w, RENDER_DPI), cardHpx = mmToPx(geo.cardDims.h, RENDER_DPI);
+
+  var xInBlock = pxX - blockXpx, yInBlock = pxY - blockYpx;
+  var cardCol = Math.floor(xInBlock / cardWpx), cardRow = Math.floor(yInBlock / cardHpx);
+  if(xInBlock < 0 || yInBlock < 0 || cardCol >= geo.grid.cols || cardRow >= geo.grid.rows) return;
+  var xInCard = xInBlock - cardCol*cardWpx, yInCard = yInBlock - cardRow*cardHpx;
+
+  var ctx = canvas.getContext("2d");
+  var regions = getEditableRegions(ctx, cardWpx, cardHpx, RENDER_DPI, geo.layout);
+  var hit = regions.find(function(r){ return xInCard>=r.x && xInCard<r.x+r.w && yInCard>=r.y && yInCard<r.y+r.h; });
+  if(!hit) return;
+  var contact = pageState.contacts[hit.contactIndex];
+  if(!contact) return;
+
+  var absXpx = blockXpx + cardCol*cardWpx + hit.x;
+  var absYpx = blockYpx + cardRow*cardHpx + hit.y;
+  var cssScale = rect.width / canvas.width;
+  openEditOverlay(canvas.parentElement, contact, hit.field,
+    absXpx*cssScale, absYpx*cssScale, hit.w*cssScale, hit.h*cssScale);
+}
+
 function buildPageEl(index){
   var page = el("div", { class:"page", "data-index":String(index) });
   page.appendChild(el("span", { class:"pageLabel", text:"Page " + (index+1) + " / " + totalPagesCount() }));
   page.appendChild(buildPageControls(index));
   var canvas = document.createElement("canvas");
+  canvas.addEventListener("click", function(e){ onCanvasClick(e, canvas, index); });
   page.appendChild(canvas);
   renderCardsOntoCanvas(canvas, index);
   return page;
@@ -1076,6 +1244,7 @@ function initDebugPanel(){
     { label:"Phone font (pt)",  get:function(){ return PHONE_FONT_PT; },  set:function(v){ PHONE_FONT_PT=v; } },
     { label:"Dept font (pt)",   get:function(){ return DEPT_FONT_PT; },   set:function(v){ DEPT_FONT_PT=v; } },
     { label:"Dept max chars",   get:function(){ return DEPT_MAX_CHARS; }, set:function(v){ DEPT_MAX_CHARS=v; } },
+    { label:"Label max chars",  get:function(){ return LABEL_MAX_CHARS; }, set:function(v){ LABEL_MAX_CHARS=v; } },
     { label:"Rows: 20-row vert.", get:function(){ return ROWS_V20; }, set:function(v){ ROWS_V20=v; } },
     { label:"Rows: 10-row vert.", get:function(){ return ROWS_V10; }, set:function(v){ ROWS_V10=v; } },
     { label:"Rows: 2-num horiz.", get:function(){ return ROWS_H2; },  set:function(v){ ROWS_H2=v; } }
