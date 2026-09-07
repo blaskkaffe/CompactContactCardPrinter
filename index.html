@@ -297,7 +297,9 @@ function rowsToContacts(rows){
   if(!rows.length) return [];
   var headers = rows[0];
   var idx = {
-    name: headerIndex(headers, ["name"]),
+    name: headerIndex(headers, ["name","full name","fullname"]),
+    firstName: headerIndex(headers, ["first name","firstname","first"]),
+    lastName: headerIndex(headers, ["last name","lastname","last","surname"]),
     department: headerIndex(headers, ["department","dept"]),
     phone: headerIndex(headers, ["phone","number"])
   };
@@ -306,6 +308,9 @@ function rowsToContacts(rows){
     var row = rows[r];
     var get = function(i){ return i===-1 || row[i]==null ? "" : String(row[i]).trim(); };
     var name = get(idx.name);
+    if(!name){
+      name = (get(idx.firstName) + " " + get(idx.lastName)).trim();
+    }
     if(!name) continue;
     out.push({ name:name, department:get(idx.department), phone:get(idx.phone) });
   }
