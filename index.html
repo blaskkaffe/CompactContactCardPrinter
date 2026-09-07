@@ -116,6 +116,27 @@ var LAYOUTS = {
   empty: { key:"empty", label:"Empty page",          orientation:"vertical",  phones:0, showDept:false }
 };
 
+/* header background presets -- all verified >=8:1 WCAG contrast ratio
+   against white text (see commit notes), so white header text always
+   reads clearly against any of them */
+var COLOR_PRESETS = [
+  { name:"Black",        hex:"#000000" },
+  { name:"Charcoal",     hex:"#2B2B2B" },
+  { name:"Slate Gray",   hex:"#37474F" },
+  { name:"Navy",         hex:"#001F54" },
+  { name:"Dark Blue",    hex:"#0B3D91" },
+  { name:"Indigo",       hex:"#2E1A47" },
+  { name:"Dark Purple",  hex:"#4A148C" },
+  { name:"Dark Magenta", hex:"#6A1B4D" },
+  { name:"Dark Red",     hex:"#8B0000" },
+  { name:"Maroon",       hex:"#6B0F1A" },
+  { name:"Dark Brown",   hex:"#3E2723" },
+  { name:"Dark Olive",   hex:"#4B5320" },
+  { name:"Forest Green", hex:"#14432A" },
+  { name:"Dark Teal",    hex:"#01414D" },
+  { name:"Dark Cyan",    hex:"#004D4D" }
+];
+
 /* ================= paper / page geometry ================= */
 var PAPER_SIZES = {
   A4: { label:"A4", wMM:210, hMM:297 }
@@ -394,11 +415,11 @@ function regeneratePages(){
   var pages = [];
   if(capacity > 0){
     for(var i=0;i<state.contacts.length;i+=capacity){
-      pages.push({ layout:defaultLayout, contacts:state.contacts.slice(i,i+capacity), emptyMode:"blank", image:null });
+      pages.push({ layout:defaultLayout, contacts:state.contacts.slice(i,i+capacity), emptyMode:"blank", image:null, headerColor:"#000000" });
     }
   }
   if(pages.length && pages.length % 2 !== 0){
-    pages.push({ layout:"empty", emptyMode:"rows", contacts:[], image:null });
+    pages.push({ layout:"empty", emptyMode:"rows", contacts:[], image:null, headerColor:"#000000" });
   }
   state.pages = pages;
 }
@@ -573,7 +594,7 @@ function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact, layout){
   ctx.restore();
 }
 
-function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout){
+function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor){
   ctx.save();
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(xPx, yPx, wPx, hPx);
@@ -582,7 +603,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout){
   ctx.strokeRect(xPx+0.5, yPx+0.5, wPx-1, hPx-1);
 
   var headerH = hPx * 0.1;
-  ctx.fillStyle = "#000";
+  ctx.fillStyle = headerColor || "#000000";
   ctx.fillRect(xPx, yPx, wPx, headerH);
   ctx.font = ptToPx(HEADER_FONT_PT, dpi) + "px " + FONT_FAMILY;
   ctx.textBaseline = "middle";
@@ -730,7 +751,7 @@ function renderCardsOntoCanvas(canvas, pageIndex){
     var yPx = mmToPx(startYmm + row*geo.cardDims.h, RENDER_DPI);
     var wPx = mmToPx(geo.cardDims.w, RENDER_DPI);
     var hPx = mmToPx(geo.cardDims.h, RENDER_DPI);
-    drawCard(ctx, xPx, yPx, wPx, hPx, pageState.contacts, RENDER_DPI, geo.layout);
+    drawCard(ctx, xPx, yPx, wPx, hPx, pageState.contacts, RENDER_DPI, geo.layout, pageState.headerColor);
   }
   drawCropMarks(ctx, canvas.width, canvas.height, mmToPx(startXmm,RENDER_DPI), mmToPx(startYmm,RENDER_DPI), mmToPx(blockWmm,RENDER_DPI), mmToPx(blockHmm,RENDER_DPI), RENDER_DPI);
 }
@@ -746,6 +767,61 @@ function pageLayoutOptionsSelect(currentKey, onChange){
   return sel;
 }
 
+/* per-page header color: 15 preset swatches (all pre-verified for good
+   contrast with white text) plus a button revealing R/G/B number inputs
+   for an arbitrary custom color -- contrast with white is the picker's
+   own responsibility there, unlike the vetted presets */
+function buildHeaderColorControls(pageState){
+  var wrap = el("div", { style:"display:flex; gap:2px; align-items:center;" });
+
+  var sel = document.createElement("select");
+  COLOR_PRESETS.forEach(function(c){
+    sel.appendChild(el("option", { value:c.hex, text:c.name }));
+  });
+  var isPreset = COLOR_PRESETS.some(function(c){ return c.hex.toLowerCase() === (pageState.headerColor||"").toLowerCase(); });
+  if(!isPreset){
+    sel.appendChild(el("option", { value:pageState.headerColor, text:"Custom" }));
+  }
+  sel.value = pageState.headerColor;
+  sel.addEventListener("change", function(){ pageState.headerColor = sel.value; renderViewer(); });
+  wrap.appendChild(sel);
+
+  var customBtn = el("button", { type:"button", text:"RGB..." });
+  wrap.appendChild(customBtn);
+
+  /* one "Apply" action reads all three fields at once -- applying on each
+     individual field's change would trigger a full re-render (this app
+     rebuilds page DOM on every state change) that collapses this box
+     before the other two fields could be set */
+  var rgbBox = el("div", { style:"display:none; gap:2px;" });
+  var startColor = isPreset ? { r:0,g:0,b:0 } : hexToRgb(pageState.headerColor);
+  var inputs = ["R","G","B"].map(function(ch, idx){
+    var input = document.createElement("input");
+    input.type = "number"; input.min = "0"; input.max = "255";
+    input.style.width = "36px";
+    input.value = [startColor.r, startColor.g, startColor.b][idx];
+    rgbBox.appendChild(input);
+    return input;
+  });
+  var applyBtn = el("button", { type:"button", text:"Apply" });
+  applyBtn.addEventListener("click", function(){
+    var vals = inputs.map(function(inp){ return Math.max(0, Math.min(255, parseInt(inp.value,10)||0)); });
+    var hex = "#" + vals.map(function(v){ return v.toString(16).padStart(2,"0"); }).join("");
+    pageState.headerColor = hex;
+    renderViewer();
+  });
+  rgbBox.appendChild(applyBtn);
+  customBtn.addEventListener("click", function(){
+    rgbBox.style.display = rgbBox.style.display === "none" ? "flex" : "none";
+  });
+  wrap.appendChild(rgbBox);
+  return wrap;
+}
+function hexToRgb(hex){
+  hex = (hex||"#000000").replace("#","");
+  return { r:parseInt(hex.slice(0,2),16)||0, g:parseInt(hex.slice(2,4),16)||0, b:parseInt(hex.slice(4,6),16)||0 };
+}
+
 function buildPageControls(index){
   var box = el("div", { class:"pageControls" });
   var pageState = state.pages[index];
@@ -756,6 +832,10 @@ function buildPageControls(index){
     if(newKey === "empty" && !pageState.emptyMode) pageState.emptyMode = "blank";
     renderViewer();
   }));
+
+  if(pageState.layout !== "empty"){
+    box.appendChild(buildHeaderColorControls(pageState));
+  }
 
   if(pageState.layout === "empty"){
     var modeSel = document.createElement("select");
