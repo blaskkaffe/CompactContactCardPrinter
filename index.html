@@ -335,16 +335,25 @@ function setStatus(text){ $("#dataStatus").textContent = text; }
 
 function setupDropZone(){
   var counter = 0;
-  window.addEventListener("dragenter", function(e){ e.preventDefault(); counter++; $("#dropOverlay").hidden = false; });
-  window.addEventListener("dragover", function(e){ e.preventDefault(); });
-  window.addEventListener("dragleave", function(e){ e.preventDefault(); counter=Math.max(0,counter-1); if(counter===0) $("#dropOverlay").hidden = true; });
+  /* capture:true so this always sees the event first, even if some native
+     control (an <input>/<select> under the cursor) would otherwise handle
+     drag/drop itself before it bubbles back up to window */
+  var opts = { capture:true };
+  window.addEventListener("dragenter", function(e){ e.preventDefault(); counter++; $("#dropOverlay").hidden = false; }, opts);
+  window.addEventListener("dragover", function(e){ e.preventDefault(); }, opts);
+  window.addEventListener("dragleave", function(e){ e.preventDefault(); counter=Math.max(0,counter-1); if(counter===0) $("#dropOverlay").hidden = true; }, opts);
   window.addEventListener("drop", function(e){
     e.preventDefault();
     counter = 0;
     $("#dropOverlay").hidden = true;
-    var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if(file) handleFile(file);
-  });
+    var dt = e.dataTransfer;
+    var file = dt && dt.files && dt.files[0];
+    if(!file){
+      setStatus("That drop didn't carry a file the browser could read -- if you dragged it from a chat/web attachment, save it to disk first and drag it from your file manager instead.");
+      return;
+    }
+    handleFile(file);
+  }, opts);
 }
 
 /* ================= card + page canvas rendering ================= */
