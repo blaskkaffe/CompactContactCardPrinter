@@ -434,6 +434,42 @@ function regeneratePages(){
   state.pages = pages;
 }
 
+/* called after a page's own layout changes (its capacity may have shrunk,
+   or it may have become "empty" with capacity 0). Any contacts that no
+   longer fit are cascaded forward into the following pages in order, each
+   re-sliced against its OWN layout's capacity, so nothing is ever silently
+   dropped from print. An existing "empty" page downstream is left alone
+   (it may be a deliberately placed divider or custom image, not filler)
+   -- overflow reaching one, or the end of the list, becomes new page(s)
+   appended at the very end instead of disturbing anything in between. */
+function reflowFromPage(index){
+  var page = state.pages[index];
+  if(!page) return;
+  var carry = page.contacts.length > layoutRows(page.layout) ? page.contacts.splice(layoutRows(page.layout)) : [];
+  var idx = index + 1;
+  while(carry.length){
+    var next = state.pages[idx];
+    if(!next || next.layout === "empty"){
+      /* not page.layout -- if the page being emptied is itself the last
+         page, that would resolve right back to "empty" and re-lose the
+         data it's supposed to rescue. Use the same default content layout
+         regeneratePages() would pick for brand-new pages instead. */
+      var fallbackLayout = state.cardOrientation === "horizontal" ? "h2" : "v20";
+      var newCap = layoutRows(fallbackLayout) || carry.length;
+      state.pages.push({ layout:fallbackLayout, contacts:carry.splice(0, newCap), emptyMode:"blank", image:null, headerColor:"#000000" });
+      continue;
+    }
+    var merged = carry.concat(next.contacts);
+    var nextCap = layoutRows(next.layout);
+    next.contacts = merged.slice(0, nextCap);
+    carry = merged.slice(nextCap);
+    idx++;
+  }
+  if(state.pages.length % 2 !== 0){
+    state.pages.push({ layout:"empty", emptyMode:"rows", contacts:[], image:null, headerColor:"#000000" });
+  }
+}
+
 /* ================= file drop handling ================= */
 async function handleFile(file){
   try{
@@ -898,6 +934,7 @@ function buildPageControls(index){
   box.appendChild(pageLayoutOptionsSelect(pageState.layout, function(newKey){
     pageState.layout = newKey;
     if(newKey === "empty" && !pageState.emptyMode) pageState.emptyMode = "blank";
+    reflowFromPage(index);
     renderViewer();
   }));
 
