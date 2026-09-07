@@ -701,7 +701,6 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor){
       var c = contacts[i];
       if(!c) continue;
       drawGenericRow(ctx, xPx, top1, wPx, subRowH, dpi, cols, [c.name, formatLabelForRow(c.label1), formatPhoneNumber(c.phone)]);
-      divider(top2, 0.25, 0.08);
       drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, cols, [c.email, formatLabelForRow(c.label2), formatPhoneNumber(c.phone2)]);
     }
   } else {
