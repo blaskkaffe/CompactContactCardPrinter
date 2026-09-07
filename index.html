@@ -364,6 +364,14 @@ function setupDropZone(){
 
 /* ================= card + page canvas rendering ================= */
 function mmToPx(mm, dpi){ return mm * dpi / 25.4; }
+function ptToPx(pt, dpi){ return pt * dpi / 72; }
+
+var FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
+var HEADER_FONT_PT = 16;
+var NAME_FONT_PT = 12;
+var PHONE_FONT_PT = 12;
+var DEPT_FONT_PT = 11;
+var DEPT_MAX_CHARS = 5; /* plus the "C " chief prefix, kept separately */
 
 function truncateText(ctx, text, maxWidth){
   if(ctx.measureText(text).width <= maxWidth) return text;
@@ -375,20 +383,35 @@ function truncateText(ctx, text, maxWidth){
   return lo <= 0 ? "." : text.slice(0, lo) + ".";
 }
 
+/* department column: keep a leading chief marker ("C "/"C./ etc) outside the
+   character budget, cap the rest at DEPT_MAX_CHARS, dot-truncate if cut */
+function formatDeptForRow(dept){
+  var d = (dept||"").trim();
+  var m = /^(c\.?)\s+(.*)$/i.exec(d);
+  var prefix = "", base = d;
+  if(m){ prefix = m[1] + " "; base = m[2]; }
+  if(base.length > DEPT_MAX_CHARS) base = base.slice(0, DEPT_MAX_CHARS) + ".";
+  return prefix + base;
+}
+
 function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, values){
   var pad = mmToPx(1.5, dpi);
-  var cols = [ {start:0, w:0.40}, {start:0.40, w:0.32}, {start:0.72, w:0.28} ];
+  var cols = [
+    { start:0, w:0.40, pt:NAME_FONT_PT },
+    { start:0.40, w:0.32, pt:DEPT_FONT_PT },
+    { start:0.72, w:0.28, pt:PHONE_FONT_PT }
+  ];
   ctx.save();
   ctx.beginPath();
   ctx.rect(xPx, rowTop, wPx, rowH);
   ctx.clip();
-  ctx.font = Math.max(4, rowH*0.5) + "px Arial, sans-serif";
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.fillStyle = "#000";
   cols.forEach(function(col, i){
     var colX = xPx + wPx*col.start + (i===0 ? pad : pad/2);
     var colW = wPx*col.w - pad;
+    ctx.font = ptToPx(col.pt, dpi) + "px " + FONT_FAMILY;
     ctx.fillText(truncateText(ctx, values[i]||"", colW), colX, rowTop + rowH/2);
   });
   ctx.restore();
@@ -405,7 +428,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi){
   var headerH = hPx * 0.1;
   ctx.fillStyle = "#000";
   ctx.fillRect(xPx, yPx, wPx, headerH);
-  ctx.font = Math.max(7, headerH*0.55) + "px Arial, sans-serif";
+  ctx.font = ptToPx(HEADER_FONT_PT, dpi) + "px " + FONT_FAMILY;
   ctx.textBaseline = "middle";
   var pad = mmToPx(1.5, dpi);
   var halfW = wPx*0.5;
@@ -441,7 +464,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi){
     }
     var c = contacts[i];
     if(!c) continue;
-    drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, [c.name, c.department, c.phone]);
+    drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, [c.name, formatDeptForRow(c.department), c.phone]);
   }
   ctx.restore();
 }
@@ -451,7 +474,7 @@ function drawCenteredMessage(ctx, w, h, text){
   ctx.fillStyle = "#fff"; ctx.fillRect(0,0,w,h);
   ctx.strokeStyle = "#ccc"; ctx.lineWidth = 2; ctx.strokeRect(1,1,w-2,h-2);
   ctx.fillStyle = "#999";
-  ctx.font = Math.max(12, Math.round(w*0.045)) + "px Arial, sans-serif";
+  ctx.font = Math.max(12, Math.round(w*0.045)) + "px " + FONT_FAMILY;
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText(text, w/2, h/2);
   ctx.restore();
