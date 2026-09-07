@@ -181,6 +181,25 @@ function pageGeometry(layoutKey){
   return { layout:layout, cardDims:cardDims, pageDims:pageDims, grid:grid };
 }
 
+/* pages are printed double-sided, so page 0+1, 2+3, ... are the front/back
+   of one physical sheet and must share its exact size. An "empty" page
+   borrows its geometry (card size, page orientation, grid) from its
+   partner so the pair always matches -- only when both sides of a pair
+   are empty does it fall back to the layout's own default orientation. */
+function partnerPageIndex(index){ return index % 2 === 0 ? index + 1 : index - 1; }
+
+function pageGeometryForIndex(index){
+  var pageState = state.pages[index];
+  var layoutKey = pageState ? pageState.layout : "v20";
+  var geoSourceKey = layoutKey;
+  if(layoutKey === "empty"){
+    var partner = state.pages[partnerPageIndex(index)];
+    if(partner && partner.layout !== "empty") geoSourceKey = partner.layout;
+  }
+  var geo = pageGeometry(geoSourceKey);
+  return { layout:LAYOUTS[layoutKey], cardDims:geo.cardDims, pageDims:geo.pageDims, grid:geo.grid };
+}
+
 /* ================= contact sorting (alphabetical, chief dept first) ================= */
 function isChiefDept(dept){ return /^c\.?\s+/i.test((dept||"").trim()); }
 function deptGroupKey(dept){ return (dept||"").trim().replace(/^c\.?\s+/i,"").toLowerCase(); }
@@ -630,6 +649,23 @@ function drawEmptyCardOutline(ctx, xPx, yPx, wPx, hPx, dpi){
   ctx.restore();
 }
 
+/* short cut-guides at each corner of the card block, extending straight out
+   to the paper edge (same weight as the card border) -- lets you trim the
+   outer margin off with straightedge cuts before separating the cards
+   themselves along their own printed borders */
+function drawCropMarks(ctx, pageWpx, pageHpx, blockX, blockY, blockW, blockH, dpi){
+  ctx.save();
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = Math.max(1, mmToPx(0.3, dpi));
+  var right = blockX + blockW, bottom = blockY + blockH;
+  function line(x1,y1,x2,y2){ ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+  line(0, blockY, blockX, blockY);           line(blockX, 0, blockX, blockY);
+  line(right, blockY, pageWpx, blockY);      line(right, 0, right, blockY);
+  line(0, bottom, blockX, bottom);           line(blockX, bottom, blockX, pageHpx);
+  line(right, bottom, pageWpx, bottom);      line(right, bottom, right, pageHpx);
+  ctx.restore();
+}
+
 /* fully empty / bordered-grid / custom-image variants of the filler page */
 function drawEmptyPageContent(ctx, wPx, hPx, geo, pageState){
   if(pageState.emptyMode === "image" && pageState.image){
@@ -651,6 +687,7 @@ function drawEmptyPageContent(ctx, wPx, hPx, geo, pageState){
       var wPxCard = mmToPx(geo.cardDims.w, RENDER_DPI), hPxCard = mmToPx(geo.cardDims.h, RENDER_DPI);
       drawEmptyCardOutline(ctx, xPx, yPx, wPxCard, hPxCard, RENDER_DPI);
     }
+    drawCropMarks(ctx, wPx, hPx, mmToPx(startXmm,RENDER_DPI), mmToPx(startYmm,RENDER_DPI), mmToPx(blockWmm,RENDER_DPI), mmToPx(blockHmm,RENDER_DPI), RENDER_DPI);
     return;
   }
   /* "blank": nothing further -- caller already filled white */
@@ -661,7 +698,7 @@ function totalPagesCount(){ return state.pages.length || 1; }
 function renderCardsOntoCanvas(canvas, pageIndex){
   var pageState = state.pages[pageIndex];
   var layoutKey = pageState ? pageState.layout : "v20";
-  var geo = pageGeometry(layoutKey);
+  var geo = pageGeometryForIndex(pageIndex);
   var dims = geo.pageDims;
   canvas.width = Math.round(mmToPx(dims.w, RENDER_DPI));
   canvas.height = Math.round(mmToPx(dims.h, RENDER_DPI));
@@ -695,6 +732,7 @@ function renderCardsOntoCanvas(canvas, pageIndex){
     var hPx = mmToPx(geo.cardDims.h, RENDER_DPI);
     drawCard(ctx, xPx, yPx, wPx, hPx, pageState.contacts, RENDER_DPI, geo.layout);
   }
+  drawCropMarks(ctx, canvas.width, canvas.height, mmToPx(startXmm,RENDER_DPI), mmToPx(startYmm,RENDER_DPI), mmToPx(blockWmm,RENDER_DPI), mmToPx(blockHmm,RENDER_DPI), RENDER_DPI);
 }
 
 /* ================= page element + viewer (navigation/scroll/orientation) ================= */
@@ -760,9 +798,7 @@ function buildPageEl(index){
 }
 
 function currentPageDims(index){
-  var pageState = state.pages[index];
-  var layoutKey = pageState ? pageState.layout : "v20";
-  return pageGeometry(layoutKey).pageDims;
+  return pageGeometryForIndex(index).pageDims;
 }
 
 function fitSinglePage(pageEl, index){
@@ -828,10 +864,8 @@ function updateIndicator(){
   $("#pageIndicator").textContent = "Page " + (state.currentPage+1) + " / " + totalPagesCount();
 }
 function updateGridInfo(){
-  var pageState = state.pages[state.currentPage];
-  var layoutKey = pageState ? pageState.layout : "v20";
-  var geo = pageGeometry(layoutKey);
-  if(layoutKey === "empty"){
+  var geo = pageGeometryForIndex(state.currentPage);
+  if(geo.layout.key === "empty"){
     $("#gridInfo").textContent = "Empty page (" + geo.pageDims.name + ")";
   } else {
     $("#gridInfo").textContent = geo.grid.cols+" x "+geo.grid.rows+" = "+geo.grid.count+" cards ("+geo.layout.label+", "+geo.pageDims.name+")";
