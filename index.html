@@ -115,7 +115,7 @@ function layoutRows(key){
    layoutRows("v10") is the contact count (10), not the printed line count. */
 var LAYOUTS = {
   v20:   { key:"v20",   label:"20-row vertical",              orientation:"vertical",   phones:1, showDept:true,  doubleRow:false },
-  v10:   { key:"v10",   label:"10-contact vertical (2 lines)", orientation:"vertical",   phones:2, showDept:false, doubleRow:true },
+  v10:   { key:"v10",   label:"10-contact vertical (2 lines)", orientation:"vertical",   phones:2, showDept:false, doubleRow:true, phoneRowLegend:"Work / Home" },
   h2:    { key:"h2",    label:"2-number horizontal",           orientation:"horizontal", phones:2, showDept:false, doubleRow:false },
   empty: { key:"empty", label:"Empty page",                    orientation:"vertical",   phones:0, showDept:false, doubleRow:false }
 };
@@ -586,20 +586,29 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
   return cols;
 }
 
-/* the 10-contact double-row layout: both printed lines of a contact share
-   the same column geometry (wide name/email, small label, min-10-digit
-   phone) -- only which field fills each slot differs between the lines */
+/* the 10-contact double-row layout: line 1 (name/label1/phone1) keeps the
+   small label column, but line 2 has no label of its own -- which number
+   is "work" vs "home" is shown once, structurally, via the card's header
+   legend (top row = phone1, bottom row = phone2), so line 2 hands that
+   whole column back to the email address instead. */
 function layoutDoubleRowColumns(ctx, wPx, dpi){
   var pad = mmToPx(1.5, dpi);
   var gap = pad/2;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
   var middleW = measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, LABEL_MAX_CHARS, false) + pad*0.5;
+
   var nameW = Math.max(0, wPx - pad*2 - phoneW - middleW - gap*2);
-  var x = pad;
-  var wide = { x:x, w:nameW, pt:NAME_FONT_PT }; x += nameW + gap;
-  var mid = { x:x, w:middleW, pt:DEPT_FONT_PT }; x += middleW + gap;
-  var phone = { x:x, w:phoneW, pt:PHONE_FONT_PT };
-  return [wide, mid, phone];
+  var x1 = pad;
+  var name = { x:x1, w:nameW, pt:NAME_FONT_PT }; x1 += nameW + gap;
+  var mid = { x:x1, w:middleW, pt:DEPT_FONT_PT }; x1 += middleW + gap;
+  var phone1 = { x:x1, w:phoneW, pt:PHONE_FONT_PT };
+
+  var emailW = Math.max(0, wPx - pad*2 - phoneW - gap);
+  var x2 = pad;
+  var email = { x:x2, w:emailW, pt:EMAIL_FONT_PT }; x2 += emailW + gap;
+  var phone2 = { x:x2, w:phoneW, pt:PHONE_FONT_PT };
+
+  return { line1:[name, mid, phone1], line2:[email, phone2] };
 }
 
 /* draws one printed line from a positional (not keyed) column layout --
@@ -661,6 +670,13 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor){
     ctx.textAlign = "right";
     ctx.fillText(truncateText(ctx, depts.join(", "), halfW-pad), xPx+wPx-pad, yPx+headerH/2);
     ctx.restore();
+  } else if(layout.phoneRowLegend){
+    ctx.save();
+    ctx.beginPath(); ctx.rect(xPx+halfW, yPx, wPx-halfW, headerH); ctx.clip();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "right";
+    ctx.fillText(truncateText(ctx, layout.phoneRowLegend, halfW-pad), xPx+wPx-pad, yPx+headerH/2);
+    ctx.restore();
   }
 
   var bodyY = yPx+headerH, bodyH = hPx-headerH;
@@ -678,22 +694,15 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor){
 
   if(layout.doubleRow){
     var subRowH = bodyH / (capacity*2);
-    var cols = layoutDoubleRowColumns(ctx, wPx, dpi);
-    /* email gets its own font size (independent of the name font) so the
-       two can be tuned separately when trying to fit a long address --
-       geometry (x/w) is unaffected since column widths are budgeted from
-       the phone/label columns, not from the name font's own metrics */
-    var colsEmail = cols.map(function(col, i){
-      return i===0 ? { x:col.x, w:col.w, pt:EMAIL_FONT_PT } : col;
-    });
+    var colSet = layoutDoubleRowColumns(ctx, wPx, dpi);
     for(var i=0;i<capacity;i++){
       var top1 = bodyY + subRowH*2*i;
       var top2 = top1 + subRowH;
       if(i>0) divider(top1, 0.5, 0.1);
       var c = contacts[i];
       if(!c) continue;
-      drawGenericRow(ctx, xPx, top1, wPx, subRowH, dpi, cols, [c.name, formatLabelForRow(c.label1), formatPhoneNumber(c.phone)]);
-      drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, colsEmail, [c.email, formatLabelForRow(c.label2), formatPhoneNumber(c.phone2)]);
+      drawGenericRow(ctx, xPx, top1, wPx, subRowH, dpi, colSet.line1, [c.name, formatLabelForRow(c.label1), formatPhoneNumber(c.phone)]);
+      drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, colSet.line2, [c.email, formatPhoneNumber(c.phone2)]);
     }
   } else {
     var rowH = bodyH / capacity;
@@ -937,13 +946,13 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout){
   var capacity = layoutRows(layout.key);
   if(layout.doubleRow){
     var subRowH = bodyH / (capacity*2);
-    var cols = layoutDoubleRowColumns(ctx, wPx, dpi);
+    var colSet = layoutDoubleRowColumns(ctx, wPx, dpi);
     var fieldsLine1 = ["name","label1","phone"];
-    var fieldsLine2 = ["email","label2","phone2"];
+    var fieldsLine2 = ["email","phone2"];
     for(var i=0;i<capacity;i++){
       var top1 = bodyY + subRowH*2*i, top2 = top1 + subRowH;
-      cols.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine1[ci], x:col.x, y:top1, w:col.w, h:subRowH }); });
-      cols.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine2[ci], x:col.x, y:top2, w:col.w, h:subRowH }); });
+      colSet.line1.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine1[ci], x:col.x, y:top1, w:col.w, h:subRowH }); });
+      colSet.line2.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine2[ci], x:col.x, y:top2, w:col.w, h:subRowH }); });
     }
   } else {
     var rowH = bodyH / capacity;
