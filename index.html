@@ -14,8 +14,7 @@ header.toolbar h1{font-size:15px; margin:0 14px 0 0;}
 #pageIndicator{font-size:12px; min-width:90px; text-align:center;}
 .spacer{flex:1 1 auto;}
 label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
-#dataStatus{font-size:12px; color:#ccc;}
-#gridInfo{font-size:12px; color:#ccc;}
+#dataStatus, #gridInfo{font-size:12px; color:#ccc;}
 
 /* holds the group panel and page viewer side by side (the config panel
    floats independently -- see below -- so it never takes width from these) */
@@ -88,7 +87,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .groupGrid{display:grid; grid-template-columns:repeat(2, 1fr); gap:5px; margin-bottom:10px;}
 #groupPanel .groupTile{background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 5px; font-size:11px; min-width:0; cursor:grab;}
 #groupPanel .groupTile:active{cursor:grabbing;}
-#groupPanel .groupTile.placed{border-color:#c98a2e; background:#fff8ee;}
+#groupPanel .groupTile.placed, #groupPanel .contactChip.placed{border-color:#c98a2e; background:#fff8ee;}
 #groupPanel .groupTileNameRow{display:flex; align-items:center; gap:3px; min-width:0;}
 #groupPanel .groupTileName{font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;}
 #groupPanel .groupTileCount{color:#777; margin-top:1px;}
@@ -98,7 +97,6 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .contactList{grid-column:1 / -1; display:flex; flex-direction:column; gap:3px; padding:2px 0 4px 6px; margin-top:-2px; border-left:2px solid #eee; flex-basis:100%;}
 #groupPanel .contactChip{display:flex; justify-content:space-between; align-items:center; gap:4px; background:#fff; border:1px solid #ddd; border-radius:3px; padding:2px 6px; font-size:10.5px; cursor:grab; min-width:0;}
 #groupPanel .contactChip:active{cursor:grabbing;}
-#groupPanel .contactChip.placed{border-color:#c98a2e; background:#fff8ee;}
 #groupPanel .contactChipName{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;}
 #groupPanel .contactChipPage{color:#a60; font-size:9.5px; flex:none;}
 #groupPanel .pageCard{background:#fff; border:1px solid #ccc; border-radius:4px; padding:6px 8px; margin-bottom:6px; transition:background-color .1s;}
