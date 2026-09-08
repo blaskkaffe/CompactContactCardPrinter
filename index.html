@@ -125,6 +125,18 @@ function layoutRows(key){
   if(key === "h2") return ROWS_H2;
   return 0;
 }
+/* header height is sized relative to one row's height (HEADER_HEIGHT_FACTOR
+   times it) rather than a fixed fraction of the card, so it shrinks along
+   with the rows instead of eating a constant ~10% regardless of row count.
+   Solves headerH = k*rowH where rowH = (hPx-headerH)/rowUnits. Shared by
+   drawCard and getEditableRegions so hit-testing always matches what's
+   actually drawn. */
+function computeHeaderH(hPx, layout){
+  var capacity = layoutRows(layout.key);
+  var rowUnits = layout.doubleRow ? capacity*2 : capacity;
+  if(rowUnits <= 0) return hPx * 0.1; /* empty page has no rows to size against */
+  return HEADER_HEIGHT_FACTOR * hPx / (rowUnits + HEADER_HEIGHT_FACTOR);
+}
 /* v10 is 10 CONTACTS, each spanning two printed lines:
      line 1: name | label1 (number type, e.g. "Work") | phone1
      line 2: email | label2                            | phone2
@@ -645,6 +657,7 @@ var DEPT_FONT_PT = 6;
 var DEPT_MAX_CHARS = 5; /* plus the "C " chief prefix, kept separately */
 var LABEL_MAX_CHARS = 6; /* number-type tags on the 10-contact layout, e.g. "Work"/"Home" */
 var EMAIL_FONT_PT = 7; /* the 10-contact layout's email line only -- independent of NAME_FONT_PT */
+var HEADER_HEIGHT_FACTOR = 1.3; /* header height, expressed as a multiple of one row's height (see computeHeaderH) */
 
 function truncateText(ctx, text, maxWidth){
   if(ctx.measureText(text).width <= maxWidth) return text;
@@ -722,20 +735,23 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
   var phoneCount = layout.phones;
   var middleW = layout.showDept ? (measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, DEPT_MAX_CHARS, true) + pad*0.5) : 0;
-  var totalGaps = layout.showDept
-    ? gap + deptPhoneGap + gap*(phoneCount-1)
-    : gap*phoneCount;
+  var totalGaps = gap*phoneCount + (layout.showDept ? deptPhoneGap : 0);
   var nameW = Math.max(0, wPx - pad*2 - phoneW*phoneCount - middleW - totalGaps);
 
+  /* name, then phone(s), then department last -- department is the least
+     important field, so it sits at the far edge (small gap off the phone
+     column) instead of splitting name away from phone in the middle */
   var cols = [];
   var x = pad;
   cols.push({ x:x, w:nameW, pt:NAME_FONT_PT, key:"name" }); x += nameW + gap;
-  if(layout.showDept){
-    cols.push({ x:x, w:middleW, pt:DEPT_FONT_PT, key:"department" }); x += middleW + deptPhoneGap;
-  }
-  cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone" }); x += phoneW + gap;
+  cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone" }); x += phoneW;
   if(phoneCount === 2){
-    cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone2" });
+    x += gap;
+    cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone2" }); x += phoneW;
+  }
+  if(layout.showDept){
+    x += deptPhoneGap;
+    cols.push({ x:x, w:middleW, pt:DEPT_FONT_PT, key:"department" });
   }
   return cols;
 }
@@ -800,7 +816,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
   ctx.lineWidth = Math.max(1, mmToPx(0.3, dpi));
   ctx.strokeRect(xPx+0.5, yPx+0.5, wPx-1, hPx-1);
 
-  var headerH = hPx * 0.1;
+  var headerH = computeHeaderH(hPx, layout);
   ctx.fillStyle = headerColor || "#000000";
   ctx.fillRect(xPx, yPx, wPx, headerH);
   ctx.font = ptToPx(HEADER_FONT_PT, dpi) + "px " + FONT_FAMILY;
@@ -1108,7 +1124,7 @@ function buildPageControls(index){
    column-layout functions) and click hit-testing */
 function getEditableRegions(ctx, wPx, hPx, dpi, layout){
   var regions = [];
-  var headerH = hPx * 0.1;
+  var headerH = computeHeaderH(hPx, layout);
   var bodyY = headerH, bodyH = hPx - headerH;
   var capacity = layoutRows(layout.key);
   if(layout.phoneRowLegend){
@@ -1421,6 +1437,7 @@ function initDebugPanel(){
 
   var settings = [
     { label:"Header font (pt)", get:function(){ return HEADER_FONT_PT; }, set:function(v){ HEADER_FONT_PT=v; } },
+    { label:"Header height (x rows)", get:function(){ return HEADER_HEIGHT_FACTOR; }, set:function(v){ HEADER_HEIGHT_FACTOR=v; } },
     { label:"Name font (pt)",   get:function(){ return NAME_FONT_PT; },   set:function(v){ NAME_FONT_PT=v; } },
     { label:"Email font (pt)",  get:function(){ return EMAIL_FONT_PT; },  set:function(v){ EMAIL_FONT_PT=v; } },
     { label:"Phone font (pt)",  get:function(){ return PHONE_FONT_PT; },  set:function(v){ PHONE_FONT_PT=v; } },
