@@ -652,9 +652,16 @@ var FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
    what actually ends up on paper. All adjustable live via the debug panel. */
 var HEADER_FONT_PT = 9;
 var NAME_FONT_PT = 7;
+/* v20's name column shares its row with a department column and only a
+   single phone, so it's the tightest layout on a 54mm-wide card -- it gets
+   its own (smaller) name font, independent of NAME_FONT_PT (used by h2 and
+   v10, which have room to spare and shouldn't shrink just because v20 needs
+   to). Small enough that a long name like "Roberto von Hemansson III"
+   fits without truncation alongside a department and a full phone number. */
+var NAME_FONT_PT_TIGHT = 4;
 var PHONE_FONT_PT = 7;
 var DEPT_FONT_PT = 6;
-var DEPT_MAX_CHARS = 5; /* plus the "C " chief prefix, kept separately */
+var DEPT_MAX_CHARS = 1; /* plus the "C " chief prefix, kept separately -- department is the least important field, so it's kept minimal to give the name column room */
 var LABEL_MAX_CHARS = 6; /* number-type tags on the 10-contact layout, e.g. "Work"/"Home" */
 var EMAIL_FONT_PT = 7; /* the 10-contact layout's email line only -- independent of NAME_FONT_PT */
 var HEADER_HEIGHT_FACTOR = 1.3; /* header height, expressed as a multiple of one row's height (see computeHeaderH) */
@@ -744,7 +751,8 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
 
   var cols = [];
   var x = pad;
-  cols.push({ x:x, w:nameW, pt:NAME_FONT_PT, key:"name" }); x += nameW + gap;
+  var nameFontPt = layout.showDept ? NAME_FONT_PT_TIGHT : NAME_FONT_PT;
+  cols.push({ x:x, w:nameW, pt:nameFontPt, key:"name" }); x += nameW + gap;
   if(layout.showDept){
     /* stays physically between name and phone, but right-aligned so its
        text hugs the phone column (visually grouped with it) instead of
@@ -1444,6 +1452,7 @@ function initDebugPanel(){
     { label:"Header font (pt)", get:function(){ return HEADER_FONT_PT; }, set:function(v){ HEADER_FONT_PT=v; } },
     { label:"Header height (x rows)", get:function(){ return HEADER_HEIGHT_FACTOR; }, set:function(v){ HEADER_HEIGHT_FACTOR=v; } },
     { label:"Name font (pt)",   get:function(){ return NAME_FONT_PT; },   set:function(v){ NAME_FONT_PT=v; } },
+    { label:"Name font, w/ dept (pt)", get:function(){ return NAME_FONT_PT_TIGHT; }, set:function(v){ NAME_FONT_PT_TIGHT=v; } },
     { label:"Email font (pt)",  get:function(){ return EMAIL_FONT_PT; },  set:function(v){ EMAIL_FONT_PT=v; } },
     { label:"Phone font (pt)",  get:function(){ return PHONE_FONT_PT; },  set:function(v){ PHONE_FONT_PT=v; } },
     { label:"Dept font (pt)",   get:function(){ return DEPT_FONT_PT; },   set:function(v){ DEPT_FONT_PT=v; } },
