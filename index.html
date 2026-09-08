@@ -47,7 +47,10 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 @media print{
   body > *:not(#printArea){display:none !important;}
   #printArea{display:block !important;}
-  #printArea canvas{display:block; page-break-after:always;}
+  #printArea canvas{display:block;}
+  /* break AFTER every canvas except the last -- page-break-after:always on
+     the last one too adds a trailing blank page */
+  #printArea canvas:not(:last-child){page-break-after:always;}
 }
 
 /* ===================== DEBUG PANEL (temporary -- see initDebugPanel) ===================== */
@@ -130,7 +133,14 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
    ============================================================ */
 
 /* -- rendering -- */
-var RENDER_DPI = 600;
+/* 600 caused real print failures (jobs that reached the OS print dialog
+   but never actually printed) -- each A4 canvas at 600dpi is ~35 megapixels,
+   and 4 of those in one job is a lot of raster data for a print driver/
+   spooler to accept, especially over a network printer. 300dpi is the
+   standard "high quality" print resolution and is plenty crisp for card
+   text at this physical size, at a quarter of the pixels. Live-tunable in
+   the debug panel if you want to push it back up and test on your printer. */
+var RENDER_DPI = 300;
 var FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
 
 /* -- font sizes (pt) -- */
@@ -1131,10 +1141,26 @@ function onCanvasClick(e, canvas, pageIndex){
    so mixed page orientations/sizes across pages print using the first
    page's size -- a real limitation of print CSS, not something this app
    can route around. Each canvas still gets its own correct mm CSS size. */
+/* prefer a named CSS paper size ("A4", "A4 landscape") over raw mm
+   dimensions when they match one of PAPER_SIZES -- many printer drivers
+   only reliably recognize the standard keyword form for @page size and
+   may silently reject or mis-handle an arbitrary custom mm size, even
+   when the numbers are numerically identical to a standard sheet. Falls
+   back to literal mm only for a genuinely custom card/paper size. */
+function pageSizeCssValue(dims){
+  var key = Object.keys(PAPER_SIZES).find(function(k){
+    var p = PAPER_SIZES[k];
+    return (p.wMM === dims.w && p.hMM === dims.h) || (p.wMM === dims.h && p.hMM === dims.w);
+  });
+  if(!key) return dims.w + "mm " + dims.h + "mm";
+  var p = PAPER_SIZES[key];
+  return dims.w === p.wMM && dims.h === p.hMM ? key : key + " landscape";
+}
+
 function doPrint(){
   var total = totalPagesCount();
   var firstDims = currentPageDims(0);
-  $("#pageSizeStyle").textContent = "@page { size: " + firstDims.w + "mm " + firstDims.h + "mm; margin: 0; }";
+  $("#pageSizeStyle").textContent = "@page { size: " + pageSizeCssValue(firstDims) + "; margin: 0; }";
   var area = $("#printArea");
   area.innerHTML = "";
   for(var i=0;i<total;i++){
@@ -1591,6 +1617,7 @@ function initDebugPanel(){
   panel.appendChild(el("h2", { text:"Debug settings" }));
 
   var settings = [
+    { label:"Render DPI", get:function(){ return RENDER_DPI; }, set:function(v){ RENDER_DPI=v; } },
     { label:"Header font (pt)", get:function(){ return HEADER_FONT_PT; }, set:function(v){ HEADER_FONT_PT=v; } },
     { label:"Header height (x rows)", get:function(){ return HEADER_HEIGHT_FACTOR; }, set:function(v){ HEADER_HEIGHT_FACTOR=v; } },
     { label:"Name font (pt)",   get:function(){ return NAME_FONT_PT; },   set:function(v){ NAME_FONT_PT=v; } },
