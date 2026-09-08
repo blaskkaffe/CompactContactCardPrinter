@@ -70,16 +70,25 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 #groupPanel .groupTile{background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 5px; font-size:11px; min-width:0; cursor:grab;}
 #groupPanel .groupTile:active{cursor:grabbing;}
 #groupPanel .groupTile.placed{border-color:#c98a2e; background:#fff8ee;}
-#groupPanel .groupTileName{font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+#groupPanel .groupTileNameRow{display:flex; align-items:center; gap:3px; min-width:0;}
+#groupPanel .groupTileName{font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;}
 #groupPanel .groupTileCount{color:#777; margin-top:1px;}
 #groupPanel .groupTile.placed .groupTileCount{color:#a60;}
+#groupPanel .groupTileToggle, #groupPanel .chipToggle{cursor:pointer; color:#888; font-size:9px; flex:none; user-select:none; padding:0 1px;}
+#groupPanel .groupTileToggle:hover, #groupPanel .chipToggle:hover{color:#333;}
+#groupPanel .contactList{grid-column:1 / -1; display:flex; flex-direction:column; gap:3px; padding:2px 0 4px 6px; margin-top:-2px; border-left:2px solid #eee; flex-basis:100%;}
+#groupPanel .contactChip{display:flex; justify-content:space-between; align-items:center; gap:4px; background:#fff; border:1px solid #ddd; border-radius:3px; padding:2px 6px; font-size:10.5px; cursor:grab; min-width:0;}
+#groupPanel .contactChip:active{cursor:grabbing;}
+#groupPanel .contactChip.placed{border-color:#c98a2e; background:#fff8ee;}
+#groupPanel .contactChipName{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;}
+#groupPanel .contactChipPage{color:#a60; font-size:9.5px; flex:none;}
 #groupPanel .pageCard{background:#fff; border:1px solid #ccc; border-radius:4px; padding:6px 8px; margin-bottom:6px; transition:background-color .1s;}
 #groupPanel .pageCard.dragOver{background:#dff0ff; border-color:#0080ff;}
 #groupPanel .pageCardHeader{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;}
 #groupPanel .pageCardHeader span.full{color:#a00;}
 #groupPanel .pageCardHeader button{font-size:10px; padding:1px 5px; cursor:pointer;}
 #groupPanel .pageGroupList{display:flex; flex-wrap:wrap; gap:4px;}
-#groupPanel .pageGroupChip{background:#eef3fb; border:1px solid #9bbde0; border-radius:3px; padding:2px 6px; font-size:11px; cursor:grab;}
+#groupPanel .pageGroupChip{display:flex; align-items:center; gap:2px; background:#eef3fb; border:1px solid #9bbde0; border-radius:3px; padding:2px 6px; font-size:11px; cursor:grab;}
 #groupPanel .pageGroupChip:active{cursor:grabbing;}
 #groupPanel .pageActionZone{display:flex; gap:6px; margin-bottom:8px;}
 #groupPanel .dropZone{flex:1 1 0; text-align:center; font-size:11px; padding:8px 4px; border:2px dashed #aaa; border-radius:4px; color:#666; transition:background-color .1s, border-color .1s;}
@@ -281,7 +290,9 @@ var state = {
   cardHmm: DEFAULT_CARD_H_MM,
   marginMm: DEFAULT_MARGIN_MM,
   contacts: [],
-  pages: []  /* [{layout, contacts, emptyMode, image, headerColor, headerLegend, savedContacts}] -- one entry per generated page */
+  pages: [], /* [{layout, contacts, emptyMode, image, headerColor, headerLegend, savedContacts}] -- one entry per generated page */
+  expandedGroups: {},     /* group panel UI only: which pool department tiles are expanded to show individual contacts, keyed by group key */
+  expandedPageGroups: {}  /* same, for a page card's own department chips, keyed by "pageIndex:groupKey" */
 };
 
 
@@ -375,6 +386,20 @@ function deptGroupKey(dept){ return (dept||"").trim().replace(/^c\.?\s+/i,"").to
    shown without wanting the "C " marker (the card header's dept summary,
    the group panel) -- distinct from deptGroupKey, which lowercases too */
 function deptDisplayLabel(dept){ return (dept||"").trim().replace(/^c\.?\s+/i, "") || "(no department)"; }
+/* one entry per distinct department among these contacts, in first-seen
+   order -- shared by the card header's dept summary and its edit-overlay
+   prefill, so what you see is what you'd start editing from */
+function collectDeptNames(contacts){
+  var seen = {}, names = [];
+  contacts.forEach(function(c){
+    if(!c || !c.department) return;
+    var key = deptGroupKey(c.department);
+    if(seen[key]) return;
+    seen[key] = true;
+    names.push(deptDisplayLabel(c.department));
+  });
+  return names;
+}
 function sortContacts(list){
   return list.slice().sort(function(a,b){
     var gk = deptGroupKey(a.department).localeCompare(deptGroupKey(b.department));
@@ -545,6 +570,7 @@ function rowsToContacts(rows){
     email:      headerIndex(headers, IMPORT_HEADER_ALIASES.email)
   };
   var out = [];
+  var nextId = 1; /* per-import contact identity, so a single contact (not just its department) can be dragged and tracked across pages */
   for(var r=1;r<rows.length;r++){
     var row = rows[r];
     var get = function(i){ return i===-1 || row[i]==null ? "" : String(row[i]).trim(); };
@@ -554,6 +580,7 @@ function rowsToContacts(rows){
     }
     if(!name) continue;
     out.push({
+      id:nextId++,
       name:name, department:get(idx.department), phone:get(idx.phone), phone2:get(idx.phone2),
       label1:get(idx.label1), label2:get(idx.label2), email:get(idx.email)
     });
@@ -697,6 +724,27 @@ function truncateText(ctx, text, maxWidth){
     if(ctx.measureText(text.slice(0,mid)+".").width <= maxWidth) lo = mid; else hi = mid-1;
   }
   return lo <= 0 ? "." : text.slice(0, lo) + ".";
+}
+
+/* card header's dept summary: pack whole department names (never cut
+   mid-word) separated by " · " until the next one wouldn't fit, then
+   collapse everything left over into a single "+N" count -- e.g.
+   "IT · Finance · HR +2" instead of a comma-and-dot pileup like
+   "Fina., HR, IT,." from truncating each name AND the joined list. ctx.font
+   must already be set to the header font before calling this. */
+function buildDeptSummary(ctx, contacts, maxWidth){
+  var names = collectDeptNames(contacts);
+  if(!names.length) return "";
+  var shown = 0;
+  for(var i=1;i<=names.length;i++){
+    var remaining = names.length - i;
+    var candidate = names.slice(0, i).join(" · ") + (remaining>0 ? " +"+remaining : "");
+    if(ctx.measureText(candidate).width > maxWidth) break;
+    shown = i;
+  }
+  if(shown === 0) return truncateText(ctx, names[0], maxWidth);
+  var leftover = names.length - shown;
+  return names.slice(0, shown).join(" · ") + (leftover>0 ? " +"+leftover : "");
 }
 
 /* department column: keep a leading chief marker ("C "/"C." etc) outside the
@@ -890,33 +938,19 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
   ctx.fillText(dateStr, xPx+pad, yPx+headerH/2);
   ctx.restore();
 
-  if(layout.showDept){
-    /* chief rows ("C IT") and their non-chief colleagues ("IT") collapse
-       into one entry -- the "C " marker is row-level detail, not something
-       the summary needs to repeat -- and each name is truncated the same
-       way a department is truncated on its own row, so several short
-       abbreviations can fit instead of one long truncated blob */
-    var seenDepts = {};
-    var depts = [];
-    contacts.forEach(function(c){
-      if(!c || !c.department) return;
-      var key = deptGroupKey(c.department);
-      if(seenDepts[key]) return;
-      seenDepts[key] = true;
-      depts.push(formatDeptForRow(deptDisplayLabel(c.department)));
-    });
+  /* the header's right side is always editable (see getEditableRegions) --
+     a custom legendOverride wins outright on any layout; otherwise a
+     department-showing card falls back to the auto-built summary and
+     everything else falls back to its layout's default legend, if any */
+  var headerRightText = legendOverride ? legendOverride
+    : layout.showDept ? buildDeptSummary(ctx, contacts, rightW-pad)
+    : (layout.phoneRowLegend || "");
+  if(headerRightText){
     ctx.save();
     ctx.beginPath(); ctx.rect(xPx+leftW, yPx, rightW, headerH); ctx.clip();
     ctx.fillStyle = "#fff";
     ctx.textAlign = "right";
-    ctx.fillText(truncateText(ctx, depts.join(", "), rightW-pad), xPx+wPx-pad, yPx+headerH/2);
-    ctx.restore();
-  } else if(legendOverride || layout.phoneRowLegend){
-    ctx.save();
-    ctx.beginPath(); ctx.rect(xPx+leftW, yPx, rightW, headerH); ctx.clip();
-    ctx.fillStyle = "#fff";
-    ctx.textAlign = "right";
-    ctx.fillText(truncateText(ctx, legendOverride || layout.phoneRowLegend, rightW-pad), xPx+wPx-pad, yPx+headerH/2);
+    ctx.fillText(truncateText(ctx, headerRightText, rightW-pad), xPx+wPx-pad, yPx+headerH/2);
     ctx.restore();
   }
 
@@ -1074,17 +1108,15 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts){
   var headerH = computeHeaderH(hPx, layout);
   var bodyY = headerH, bodyH = hPx - headerH;
   var capacity = layoutRows(layout.key);
-  if(!layout.showDept){
-    /* the right side of the header is free text on any layout that isn't
-       showing a department summary there -- v10 defaults it to a legend
-       (phoneRowLegend), h2 has no default and starts blank, but both are
-       editable the same way. Page-level field (contactIndex:-1), not tied
-       to any one contact. Matches drawCard's leftW/rightW split exactly
-       (the date only claims as much width as it needs). */
-    ctx.font = ptToPx(HEADER_FONT_PT, dpi) + "px " + FONT_FAMILY;
-    var dateW = ctx.measureText(new Date().toISOString().slice(0,10)).width + mmToPx(CELL_PADDING_MM, dpi)*2;
-    regions.push({ contactIndex:-1, field:"headerLegend", x:dateW, y:0, w:wPx-dateW, h:headerH });
-  }
+  /* the right side of the header is always free text -- a department-
+     showing card defaults to the auto-built summary, v10 defaults to a
+     legend (phoneRowLegend), h2 has no default and starts blank, but all
+     three are editable the same way. Page-level field (contactIndex:-1),
+     not tied to any one contact. Matches drawCard's leftW/rightW split
+     exactly (the date only claims as much width as it needs). */
+  ctx.font = ptToPx(HEADER_FONT_PT, dpi) + "px " + FONT_FAMILY;
+  var dateW = ctx.measureText(new Date().toISOString().slice(0,10)).width + mmToPx(CELL_PADDING_MM, dpi)*2;
+  regions.push({ contactIndex:-1, field:"headerLegend", x:dateW, y:0, w:wPx-dateW, h:headerH });
   if(layout.doubleRow){
     var subRowH = bodyH / (capacity*2);
     var colSet = layoutDoubleRowColumns(ctx, wPx, dpi);
@@ -1172,9 +1204,14 @@ function onCanvasClick(e, canvas, pageIndex){
 
   var target, initialValue;
   if(hit.contactIndex === -1){
-    /* page-level field (e.g. the header legend), not tied to a contact */
+    /* page-level field (the header legend), not tied to a contact -- an
+       empty/never-set override means "no custom text yet", so editing
+       starts from whatever's actually showing (the auto dept summary, or
+       the layout's default legend) instead of a blank box */
     target = pageState;
-    initialValue = pageState.headerLegend != null ? pageState.headerLegend : (geo.layout.phoneRowLegend || "");
+    initialValue = pageState.headerLegend
+      ? pageState.headerLegend
+      : (geo.layout.showDept ? collectDeptNames(pageState.contacts).join(" · ") : (geo.layout.phoneRowLegend || ""));
   } else {
     target = pageState.contacts[hit.contactIndex];
     if(!target) return;
@@ -1658,6 +1695,53 @@ function removeGroupFromPage(fromPage, groupKey){
   renderViewer();
 }
 
+/* ---- the same four operations, but for one specific contact instead of
+   a whole department group -- a single name can be dragged and dropped
+   exactly like a full department, just narrower in scope. ---- */
+function takeContactOffPage(pageIndex, contactId){
+  var page = state.pages[pageIndex];
+  if(!page) return null;
+  var idx = page.contacts.findIndex(function(c){ return c.id === contactId; });
+  if(idx === -1) return null;
+  return page.contacts.splice(idx, 1)[0];
+}
+function takeContactOffAllPages(contactId){
+  var found = null;
+  state.pages.forEach(function(p, i){ var c = takeContactOffPage(i, contactId); if(c) found = c; });
+  return found;
+}
+function takeContact(fromPage, contactId){
+  if(fromPage == null){
+    var found = takeContactOffAllPages(contactId);
+    if(found) return found;
+    return state.contacts.find(function(c){ return c.id === contactId; }) || null;
+  }
+  return takeContactOffPage(fromPage, contactId);
+}
+function moveContactBetweenPages(fromPage, toIndex, contactId){
+  if(fromPage != null && fromPage === toIndex) return;
+  var moving = takeContact(fromPage, contactId);
+  if(!moving) return;
+  var toPage = activateContentPage(toIndex);
+  toPage.contacts = toPage.contacts.concat([moving]);
+  reflowFromPage(toIndex);
+  renderViewer();
+}
+function moveContactToNewPage(fromPage, contactId){
+  var moving = takeContact(fromPage, contactId);
+  if(!moving) return;
+  var newIndex = state.pages.length;
+  state.pages.push(blankPage(defaultLayoutForOrientation(), [moving]));
+  reflowFromPage(newIndex);
+  if(state.pages.length % 2 !== 0) state.pages.push(emptyFillerPage());
+  renderViewer();
+}
+function removeContactFromPage(fromPage, contactId){
+  var taken = fromPage == null ? takeContactOffAllPages(contactId) : takeContactOffPage(fromPage, contactId);
+  if(!taken) return;
+  renderViewer();
+}
+
 /* removes a page outright. Any contacts it was showing (including ones
    hidden in savedContacts because it was currently "empty") are never just
    discarded -- they're folded into a fresh page reinserted at the same
@@ -1681,16 +1765,16 @@ function removePage(index){
   renderViewer();
 }
 
-/* custom MIME type carrying {fromPage, groupKey} for the group panel's
-   own internal drag-and-drop -- never "Files", so isFileDrag() never
-   mistakes it for a real file drop */
-var GROUP_DRAG_MIME = "application/x-cccp-group";
-/* wires up dragover/dragleave/drop on any element so it accepts a group
-   chip drag, calling onDrop(fromPage, groupKey) -- shared by every drop
-   target in the group panel (page cards, "New page", "Remove from page") */
-function wireGroupDropTarget(target, onDrop){
+/* custom MIME type carrying {type:"group"|"contact", fromPage, groupKey|contactId}
+   for the group panel's own internal drag-and-drop -- never "Files", so
+   isFileDrag() never mistakes it for a real file drop */
+var PANEL_DRAG_MIME = "application/x-cccp-panel-item";
+/* wires up dragover/dragleave/drop on any element so it accepts a group or
+   contact drag, calling onDrop(data) -- shared by every drop target in the
+   group panel (page cards, "New page", "Remove from page") */
+function wireDropTarget(target, onDrop){
   target.addEventListener("dragover", function(e){
-    if(e.dataTransfer.types.indexOf(GROUP_DRAG_MIME) === -1) return;
+    if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
     e.preventDefault();
     target.classList.add("dragOver");
   });
@@ -1698,11 +1782,48 @@ function wireGroupDropTarget(target, onDrop){
   target.addEventListener("drop", function(e){
     e.preventDefault();
     target.classList.remove("dragOver");
-    var raw = e.dataTransfer.getData(GROUP_DRAG_MIME);
+    var raw = e.dataTransfer.getData(PANEL_DRAG_MIME);
     if(!raw) return;
-    var data = JSON.parse(raw);
-    onDrop(data.fromPage, data.groupKey);
+    onDrop(JSON.parse(raw));
   });
+}
+/* dispatches a drop payload to the matching group/contact operation --
+   shared by every drop target so they don't each need their own type check */
+function handlePanelDrop(data, onGroup, onContact){
+  if(data.type === "contact") onContact(data.fromPage, data.contactId);
+  else onGroup(data.fromPage, data.groupKey);
+}
+
+/* which 1-indexed page currently shows this exact contact (by reference,
+   same reasoning as pageNumbersForGroup), or null if it's unplaced */
+function pageNumberForContact(contact){
+  for(var i=0;i<state.pages.length;i++){
+    if(state.pages[i].contacts.indexOf(contact) !== -1) return i+1;
+  }
+  return null;
+}
+
+/* one draggable row per contact, used both under an expanded pool tile and
+   under an expanded page chip -- identical either way, since a single name
+   moves through the same take/move functions a whole department does */
+function buildContactList(contacts, fromPage){
+  var list = el("div", { class:"contactList" });
+  contacts.forEach(function(c){
+    var pageNum = pageNumberForContact(c);
+    var chip = el("div", {
+      class: "contactChip" + (pageNum ? " placed" : ""),
+      draggable: "true",
+      title: (pageNum ? ("On page " + pageNum) : "Not placed yet") + " -- drag onto a page, \"+ New page\", or \"" + "✕ Remove from page" + "\""
+    });
+    chip.appendChild(el("span", { class:"contactChipName", text:c.name }));
+    if(pageNum) chip.appendChild(el("span", { class:"contactChipPage", text:"p"+pageNum }));
+    chip.addEventListener("dragstart", function(e){
+      e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify({ type:"contact", fromPage:fromPage, contactId:c.id }));
+      e.dataTransfer.effectAllowed = "move";
+    });
+    list.appendChild(chip);
+  });
+  return list;
 }
 
 function renderGroupPanel(){
@@ -1727,20 +1848,35 @@ function renderGroupPanel(){
   computeDepartmentGroups().forEach(function(g){
     var pageNums = pageNumbersForGroup(g);
     var placed = pageNums.length > 0;
+    var expanded = !!state.expandedGroups[g.key];
     var tile = el("div", {
       class: "groupTile" + (placed ? " placed" : ""),
       draggable: "true",
       title: (placed ? ("On page" + (pageNums.length>1 ? "s " : " ") + pageNums.join(", ")) : "Not placed yet") + " -- drag onto a page below"
     });
-    tile.appendChild(el("div", { class:"groupTileName", text:g.label }));
+    var nameRow = el("div", { class:"groupTileNameRow" });
+    var toggle = el("span", { class:"groupTileToggle", text: expanded ? "▾" : "▸" });
+    toggle.title = expanded ? "Hide individual contacts" : "Show individual contacts";
+    /* a click on the toggle only expands/collapses -- it must never start
+       (or count as) a drag of the whole department tile */
+    toggle.addEventListener("dragstart", function(e){ e.preventDefault(); e.stopPropagation(); });
+    toggle.addEventListener("click", function(e){
+      e.stopPropagation();
+      state.expandedGroups[g.key] = !expanded;
+      renderGroupPanel();
+    });
+    nameRow.appendChild(toggle);
+    nameRow.appendChild(el("span", { class:"groupTileName", text:g.label }));
+    tile.appendChild(nameRow);
     tile.appendChild(el("div", { class:"groupTileCount", text:g.contacts.length + (placed ? " · p" + pageNums.join(",") : "") }));
     /* fromPage:null marks this as a drag from the unplaced-pool grid
        (as opposed to a specific page's chip) -- see takeGroup() */
     tile.addEventListener("dragstart", function(e){
-      e.dataTransfer.setData(GROUP_DRAG_MIME, JSON.stringify({ fromPage:null, groupKey:g.key }));
+      e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify({ type:"group", fromPage:null, groupKey:g.key }));
       e.dataTransfer.effectAllowed = "move";
     });
     grid.appendChild(tile);
+    if(expanded) grid.appendChild(buildContactList(g.contacts, null));
   });
   panel.appendChild(grid);
 
@@ -1751,8 +1887,8 @@ function renderGroupPanel(){
   var actionZone = el("div", { class:"pageActionZone" });
   var newPageZone = el("div", { class:"dropZone newPageZone", text:"+ New page" });
   var deleteZone = el("div", { class:"dropZone deleteZone", text:"✕ Remove from page" });
-  wireGroupDropTarget(newPageZone, function(fromPage, groupKey){ moveGroupToNewPage(fromPage, groupKey); });
-  wireGroupDropTarget(deleteZone, function(fromPage, groupKey){ removeGroupFromPage(fromPage, groupKey); });
+  wireDropTarget(newPageZone, function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage); });
+  wireDropTarget(deleteZone, function(data){ handlePanelDrop(data, removeGroupFromPage, removeContactFromPage); });
   actionZone.appendChild(newPageZone);
   actionZone.appendChild(deleteZone);
   panel.appendChild(actionZone);
@@ -1778,22 +1914,39 @@ function renderGroupPanel(){
 
     var chipList = el("div", { class:"pageGroupList" });
     groupContactsByDepartment(p.contacts).forEach(function(g){
-      var chip = el("div", { class:"pageGroupChip", draggable:"true", text:g.label + " " + g.contacts.length });
+      var pgKey = i + ":" + g.key;
+      var expandedP = !!state.expandedPageGroups[pgKey];
+      var chip = el("div", { class:"pageGroupChip", draggable:"true" });
+      var toggleP = el("span", { class:"chipToggle", text: expandedP ? "▾" : "▸" });
+      toggleP.title = expandedP ? "Hide individual contacts" : "Show individual contacts";
+      toggleP.addEventListener("dragstart", function(e){ e.preventDefault(); e.stopPropagation(); });
+      toggleP.addEventListener("click", function(e){
+        e.stopPropagation();
+        state.expandedPageGroups[pgKey] = !expandedP;
+        renderGroupPanel();
+      });
+      chip.appendChild(toggleP);
+      chip.appendChild(el("span", { text:g.label + " " + g.contacts.length }));
       chip.addEventListener("dragstart", function(e){
-        e.dataTransfer.setData(GROUP_DRAG_MIME, JSON.stringify({ fromPage:i, groupKey:g.key }));
+        e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify({ type:"group", fromPage:i, groupKey:g.key }));
         e.dataTransfer.effectAllowed = "move";
       });
       chipList.appendChild(chip);
+      if(expandedP) chipList.appendChild(buildContactList(g.contacts, i));
     });
     if(!chipList.children.length){
       chipList.appendChild(el("div", { class:"emptyNote", text: p.layout === "empty" ? "Drop a group here to fill it" : "No contacts here yet" }));
     }
     card.appendChild(chipList);
 
-    /* the whole card is a drop target -- dragging a group chip from any
-       page (including this one, a no-op) onto it moves that group's
-       contacts on the source page here, cascading overflow like Add does */
-    wireGroupDropTarget(card, function(fromPage, groupKey){ moveGroupBetweenPages(fromPage, i, groupKey); });
+    /* the whole card is a drop target -- dragging a group or contact from
+       any page (including this one, a no-op) onto it moves it from the
+       source page here, cascading overflow like every other placement */
+    wireDropTarget(card, function(data){
+      handlePanelDrop(data,
+        function(fromPage, groupKey){ moveGroupBetweenPages(fromPage, i, groupKey); },
+        function(fromPage, contactId){ moveContactBetweenPages(fromPage, i, contactId); });
+    });
 
     panel.appendChild(card);
   });
