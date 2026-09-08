@@ -56,6 +56,20 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 #debugPanel .row{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:6px;}
 #debugPanel input{width:70px; font-size:12px; padding:2px 4px;}
 /* ===================== END DEBUG PANEL ===================== */
+
+/* ===================== GROUP PANEL (department grouping helper) ===================== */
+#groupPanel{flex:0 0 240px; background:#f0f0f0; color:#111; overflow-y:auto; padding:10px; font-size:12px; border-right:1px solid #bbb;}
+#groupPanel h2{font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#555; margin:0 0 8px;}
+#groupPanel .groupRow{background:#fff; border:1px solid #ccc; border-radius:4px; padding:6px 8px; margin-bottom:6px;}
+#groupPanel .groupTitle{display:flex; justify-content:space-between; font-weight:bold; margin-bottom:4px;}
+#groupPanel .groupAdd{display:flex; gap:4px; align-items:center;}
+#groupPanel .groupAdd input{width:40px; font-size:11px; padding:2px 3px;}
+#groupPanel .groupAdd button{font-size:11px; padding:2px 6px; cursor:pointer;}
+#groupPanel .pageSlots{list-style:none; margin:0; padding:0;}
+#groupPanel .pageSlots li{display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px solid #ddd;}
+#groupPanel .pageSlots li.full{color:#a00;}
+#groupPanel .emptyNote{color:#777; font-style:italic;}
+/* ===================== END GROUP PANEL ===================== */
 </style>
 <style id="pageSizeStyle"></style>
 </head>
@@ -86,6 +100,8 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 </header>
 
 <div id="mainRow">
+  <!-- GROUP PANEL: department groups + manual page-assignment helper -->
+  <aside id="groupPanel"></aside>
   <main id="viewerWrap"></main>
   <!-- DEBUG PANEL (temporary, remove this whole <aside> + initDebugPanel() + its CSS block to drop the feature) -->
   <aside id="debugPanel"></aside>
@@ -468,6 +484,104 @@ function reflowFromPage(index){
   if(state.pages.length % 2 !== 0){
     state.pages.push({ layout:"empty", emptyMode:"rows", contacts:[], image:null, headerColor:"#000000" });
   }
+}
+
+/* ================= department grouping helper (sidebar) ================= */
+/* state.contacts is already grouped contiguously by department (sortContacts
+   groups by deptGroupKey first), so this only needs one pass collecting
+   consecutive runs -- no separate grouping/sorting logic to keep in sync. */
+function deptDisplayLabel(dept){ return (dept||"").trim().replace(/^c\.?\s+/i, "") || "(no department)"; }
+function computeDepartmentGroups(){
+  var groups = [];
+  var current = null;
+  state.contacts.forEach(function(c){
+    var key = deptGroupKey(c.department);
+    if(!current || current.key !== key){
+      current = { key:key, label:deptDisplayLabel(c.department), contacts:[] };
+      groups.push(current);
+    }
+    current.contacts.push(c);
+  });
+  return groups;
+}
+
+/* appends a whole department group onto the given 1-indexed page, creating
+   pages up to that index if needed, then reuses the existing overflow
+   cascade (reflowFromPage) so nothing is ever dropped if it doesn't fit --
+   the same guarantee a manual layout-capacity change already gets. */
+function addGroupToPage(group, pageNumber){
+  var index = pageNumber - 1;
+  if(index < 0) return;
+  var defaultLayout = state.cardOrientation === "horizontal" ? "h2" : "v20";
+  while(state.pages.length <= index){
+    state.pages.push({ layout:defaultLayout, contacts:[], emptyMode:"blank", image:null, headerColor:"#000000" });
+  }
+  var target = state.pages[index];
+  if(target.layout === "empty"){
+    target.layout = defaultLayout;
+    target.savedContacts = null;
+  }
+  target.contacts = target.contacts.concat(group.contacts);
+  reflowFromPage(index);
+  renderViewer();
+}
+
+function renderGroupPanel(){
+  var panel = $("#groupPanel");
+  if(!panel) return;
+  panel.innerHTML = "";
+  panel.appendChild(el("h2", { text:"Department groups" }));
+
+  if(!state.contacts.length){
+    panel.appendChild(el("div", { class:"emptyNote", text:"Import a CSV/XLSX to see groups here." }));
+    return;
+  }
+
+  var clearBtn = el("button", { type:"button", text:"Clear pages, group manually", style:"width:100%; margin-bottom:10px; font-size:11px; padding:4px;" });
+  clearBtn.addEventListener("click", function(){
+    state.pages = [];
+    renderViewer();
+  });
+  panel.appendChild(clearBtn);
+
+  computeDepartmentGroups().forEach(function(g){
+    var row = el("div", { class:"groupRow" });
+    row.appendChild(el("div", { class:"groupTitle", text:g.label + " (" + g.contacts.length + ")" }));
+    var addRow = el("div", { class:"groupAdd" });
+    addRow.appendChild(el("span", { text:"Page" }));
+    var pageInput = document.createElement("input");
+    pageInput.type = "number"; pageInput.min = "1"; pageInput.step = "1";
+    pageInput.value = String(state.pages.length + 1); /* defaults to "next new page" for sequential one-group-per-page building */
+    addRow.appendChild(pageInput);
+    var addBtn = el("button", { type:"button", text:"Add" });
+    addBtn.addEventListener("click", function(){
+      var target = parseInt(pageInput.value, 10);
+      if(!target || target < 1) return;
+      addGroupToPage(g, target);
+    });
+    addRow.appendChild(addBtn);
+    row.appendChild(addRow);
+    panel.appendChild(row);
+  });
+
+  panel.appendChild(el("h2", { text:"Page slots", style:"margin-top:14px;" }));
+  if(!state.pages.length){
+    panel.appendChild(el("div", { class:"emptyNote", text:"No pages yet." }));
+    return;
+  }
+  var ul = el("ul", { class:"pageSlots" });
+  state.pages.forEach(function(p, i){
+    var li = document.createElement("li");
+    if(p.layout === "empty"){
+      li.textContent = "Page " + (i+1) + ": empty";
+    } else {
+      var cap = layoutRows(p.layout), used = p.contacts.length, free = Math.max(0, cap-used);
+      li.textContent = "Page " + (i+1) + " (" + LAYOUTS[p.layout].label + "): " + used + "/" + cap + " used, " + free + " free";
+      if(free === 0) li.className = "full";
+    }
+    ul.appendChild(li);
+  });
+  panel.appendChild(ul);
 }
 
 /* ================= file drop handling ================= */
@@ -1172,6 +1286,7 @@ function renderViewer(){
   }
   updateIndicator();
   updateGridInfo();
+  renderGroupPanel();
 }
 
 function updateIndicator(){
