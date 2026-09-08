@@ -735,23 +735,23 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
   var phoneCount = layout.phones;
   var middleW = layout.showDept ? (measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, DEPT_MAX_CHARS, true) + pad*0.5) : 0;
-  var totalGaps = gap*phoneCount + (layout.showDept ? deptPhoneGap : 0);
+  var totalGaps = layout.showDept
+    ? gap + deptPhoneGap + gap*(phoneCount-1)
+    : gap*phoneCount;
   var nameW = Math.max(0, wPx - pad*2 - phoneW*phoneCount - middleW - totalGaps);
 
-  /* name, then phone(s), then department last -- department is the least
-     important field, so it sits at the far edge (small gap off the phone
-     column) instead of splitting name away from phone in the middle */
   var cols = [];
   var x = pad;
   cols.push({ x:x, w:nameW, pt:NAME_FONT_PT, key:"name" }); x += nameW + gap;
-  cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone" }); x += phoneW;
-  if(phoneCount === 2){
-    x += gap;
-    cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone2" }); x += phoneW;
-  }
   if(layout.showDept){
-    x += deptPhoneGap;
-    cols.push({ x:x, w:middleW, pt:DEPT_FONT_PT, key:"department" });
+    /* stays physically between name and phone, but right-aligned so its
+       text hugs the phone column (visually grouped with it) instead of
+       sitting flush against the gap after name */
+    cols.push({ x:x, w:middleW, pt:DEPT_FONT_PT, key:"department", align:"right" }); x += middleW + deptPhoneGap;
+  }
+  cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone" }); x += phoneW + gap;
+  if(phoneCount === 2){
+    cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone2" });
   }
   return cols;
 }
@@ -789,11 +789,14 @@ function drawGenericRow(ctx, xPx, rowTop, wPx, rowH, dpi, cols, values){
   ctx.rect(xPx, rowTop, wPx, rowH);
   ctx.clip();
   ctx.textBaseline = "middle";
-  ctx.textAlign = "left";
   ctx.fillStyle = "#000";
   cols.forEach(function(col, i){
     ctx.font = ptToPx(col.pt, dpi) + "px " + FONT_FAMILY;
-    ctx.fillText(truncateText(ctx, values[i]||"", col.w), xPx + col.x, rowTop + rowH/2);
+    var align = col.align || "left";
+    ctx.textAlign = align;
+    var text = truncateText(ctx, values[i]||"", col.w);
+    var tx = align === "right" ? xPx + col.x + col.w : xPx + col.x;
+    ctx.fillText(text, tx, rowTop + rowH/2);
   });
   ctx.restore();
 }
