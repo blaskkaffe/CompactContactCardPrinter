@@ -107,7 +107,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .pageCard{background:#fff; border:1px solid #ccc; border-radius:4px; padding:6px 8px; margin-bottom:6px; transition:background-color .1s;}
 #groupPanel .pageCard.dragOver{background:#dff0ff; border-color:#0080ff;}
 #groupPanel .pageCardHeader{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;}
-#groupPanel .pageCardHeader span.full{color:#a00;}
+#groupPanel .full{color:#a00;}
 #groupPanel .pageCardHeader button{font-size:10px; padding:1px 5px; cursor:pointer;}
 /* one compact row: layout select + color controls (+ Line 2/empty-mode
    select, when shown) all fit together instead of each wrapping onto its
@@ -272,7 +272,12 @@ var IMPORT_HEADER_ALIASES = {
   phone2:     ["phone2","phone 2"],
   label1:     ["label1","label 1","type1","type 1","number type"],
   label2:     ["label2","label 2","type2","type 2"],
-  email:      ["email","e-mail"]
+  email:      ["email","e-mail"],
+  /* comma-separated tag(s) placing a contact on one or more "chained"
+     v10 lists -- independent of department, and orthogonal to it: a
+     contact keeps its normal department grouping for v20 AND can carry
+     any number of these tags for v10 (see pageState.chain). */
+  lists:      ["list","lists","chain","v10 list"]
 };
 
 /* -- card layout definitions --
@@ -459,6 +464,45 @@ function sortContacts(list){
   });
 }
 
+/* ---------------- v10 "chains" -- named, manually-ordered contact lists,
+   independent of department (see IMPORT_HEADER_ALIASES.lists) ---------------- */
+function listKey(name){ return (name||"").trim().toLowerCase(); }
+/* every distinct chain name found across all contacts, in first-seen
+   order -- populates the per-page Chain select the same way COLOR_PRESETS
+   populates the color select */
+function computeChainNames(){
+  var seen = {}, names = [];
+  state.contacts.forEach(function(c){
+    (c.lists||[]).forEach(function(name){
+      var key = listKey(name);
+      if(!key || seen[key]) return;
+      seen[key] = true;
+      names.push(name);
+    });
+  });
+  return names;
+}
+/* a chain's members, in the order they appeared in the imported file --
+   id is assigned in that order at import time, before sortContacts()
+   reorders state.contacts itself, so sorting by id recovers it here
+   without needing to track file order separately. */
+function contactsForChain(chainName){
+  var key = listKey(chainName);
+  return state.contacts
+    .filter(function(c){ return (c.lists||[]).some(function(name){ return listKey(name) === key; }); })
+    .sort(function(a,b){ return a.id - b.id; });
+}
+/* what a v10 page with an active chain actually shows: chain membership
+   truncated to the layout's own row capacity. Never touches pageState.
+   contacts -- it's a computed view, so clearing the chain back to "None"
+   leaves whatever was manually placed there untouched. */
+function contactsForPage(pageState){
+  if(pageState.layout === "v10" && pageState.chain){
+    return contactsForChain(pageState.chain).slice(0, layoutRows("v10"));
+  }
+  return pageState.contacts;
+}
+
 /* ---------------- CSV parsing ---------------- */
 function parseCSV(text){
   var rows = [], row = [], field = "", inQuotes = false;
@@ -616,10 +660,11 @@ function rowsToContacts(rows){
     phone2:     headerIndex(headers, IMPORT_HEADER_ALIASES.phone2),
     label1:     headerIndex(headers, IMPORT_HEADER_ALIASES.label1),
     label2:     headerIndex(headers, IMPORT_HEADER_ALIASES.label2),
-    email:      headerIndex(headers, IMPORT_HEADER_ALIASES.email)
+    email:      headerIndex(headers, IMPORT_HEADER_ALIASES.email),
+    lists:      headerIndex(headers, IMPORT_HEADER_ALIASES.lists)
   };
   var out = [];
-  var nextId = 1; /* per-import contact identity, so a single contact (not just its department) can be dragged and tracked across pages */
+  var nextId = 1; /* per-import contact identity, so a single contact (not just its department) can be dragged and tracked across pages -- also doubles as this contact's original row order, since it's assigned before sortContacts() reorders the array (see contactsForChain) */
   for(var r=1;r<rows.length;r++){
     var row = rows[r];
     var get = function(i){ return i===-1 || row[i]==null ? "" : String(row[i]).trim(); };
@@ -628,10 +673,11 @@ function rowsToContacts(rows){
       name = (get(idx.firstName) + " " + get(idx.lastName)).trim();
     }
     if(!name) continue;
+    var lists = get(idx.lists).split(",").map(function(s){ return s.trim(); }).filter(Boolean);
     out.push({
       id:nextId++,
       name:name, department:get(idx.department), phone:get(idx.phone), phone2:get(idx.phone2),
-      label1:get(idx.label1), label2:get(idx.label2), email:get(idx.email)
+      label1:get(idx.label1), label2:get(idx.label2), email:get(idx.email), lists:lists
     });
   }
   return out;
@@ -1150,6 +1196,7 @@ function renderCardsOntoCanvas(canvas, pageIndex){
   var blockHmm = geo.grid.rows * geo.cardDims.h;
   var startXmm = (dims.w - blockWmm) / 2;
   var startYmm = (dims.h - blockHmm) / 2;
+  var cardContacts = contactsForPage(pageState);
 
   for(var i=0;i<geo.grid.count;i++){
     var col = i % geo.grid.cols, row = Math.floor(i / geo.grid.cols);
@@ -1157,7 +1204,7 @@ function renderCardsOntoCanvas(canvas, pageIndex){
     var yPx = mmToPx(startYmm + row*geo.cardDims.h, RENDER_DPI);
     var wPx = mmToPx(geo.cardDims.w, RENDER_DPI);
     var hPx = mmToPx(geo.cardDims.h, RENDER_DPI);
-    drawCard(ctx, xPx, yPx, wPx, hPx, pageState.contacts, RENDER_DPI, geo.layout, pageState.headerColor, pageState.headerLegend, pageState.line2Mode);
+    drawCard(ctx, xPx, yPx, wPx, hPx, cardContacts, RENDER_DPI, geo.layout, pageState.headerColor, pageState.headerLegend, pageState.line2Mode);
   }
   drawCropMarks(ctx, canvas.width, canvas.height, mmToPx(startXmm,RENDER_DPI), mmToPx(startYmm,RENDER_DPI), mmToPx(blockWmm,RENDER_DPI), mmToPx(blockHmm,RENDER_DPI), RENDER_DPI);
 }
@@ -1265,7 +1312,8 @@ function onCanvasClick(e, canvas, pageIndex){
   var xInCard = xInBlock - cardCol*cardWpx, yInCard = yInBlock - cardRow*cardHpx;
 
   var ctx = canvas.getContext("2d");
-  var regions = getEditableRegions(ctx, cardWpx, cardHpx, RENDER_DPI, geo.layout, pageState.contacts, pageState.line2Mode);
+  var cardContacts = contactsForPage(pageState);
+  var regions = getEditableRegions(ctx, cardWpx, cardHpx, RENDER_DPI, geo.layout, cardContacts, pageState.line2Mode);
   var hit = regions.find(function(r){ return xInCard>=r.x && xInCard<r.x+r.w && yInCard>=r.y && yInCard<r.y+r.h; });
   if(!hit) return;
 
@@ -1278,9 +1326,9 @@ function onCanvasClick(e, canvas, pageIndex){
     target = pageState;
     initialValue = pageState.headerLegend
       ? pageState.headerLegend
-      : (geo.layout.showDept ? collectDeptNames(pageState.contacts).join(" ") : (geo.layout.phoneRowLegend || ""));
+      : (geo.layout.showDept ? collectDeptNames(cardContacts).join(" ") : (geo.layout.phoneRowLegend || ""));
   } else {
-    target = pageState.contacts[hit.contactIndex];
+    target = cardContacts[hit.contactIndex];
     if(!target) return;
     initialValue = null;
   }
@@ -1459,6 +1507,23 @@ function buildPageControls(index){
   }
 
   if(pageState.layout === "v10"){
+    /* named "chain" -- shows that list's contacts (see contactsForChain),
+       in file order, instead of whatever's been manually dragged onto this
+       page. "None" (the default) leaves manual placement in charge. */
+    var chainSel = document.createElement("select");
+    chainSel.title = "Chain (a named v10 list from the imported file)";
+    chainSel.appendChild(el("option", { value:"", text:"Chain: None" }));
+    var chainNames = computeChainNames();
+    chainNames.forEach(function(name){
+      chainSel.appendChild(el("option", { value:name, text:"Chain: " + name }));
+    });
+    if(pageState.chain && !chainNames.some(function(n){ return listKey(n) === listKey(pageState.chain); })){
+      chainSel.appendChild(el("option", { value:pageState.chain, text:"Chain: " + pageState.chain + " (not found)" }));
+    }
+    chainSel.value = pageState.chain || "";
+    chainSel.addEventListener("change", function(){ pageState.chain = chainSel.value || null; renderViewer(); });
+    box.appendChild(chainSel);
+
     /* line 2's wide field (name row's second line) -- a per-page choice
        instead of auto-detected, see pickLine2Field() */
     var line2Sel = document.createElement("select");
@@ -2010,7 +2075,7 @@ function renderGroupPanel(){
     var card = el("div", { class:"pageCard" });
 
     var headerRow = el("div", { class:"pageCardHeader" });
-    var cap = layoutRows(p.layout), used = p.contacts.length, free = Math.max(0, cap-used);
+    var cap = layoutRows(p.layout), used = contactsForPage(p).length, free = Math.max(0, cap-used);
     var headerText = p.layout === "empty"
       ? "Page " + (i+1) + ": empty"
       : "Page " + (i+1) + " (" + LAYOUTS[p.layout].label + "): " + used + "/" + cap + " used, " + free + " free";
@@ -2023,29 +2088,42 @@ function renderGroupPanel(){
     card.appendChild(buildPageControls(i));
 
     var chipList = el("div", { class:"pageGroupList" });
-    groupContactsByDepartment(p.contacts).forEach(function(g){
-      var pgKey = i + ":" + g.key;
-      var expandedP = !!state.expandedPageGroups[pgKey];
-      var chip = el("div", { class:"pageGroupChip", draggable:"true" });
-      var toggleP = el("span", { class:"chipToggle", text: expandedP ? "▾" : "▸" });
-      toggleP.title = expandedP ? "Hide individual contacts" : "Show individual contacts";
-      toggleP.addEventListener("dragstart", function(e){ e.preventDefault(); e.stopPropagation(); });
-      toggleP.addEventListener("click", function(e){
-        e.stopPropagation();
-        state.expandedPageGroups[pgKey] = !expandedP;
-        renderGroupPanel();
+    if(p.layout === "v10" && p.chain){
+      /* a chained page's contacts are computed from the chain, not the
+         normal drag-and-drop group system -- show what it resolved to
+         instead of draggable department chips, which wouldn't reflect or
+         control this page's actual content */
+      var chainTotal = contactsForChain(p.chain).length;
+      var chainNote = "Chain \"" + p.chain + "\": " + Math.min(chainTotal, cap) + " of " + chainTotal + " shown";
+      if(chainTotal > cap){
+        chainNote += " -- " + (chainTotal - cap) + " more tagged \"" + p.chain + "\" don't fit on one card";
+      }
+      chipList.appendChild(el("div", { class: chainTotal > cap ? "emptyNote full" : "emptyNote", text:chainNote }));
+    } else {
+      groupContactsByDepartment(p.contacts).forEach(function(g){
+        var pgKey = i + ":" + g.key;
+        var expandedP = !!state.expandedPageGroups[pgKey];
+        var chip = el("div", { class:"pageGroupChip", draggable:"true" });
+        var toggleP = el("span", { class:"chipToggle", text: expandedP ? "▾" : "▸" });
+        toggleP.title = expandedP ? "Hide individual contacts" : "Show individual contacts";
+        toggleP.addEventListener("dragstart", function(e){ e.preventDefault(); e.stopPropagation(); });
+        toggleP.addEventListener("click", function(e){
+          e.stopPropagation();
+          state.expandedPageGroups[pgKey] = !expandedP;
+          renderGroupPanel();
+        });
+        chip.appendChild(toggleP);
+        chip.appendChild(el("span", { text:g.label + " " + g.contacts.length }));
+        chip.addEventListener("dragstart", function(e){
+          e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify({ type:"group", fromPage:i, groupKey:g.key }));
+          e.dataTransfer.effectAllowed = "move";
+        });
+        chipList.appendChild(chip);
+        if(expandedP) chipList.appendChild(buildContactList(g.contacts, i));
       });
-      chip.appendChild(toggleP);
-      chip.appendChild(el("span", { text:g.label + " " + g.contacts.length }));
-      chip.addEventListener("dragstart", function(e){
-        e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify({ type:"group", fromPage:i, groupKey:g.key }));
-        e.dataTransfer.effectAllowed = "move";
-      });
-      chipList.appendChild(chip);
-      if(expandedP) chipList.appendChild(buildContactList(g.contacts, i));
-    });
-    if(!chipList.children.length){
-      chipList.appendChild(el("div", { class:"emptyNote", text: p.layout === "empty" ? "Drop a group here to fill it" : "No contacts here yet" }));
+      if(!chipList.children.length){
+        chipList.appendChild(el("div", { class:"emptyNote", text: p.layout === "empty" ? "Drop a group here to fill it" : "No contacts here yet" }));
+      }
     }
     card.appendChild(chipList);
 
