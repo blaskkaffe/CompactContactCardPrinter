@@ -71,9 +71,14 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 #groupPanel .groupAdd{display:flex; gap:4px; align-items:center;}
 #groupPanel .groupAdd input{width:40px; font-size:11px; padding:2px 3px;}
 #groupPanel .groupAdd button{font-size:11px; padding:2px 6px; cursor:pointer;}
-#groupPanel .pageSlots{list-style:none; margin:0; padding:0;}
-#groupPanel .pageSlots li{display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px solid #ddd;}
-#groupPanel .pageSlots li.full{color:#a00;}
+#groupPanel .pageCard{background:#fff; border:1px solid #ccc; border-radius:4px; padding:6px 8px; margin-bottom:6px; transition:background-color .1s;}
+#groupPanel .pageCard.dragOver{background:#dff0ff; border-color:#0080ff;}
+#groupPanel .pageCardHeader{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;}
+#groupPanel .pageCardHeader span.full{color:#a00;}
+#groupPanel .pageCardHeader button{font-size:10px; padding:1px 5px; cursor:pointer;}
+#groupPanel .pageGroupList{display:flex; flex-wrap:wrap; gap:4px;}
+#groupPanel .pageGroupChip{background:#eef3fb; border:1px solid #9bbde0; border-radius:3px; padding:2px 6px; font-size:11px; cursor:grab;}
+#groupPanel .pageGroupChip:active{cursor:grabbing;}
 #groupPanel .emptyNote{color:#777; font-style:italic;}
 /* ===================== END GROUP PANEL ===================== */
 </style>
@@ -633,16 +638,33 @@ async function handleFile(file){
 }
 function setStatus(text){ $("#dataStatus").textContent = text; }
 
+/* true for a real file drag (dataTransfer always advertises the "Files"
+   type for these, even in the chat/web-attachment case below where the
+   actual File object turns out to be unreadable) -- false for the group
+   panel's own internal drag-and-drop (a custom MIME type, never "Files"),
+   so dragging a group chip around never triggers the big file-drop
+   overlay or the "no file" status message meant for real file drops. */
+function isFileDrag(e){
+  return !!(e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.indexOf("Files") !== -1);
+}
+
 function setupDropZone(){
   var counter = 0;
   /* capture:true so this always sees the event first, even if some native
      control (an <input>/<select> under the cursor) would otherwise handle
      drag/drop itself before it bubbles back up to window */
   var opts = { capture:true };
-  window.addEventListener("dragenter", function(e){ e.preventDefault(); counter++; $("#dropOverlay").hidden = false; }, opts);
+  window.addEventListener("dragenter", function(e){
+    if(!isFileDrag(e)) return;
+    e.preventDefault(); counter++; $("#dropOverlay").hidden = false;
+  }, opts);
   window.addEventListener("dragover", function(e){ e.preventDefault(); }, opts);
-  window.addEventListener("dragleave", function(e){ e.preventDefault(); counter=Math.max(0,counter-1); if(counter===0) $("#dropOverlay").hidden = true; }, opts);
+  window.addEventListener("dragleave", function(e){
+    if(!isFileDrag(e)) return;
+    e.preventDefault(); counter=Math.max(0,counter-1); if(counter===0) $("#dropOverlay").hidden = true;
+  }, opts);
   window.addEventListener("drop", function(e){
+    if(!isFileDrag(e)) return;
     e.preventDefault();
     counter = 0;
     $("#dropOverlay").hidden = true;
@@ -1481,23 +1503,25 @@ function initEvents(){
 }
 
 /* ---------------- department grouping sidebar ---------------- */
-/* state.contacts is already grouped contiguously by department (sortContacts
-   groups by deptGroupKey first), so this only needs one pass collecting
-   consecutive runs -- no separate grouping/sorting logic to keep in sync. */
 function deptDisplayLabel(dept){ return (dept||"").trim().replace(/^c\.?\s+/i, "") || "(no department)"; }
-function computeDepartmentGroups(){
-  var groups = [];
-  var current = null;
-  state.contacts.forEach(function(c){
+/* buckets any contact list by department -- used both for the full roster
+   (state.contacts) and for a single page's own contacts, which aren't
+   guaranteed to stay contiguous by department once groups are moved
+   between pages by hand. Groups appear in first-seen order. */
+function groupContactsByDepartment(contacts){
+  var byKey = new Map();
+  var order = [];
+  contacts.forEach(function(c){
     var key = deptGroupKey(c.department);
-    if(!current || current.key !== key){
-      current = { key:key, label:deptDisplayLabel(c.department), contacts:[] };
-      groups.push(current);
+    if(!byKey.has(key)){
+      byKey.set(key, { key:key, label:deptDisplayLabel(c.department), contacts:[] });
+      order.push(key);
     }
-    current.contacts.push(c);
+    byKey.get(key).contacts.push(c);
   });
-  return groups;
+  return order.map(function(k){ return byKey.get(k); });
 }
+function computeDepartmentGroups(){ return groupContactsByDepartment(state.contacts); }
 
 /* which 1-indexed page(s) currently show at least one of this group's
    contacts -- contact objects are shared by reference all the way from
@@ -1519,9 +1543,10 @@ function pageNumbersForGroup(group){
    pages up to that index if needed, then reuses the existing overflow
    cascade (reflowFromPage) so nothing is ever dropped if it doesn't fit --
    the same guarantee a manual layout-capacity change already gets. */
-function addGroupToPage(group, pageNumber){
-  var index = pageNumber - 1;
-  if(index < 0) return;
+/* ensures state.pages[index] exists and is a real content page (creating
+   blank pages up to it, and waking it up from "empty" if needed), ready to
+   receive contacts. Shared by addGroupToPage and moveGroupBetweenPages. */
+function activateContentPage(index){
   var defaultLayout = defaultLayoutForOrientation();
   while(state.pages.length <= index){
     state.pages.push(blankPage(defaultLayout));
@@ -1531,8 +1556,56 @@ function addGroupToPage(group, pageNumber){
     target.layout = defaultLayout;
     target.savedContacts = null;
   }
+  return target;
+}
+
+function addGroupToPage(group, pageNumber){
+  var index = pageNumber - 1;
+  if(index < 0) return;
+  var target = activateContentPage(index);
   target.contacts = target.contacts.concat(group.contacts);
   reflowFromPage(index);
+  renderViewer();
+}
+
+/* moves just the contacts belonging to one department group from one page
+   to another -- used by the drag-and-drop page-slot UI. Only the contacts
+   actually present on the source page move (so dragging a group that's
+   split across pages only takes its portion off the page you dragged from),
+   and the destination cascades overflow forward exactly like Add does. */
+function moveGroupBetweenPages(fromIndex, toIndex, groupKey){
+  if(fromIndex === toIndex) return;
+  var fromPage = state.pages[fromIndex];
+  if(!fromPage) return;
+  var moving = fromPage.contacts.filter(function(c){ return deptGroupKey(c.department) === groupKey; });
+  if(!moving.length) return;
+  fromPage.contacts = fromPage.contacts.filter(function(c){ return deptGroupKey(c.department) !== groupKey; });
+  var toPage = activateContentPage(toIndex);
+  toPage.contacts = toPage.contacts.concat(moving);
+  reflowFromPage(toIndex);
+  renderViewer();
+}
+
+/* removes a page outright. Any contacts it was showing (including ones
+   hidden in savedContacts because it was currently "empty") are never just
+   discarded -- they're folded into a fresh page reinserted at the same
+   spot and cascaded forward via reflowFromPage, the same overflow-safe
+   path every other page-capacity change already uses. If the page had
+   nothing to rescue, it's simply removed. Re-pads to an even count
+   afterward, same as every other page-count change. */
+function removePage(index){
+  var page = state.pages[index];
+  if(!page) return;
+  var toRescue = page.contacts.concat(page.savedContacts || []);
+  state.pages.splice(index, 1);
+  if(toRescue.length){
+    var insertAt = Math.min(index, state.pages.length);
+    state.pages.splice(insertAt, 0, blankPage(defaultLayoutForOrientation(), toRescue));
+    reflowFromPage(insertAt);
+  }
+  if(state.pages.length % 2 !== 0){
+    state.pages.push(emptyFillerPage());
+  }
   renderViewer();
 }
 
@@ -1585,24 +1658,61 @@ function renderGroupPanel(){
     panel.appendChild(row);
   });
 
-  panel.appendChild(el("h2", { text:"Page slots", style:"margin-top:14px;" }));
+  panel.appendChild(el("h2", { text:"Pages", style:"margin-top:14px;" }));
   if(!state.pages.length){
     panel.appendChild(el("div", { class:"emptyNote", text:"No pages yet." }));
     return;
   }
-  var ul = el("ul", { class:"pageSlots" });
+
+  var DRAG_MIME = "application/x-cccp-group";
   state.pages.forEach(function(p, i){
-    var li = document.createElement("li");
-    if(p.layout === "empty"){
-      li.textContent = "Page " + (i+1) + ": empty";
-    } else {
-      var cap = layoutRows(p.layout), used = p.contacts.length, free = Math.max(0, cap-used);
-      li.textContent = "Page " + (i+1) + " (" + LAYOUTS[p.layout].label + "): " + used + "/" + cap + " used, " + free + " free";
-      if(free === 0) li.className = "full";
+    var card = el("div", { class:"pageCard" });
+
+    var headerRow = el("div", { class:"pageCardHeader" });
+    var cap = layoutRows(p.layout), used = p.contacts.length, free = Math.max(0, cap-used);
+    var headerText = p.layout === "empty"
+      ? "Page " + (i+1) + ": empty"
+      : "Page " + (i+1) + " (" + LAYOUTS[p.layout].label + "): " + used + "/" + cap + " used, " + free + " free";
+    headerRow.appendChild(el("span", { class: free === 0 && p.layout !== "empty" ? "full" : "", text:headerText }));
+    var removeBtn = el("button", { type:"button", text:"Remove" });
+    removeBtn.addEventListener("click", function(){ removePage(i); });
+    headerRow.appendChild(removeBtn);
+    card.appendChild(headerRow);
+
+    var chipList = el("div", { class:"pageGroupList" });
+    groupContactsByDepartment(p.contacts).forEach(function(g){
+      var chip = el("div", { class:"pageGroupChip", draggable:"true", text:g.label + " " + g.contacts.length });
+      chip.addEventListener("dragstart", function(e){
+        e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ fromPage:i, groupKey:g.key }));
+        e.dataTransfer.effectAllowed = "move";
+      });
+      chipList.appendChild(chip);
+    });
+    if(!chipList.children.length){
+      chipList.appendChild(el("div", { class:"emptyNote", text: p.layout === "empty" ? "Drop a group here to fill it" : "No contacts here yet" }));
     }
-    ul.appendChild(li);
+    card.appendChild(chipList);
+
+    /* the whole card is a drop target -- dragging a group chip from any
+       page (including this one, a no-op) onto it moves that group's
+       contacts on the source page here, cascading overflow like Add does */
+    card.addEventListener("dragover", function(e){
+      if(e.dataTransfer.types.indexOf(DRAG_MIME) === -1) return;
+      e.preventDefault();
+      card.classList.add("dragOver");
+    });
+    card.addEventListener("dragleave", function(){ card.classList.remove("dragOver"); });
+    card.addEventListener("drop", function(e){
+      e.preventDefault();
+      card.classList.remove("dragOver");
+      var raw = e.dataTransfer.getData(DRAG_MIME);
+      if(!raw) return;
+      var data = JSON.parse(raw);
+      moveGroupBetweenPages(data.fromPage, i, data.groupKey);
+    });
+
+    panel.appendChild(card);
   });
-  panel.appendChild(ul);
 }
 
 /* ===================== DEBUG PANEL (temporary) =====================
