@@ -152,6 +152,11 @@ var DEPT_FONT_PT = 6;
 /* -- text length caps -- */
 var DEPT_MAX_CHARS = 1;   /* plus the "C " chief prefix, kept separately -- department is the least important field, so it's kept minimal to give the name column room */
 var LABEL_MAX_CHARS = 6;  /* number-type tags on the 10-contact layout, e.g. "Work"/"Home" */
+/* v10 line 2's wide column shows the email, but falls back to label2 when
+   the email field isn't carrying much (or any) real information -- empty,
+   too short to be a real address, or missing an "@" (so it's probably
+   being used to hold something else entirely). See pickLine2Field(). */
+var EMAIL_FALLBACK_MIN_CHARS = 5;
 
 /* -- row capacity per layout (contacts per card) --
    separate mutable vars (not baked into LAYOUTS) so the debug panel can
@@ -192,14 +197,18 @@ var IMPORT_HEADER_ALIASES = {
   phone:      ["phone","number","phone1","phone 1"],
   phone2:     ["phone2","phone 2"],
   label1:     ["label1","label 1","type1","type 1","number type"],
+  label2:     ["label2","label 2","type2","type 2"],
   email:      ["email","e-mail"]
 };
 
 /* -- card layout definitions --
    v10 is 10 CONTACTS, each spanning two printed lines:
-     line 1: name  | label1 (number type, e.g. "Work") | phone1
-     line 2: email |                                   | phone2
-   (line 2 has no label of its own -- see phoneRowLegend below).
+     line 1: name             | label1 (number type, e.g. "Work") | phone1
+     line 2: email (or label2)|                                   | phone2
+   Line 2's wide column shows the email, falling back to label2 when the
+   email isn't real/useful (see pickLine2Field) -- it has no label column
+   of its own; which number is "work" vs "home" is shown once, structurally,
+   via the header legend below instead of repeating a tag on every row.
    layoutRows("v10") is the contact count (10), not the printed line count. */
 var LAYOUTS = {
   v20:   { key:"v20",   label:"20-row vertical",              orientation:"vertical",   phones:1, showDept:true,  doubleRow:false },
@@ -509,6 +518,7 @@ function rowsToContacts(rows){
     phone:      headerIndex(headers, IMPORT_HEADER_ALIASES.phone),
     phone2:     headerIndex(headers, IMPORT_HEADER_ALIASES.phone2),
     label1:     headerIndex(headers, IMPORT_HEADER_ALIASES.label1),
+    label2:     headerIndex(headers, IMPORT_HEADER_ALIASES.label2),
     email:      headerIndex(headers, IMPORT_HEADER_ALIASES.email)
   };
   var out = [];
@@ -522,7 +532,7 @@ function rowsToContacts(rows){
     if(!name) continue;
     out.push({
       name:name, department:get(idx.department), phone:get(idx.phone), phone2:get(idx.phone2),
-      label1:get(idx.label1), email:get(idx.email)
+      label1:get(idx.label1), label2:get(idx.label2), email:get(idx.email)
     });
   }
   return out;
@@ -680,6 +690,19 @@ function formatPhoneNumber(raw){
     return digits.slice(0,3)+"-"+digits.slice(3,5)+" "+digits.slice(5,7)+" "+digits.slice(7,9);
   }
   return digits || (raw||"").trim();
+}
+
+/* v10 line 2's wide column shows the email, unless it doesn't look like one
+   is really there -- empty, shorter than EMAIL_FALLBACK_MIN_CHARS, or
+   missing an "@" (so the field is probably being used for something else)
+   -- in which case label2 is shown there instead. Shared by drawCard and
+   getEditableRegions so a click always edits whichever field is actually
+   on screen. */
+function pickLine2Field(contact){
+  var email = (contact.email || "").trim();
+  var looksLikeEmail = email.length >= EMAIL_FALLBACK_MIN_CHARS && email.indexOf("@") !== -1;
+  if(looksLikeEmail) return { key:"email", value:email };
+  return { key:"label2", value:(contact.label2 || "").trim() };
 }
 
 /* ---------------- column layout (shared by drawing and click hit-testing) ---------------- */
@@ -860,7 +883,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
       var c = contacts[i];
       if(!c) continue;
       drawGenericRow(ctx, xPx, top1, wPx, subRowH, dpi, colSet.line1, [c.name, formatLabelForRow(c.label1), formatPhoneNumber(c.phone)]);
-      drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, colSet.line2, [c.email, formatPhoneNumber(c.phone2)]);
+      drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, colSet.line2, [pickLine2Field(c).value, formatPhoneNumber(c.phone2)]);
     }
   } else {
     var rowH = bodyH / capacity;
@@ -986,7 +1009,7 @@ function renderCardsOntoCanvas(canvas, pageIndex){
 /* every editable field's box within ONE card, relative to that card's own
    top-left corner -- shared by both drawing (implicitly, via the same
    column-layout functions) and click hit-testing */
-function getEditableRegions(ctx, wPx, hPx, dpi, layout){
+function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts){
   var regions = [];
   var headerH = computeHeaderH(hPx, layout);
   var bodyY = headerH, bodyH = hPx - headerH;
@@ -999,9 +1022,13 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout){
     var subRowH = bodyH / (capacity*2);
     var colSet = layoutDoubleRowColumns(ctx, wPx, dpi);
     var fieldsLine1 = ["name","label1","phone"];
-    var fieldsLine2 = ["email","phone2"];
     for(var i=0;i<capacity;i++){
       var top1 = bodyY + subRowH*2*i, top2 = top1 + subRowH;
+      /* line 2's wide field is either "email" or "label2" depending on the
+         contact (see pickLine2Field) -- the edit target must match exactly
+         what's drawn there, so it's resolved per-contact, not fixed */
+      var contact = contacts && contacts[i];
+      var fieldsLine2 = [contact ? pickLine2Field(contact).key : "email", "phone2"];
       colSet.line1.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine1[ci], x:col.x, y:top1, w:col.w, h:subRowH }); });
       colSet.line2.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine2[ci], x:col.x, y:top2, w:col.w, h:subRowH }); });
     }
@@ -1072,7 +1099,7 @@ function onCanvasClick(e, canvas, pageIndex){
   var xInCard = xInBlock - cardCol*cardWpx, yInCard = yInBlock - cardRow*cardHpx;
 
   var ctx = canvas.getContext("2d");
-  var regions = getEditableRegions(ctx, cardWpx, cardHpx, RENDER_DPI, geo.layout);
+  var regions = getEditableRegions(ctx, cardWpx, cardHpx, RENDER_DPI, geo.layout, pageState.contacts);
   var hit = regions.find(function(r){ return xInCard>=r.x && xInCard<r.x+r.w && yInCard>=r.y && yInCard<r.y+r.h; });
   if(!hit) return;
 
