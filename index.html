@@ -11,9 +11,6 @@ body{margin:0; font:14px/1.4 Arial, sans-serif; background:#e6e6e6; color:#111; 
 
 header.toolbar{flex:0 0 auto; background:#1c1c1c; color:#fff; padding:8px 12px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
 header.toolbar h1{font-size:15px; margin:0 14px 0 0;}
-header.toolbar button, header.toolbar select, header.toolbar input{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
-header.toolbar button:hover{background:#eee;}
-header.toolbar button.active{background:#333; color:#fff;}
 #pageIndicator{font-size:12px; min-width:90px; text-align:center;}
 .spacer{flex:1 1 auto;}
 label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
@@ -1776,41 +1773,42 @@ function activateContentPage(index){
   return target;
 }
 
-/* removes and returns the contacts belonging to one department group from
-   one page's contacts -- never touches state.contacts itself, so the
-   contacts are only ever "unassigned from this page", not deleted. */
-function takeGroupOffPage(pageIndex, groupKey){
+/* ---- shared drag/drop placement engine for both a whole department group
+   and a single contact -- the two used to be fully separate (but identical)
+   function families; unified here behind a match-predicate since the only
+   real difference was "match by deptGroupKey" vs "match by id". ---- */
+
+/* removes and returns every contact matching `matches` from one page's
+   contacts -- never touches state.contacts itself, so a contact is only
+   ever "unassigned from this page", not deleted. */
+function takeMatchingOffPage(pageIndex, matches){
   var page = state.pages[pageIndex];
   if(!page) return [];
-  var taken = page.contacts.filter(function(c){ return deptGroupKey(c.department) === groupKey; });
-  if(taken.length) page.contacts = page.contacts.filter(function(c){ return deptGroupKey(c.department) !== groupKey; });
+  var taken = page.contacts.filter(matches);
+  if(taken.length) page.contacts = page.contacts.filter(function(c){ return !matches(c); });
   return taken;
 }
-/* same, but across every page -- used when a group is split across
-   several pages and needs to end up consolidated in exactly one place. */
-function takeGroupOffAllPages(groupKey){
+/* same, but across every page -- used when a match is split across several
+   pages and needs to end up consolidated in exactly one place. */
+function takeMatchingOffAllPages(matches){
   var taken = [];
-  state.pages.forEach(function(p, i){ taken = taken.concat(takeGroupOffPage(i, groupKey)); });
+  state.pages.forEach(function(p, i){ taken = taken.concat(takeMatchingOffPage(i, matches)); });
   return taken;
 }
-/* the department groups grid (the "unplaced pool") is draggable too, and
-   isn't tied to any one page -- its drags carry fromPage:null. Dragging
-   it onto a page consolidates the WHOLE group there: every member gets
-   taken off whatever page(s) it's currently on, AND every member that was
-   never placed anywhere is pulled in from the roster too -- a department
-   is very often a mix of both (e.g. after one of its contacts was already
-   dragged there individually) rather than all-placed or all-unplaced, so
+/* the unplaced pool (department tiles, expanded contact rows) is draggable
+   too, and isn't tied to any one page -- its drags carry fromPage:null.
+   Dragging it onto a page consolidates every match there: whatever's
+   already on some page(s), AND whatever's still unplaced -- often a mix of
+   both (e.g. after one contact was already dragged there individually), so
    neither source alone is enough. Dragging an actual page's chip (fromPage
-   is a real index) still only ever touches that one page's portion, as
-   before.
+   a real index) still only ever touches that one page's portion, as before.
 
    With state.allowDuplicates on, every drag becomes a copy instead: nothing
-   is ever taken off any page, the full membership just comes straight from
-   the roster, so the same department can end up placed on several pages at
-   once on purpose. */
-function takeGroup(fromPage, groupKey){
+   is ever taken off any page, membership comes straight from the roster,
+   so the same group/contact can end up placed on several pages on purpose. */
+function takeMatching(fromPage, matches){
   if(state.allowDuplicates){
-    return state.contacts.filter(function(c){ return deptGroupKey(c.department) === groupKey; });
+    return state.contacts.filter(matches);
   }
   if(fromPage == null){
     /* a contact placed on more than one page (via allowDuplicates) gets
@@ -1819,34 +1817,31 @@ function takeGroup(fromPage, groupKey){
        accounted for AND, converted back to an array, dedupes the final
        result so consolidating never doubles someone up on the one
        destination page */
-    var fromPages = takeGroupOffAllPages(groupKey);
+    var fromPages = takeMatchingOffAllPages(matches);
     var alreadyTaken = new Set(fromPages);
-    var stillUnplaced = state.contacts.filter(function(c){
-      return deptGroupKey(c.department) === groupKey && !alreadyTaken.has(c);
-    });
+    var stillUnplaced = state.contacts.filter(function(c){ return matches(c) && !alreadyTaken.has(c); });
     return Array.from(alreadyTaken).concat(stillUnplaced);
   }
-  return takeGroupOffPage(fromPage, groupKey);
+  return takeMatchingOffPage(fromPage, matches);
 }
 
-/* moves just the contacts belonging to one department group from one page
-   (or the unplaced pool, fromPage:null) to another page -- used by the
-   drag-and-drop page-slot UI. The destination cascades overflow forward
-   exactly like every other placement path. */
-function moveGroupBetweenPages(fromPage, toIndex, groupKey){
+/* moves every matching contact from one page (or the unplaced pool,
+   fromPage:null) to another page -- used by the drag-and-drop page-slot
+   UI. The destination cascades overflow forward exactly like every other
+   placement path. */
+function moveMatchingBetweenPages(fromPage, toIndex, matches){
   if(fromPage != null && fromPage === toIndex) return;
-  var moving = takeGroup(fromPage, groupKey);
+  var moving = takeMatching(fromPage, matches);
   if(!moving.length) return;
   var toPage = activateContentPage(toIndex);
   toPage.contacts = toPage.contacts.concat(moving);
   reflowFromPage(toIndex);
   renderViewer();
 }
-
-/* drop target: sends a group to a freshly appended page of its own,
-   cascading overflow forward from there exactly like any other placement. */
-function moveGroupToNewPage(fromPage, groupKey){
-  var moving = takeGroup(fromPage, groupKey);
+/* drop target: sends every matching contact to a freshly appended page of
+   its own, cascading overflow forward from there like any other placement. */
+function moveMatchingToNewPage(fromPage, matches){
+  var moving = takeMatching(fromPage, matches);
   if(!moving.length) return;
   var newIndex = state.pages.length;
   state.pages.push(blankPage(defaultLayoutForOrientation(), moving));
@@ -1854,67 +1849,27 @@ function moveGroupToNewPage(fromPage, groupKey){
   if(state.pages.length % 2 !== 0) state.pages.push(emptyFillerPage());
   renderViewer();
 }
-
-/* drop target: takes a group off the page it's on (or, dragged from the
-   unplaced pool, off every page it's on) and puts it nowhere else -- e.g.
-   dragging IT off page 3 without clearing the rest of that page. The
-   contacts are never deleted (still in state.contacts): they just go back
-   to being unplaced, ready to be dragged somewhere else later if wanted. */
-function removeGroupFromPage(fromPage, groupKey){
-  var taken = fromPage == null ? takeGroupOffAllPages(groupKey) : takeGroupOffPage(fromPage, groupKey);
+/* drop target: takes every matching contact off the page it's on (or,
+   dragged from the unplaced pool, off every page it's on) and puts it
+   nowhere else -- e.g. dragging IT off page 3 without clearing the rest of
+   that page. Contacts are never deleted (still in state.contacts): they
+   just go back to being unplaced, ready to be dragged somewhere else later. */
+function removeMatchingFromPage(fromPage, matches){
+  var taken = fromPage == null ? takeMatchingOffAllPages(matches) : takeMatchingOffPage(fromPage, matches);
   if(!taken.length) return;
   renderViewer();
 }
 
-/* ---- the same four operations, but for one specific contact instead of
-   a whole department group -- a single name can be dragged and dropped
-   exactly like a full department, just narrower in scope. ---- */
-function takeContactOffPage(pageIndex, contactId){
-  var page = state.pages[pageIndex];
-  if(!page) return null;
-  var idx = page.contacts.findIndex(function(c){ return c.id === contactId; });
-  if(idx === -1) return null;
-  return page.contacts.splice(idx, 1)[0];
-}
-function takeContactOffAllPages(contactId){
-  var found = null;
-  state.pages.forEach(function(p, i){ var c = takeContactOffPage(i, contactId); if(c) found = c; });
-  return found;
-}
-function takeContact(fromPage, contactId){
-  if(state.allowDuplicates){
-    return state.contacts.find(function(c){ return c.id === contactId; }) || null;
-  }
-  if(fromPage == null){
-    var found = takeContactOffAllPages(contactId);
-    if(found) return found;
-    return state.contacts.find(function(c){ return c.id === contactId; }) || null;
-  }
-  return takeContactOffPage(fromPage, contactId);
-}
-function moveContactBetweenPages(fromPage, toIndex, contactId){
-  if(fromPage != null && fromPage === toIndex) return;
-  var moving = takeContact(fromPage, contactId);
-  if(!moving) return;
-  var toPage = activateContentPage(toIndex);
-  toPage.contacts = toPage.contacts.concat([moving]);
-  reflowFromPage(toIndex);
-  renderViewer();
-}
-function moveContactToNewPage(fromPage, contactId){
-  var moving = takeContact(fromPage, contactId);
-  if(!moving) return;
-  var newIndex = state.pages.length;
-  state.pages.push(blankPage(defaultLayoutForOrientation(), [moving]));
-  reflowFromPage(newIndex);
-  if(state.pages.length % 2 !== 0) state.pages.push(emptyFillerPage());
-  renderViewer();
-}
-function removeContactFromPage(fromPage, contactId){
-  var taken = fromPage == null ? takeContactOffAllPages(contactId) : takeContactOffPage(fromPage, contactId);
-  if(!taken) return;
-  renderViewer();
-}
+function groupMatcher(groupKey){ return function(c){ return deptGroupKey(c.department) === groupKey; }; }
+function contactMatcher(contactId){ return function(c){ return c.id === contactId; }; }
+
+function moveGroupBetweenPages(fromPage, toIndex, groupKey){ moveMatchingBetweenPages(fromPage, toIndex, groupMatcher(groupKey)); }
+function moveGroupToNewPage(fromPage, groupKey){ moveMatchingToNewPage(fromPage, groupMatcher(groupKey)); }
+function removeGroupFromPage(fromPage, groupKey){ removeMatchingFromPage(fromPage, groupMatcher(groupKey)); }
+
+function moveContactBetweenPages(fromPage, toIndex, contactId){ moveMatchingBetweenPages(fromPage, toIndex, contactMatcher(contactId)); }
+function moveContactToNewPage(fromPage, contactId){ moveMatchingToNewPage(fromPage, contactMatcher(contactId)); }
+function removeContactFromPage(fromPage, contactId){ removeMatchingFromPage(fromPage, contactMatcher(contactId)); }
 
 /* removes a page outright. Its contacts are never deleted -- they're still
    in state.contacts, same as any other unplaced group/contact -- they just
@@ -1968,15 +1923,12 @@ function handlePanelDrop(data, onGroup, onContact){
   else onGroup(data.fromPage, data.groupKey);
 }
 
-/* every 1-indexed page currently showing this exact contact (by reference,
-   same reasoning as pageNumbersForGroup) -- normally at most one, but with
-   allowDuplicates on the same contact can legitimately sit on several */
+/* every 1-indexed page currently showing this exact contact -- normally at
+   most one, but with allowDuplicates on the same contact can legitimately
+   sit on several. A single contact is just a one-member group for this
+   purpose, so it reuses pageNumbersForGroup's own reference-matching logic. */
 function pageNumbersForContact(contact){
-  var nums = [];
-  for(var i=0;i<state.pages.length;i++){
-    if(state.pages[i].contacts.indexOf(contact) !== -1) nums.push(i+1);
-  }
-  return nums;
+  return pageNumbersForGroup({ contacts:[contact] });
 }
 
 /* one draggable row per contact, used both under an expanded pool tile and
