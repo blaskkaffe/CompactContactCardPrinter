@@ -67,14 +67,12 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
    below (the part that matters most once you're placing groups) starts
    higher up and needs less scrolling to reach */
 #groupPanel .groupGrid{display:grid; grid-template-columns:repeat(2, 1fr); gap:5px; margin-bottom:10px;}
-#groupPanel .groupTile{background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 5px; font-size:11px; min-width:0;}
+#groupPanel .groupTile{background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 5px; font-size:11px; min-width:0; cursor:grab;}
+#groupPanel .groupTile:active{cursor:grabbing;}
 #groupPanel .groupTile.placed{border-color:#c98a2e; background:#fff8ee;}
 #groupPanel .groupTileName{font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-#groupPanel .groupTileCount{color:#777; margin:1px 0 3px;}
+#groupPanel .groupTileCount{color:#777; margin-top:1px;}
 #groupPanel .groupTile.placed .groupTileCount{color:#a60;}
-#groupPanel .groupTileAdd{display:flex; gap:3px;}
-#groupPanel .groupTileAdd input{width:0; flex:1 1 auto; font-size:10px; padding:1px 2px;}
-#groupPanel .groupTileAdd button{font-size:11px; padding:0 6px; cursor:pointer; line-height:1.6;}
 #groupPanel .pageCard{background:#fff; border:1px solid #ccc; border-radius:4px; padding:6px 8px; margin-bottom:6px; transition:background-color .1s;}
 #groupPanel .pageCard.dragOver{background:#dff0ff; border-color:#0080ff;}
 #groupPanel .pageCardHeader{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;}
@@ -172,7 +170,7 @@ var PHONE_FONT_PT = 7;
 var DEPT_FONT_PT = 6;
 
 /* -- text length caps -- */
-var DEPT_MAX_CHARS = 1;   /* plus the "C " chief prefix, kept separately -- department is the least important field, so it's kept minimal to give the name column room */
+var DEPT_MAX_CHARS = 4;   /* plus the "C " chief prefix, kept separately -- department is the least important field, so it's kept small to give the name column room */
 var LABEL_MAX_CHARS = 6;  /* number-type tags on the 10-contact layout, e.g. "Work"/"Home" */
 /* v10 line 2's wide column shows the email, but falls back to label2 when
    the email field isn't carrying much (or any) real information -- empty,
@@ -1576,7 +1574,7 @@ function pageNumbersForGroup(group){
    the same guarantee a manual layout-capacity change already gets. */
 /* ensures state.pages[index] exists and is a real content page (creating
    blank pages up to it, and waking it up from "empty" if needed), ready to
-   receive contacts. Shared by addGroupToPage and moveGroupBetweenPages. */
+   receive contacts. Shared by moveGroupBetweenPages and moveGroupToNewPage. */
 function activateContentPage(index){
   var defaultLayout = defaultLayoutForOrientation();
   while(state.pages.length <= index){
@@ -1590,24 +1588,9 @@ function activateContentPage(index){
   return target;
 }
 
-function addGroupToPage(group, pageNumber){
-  var index = pageNumber - 1;
-  if(index < 0) return;
-  var target = activateContentPage(index);
-  target.contacts = target.contacts.concat(group.contacts);
-  reflowFromPage(index);
-  renderViewer();
-}
-
-/* moves just the contacts belonging to one department group from one page
-   to another -- used by the drag-and-drop page-slot UI. Only the contacts
-   actually present on the source page move (so dragging a group that's
-   split across pages only takes its portion off the page you dragged from),
-   and the destination cascades overflow forward exactly like Add does. */
 /* removes and returns the contacts belonging to one department group from
-   one page's contacts -- the shared first step of moving, delete-from-
-   page, and send-to-a-new-page. Never touches state.contacts itself, so
-   the contacts are only ever "unassigned from this page", not deleted. */
+   one page's contacts -- never touches state.contacts itself, so the
+   contacts are only ever "unassigned from this page", not deleted. */
 function takeGroupOffPage(pageIndex, groupKey){
   var page = state.pages[pageIndex];
   if(!page) return [];
@@ -1615,10 +1598,36 @@ function takeGroupOffPage(pageIndex, groupKey){
   if(taken.length) page.contacts = page.contacts.filter(function(c){ return deptGroupKey(c.department) !== groupKey; });
   return taken;
 }
+/* same, but across every page -- used when a group is split across
+   several pages and needs to end up consolidated in exactly one place. */
+function takeGroupOffAllPages(groupKey){
+  var taken = [];
+  state.pages.forEach(function(p, i){ taken = taken.concat(takeGroupOffPage(i, groupKey)); });
+  return taken;
+}
+/* the department groups grid (the "unplaced pool") is draggable too, and
+   isn't tied to any one page -- its drags carry fromPage:null. Dragging
+   it onto a page consolidates the WHOLE group there, taking it off every
+   page it's currently on (so it never ends up duplicated across pages);
+   if it was never placed anywhere, its contacts come straight from the
+   roster instead. Dragging an actual page's chip (fromPage is a real
+   index) still only ever touches that one page's portion, as before. */
+function takeGroup(fromPage, groupKey){
+  if(fromPage == null){
+    var taken = takeGroupOffAllPages(groupKey);
+    if(taken.length) return taken;
+    return state.contacts.filter(function(c){ return deptGroupKey(c.department) === groupKey; });
+  }
+  return takeGroupOffPage(fromPage, groupKey);
+}
 
-function moveGroupBetweenPages(fromIndex, toIndex, groupKey){
-  if(fromIndex === toIndex) return;
-  var moving = takeGroupOffPage(fromIndex, groupKey);
+/* moves just the contacts belonging to one department group from one page
+   (or the unplaced pool, fromPage:null) to another page -- used by the
+   drag-and-drop page-slot UI. The destination cascades overflow forward
+   exactly like every other placement path. */
+function moveGroupBetweenPages(fromPage, toIndex, groupKey){
+  if(fromPage != null && fromPage === toIndex) return;
+  var moving = takeGroup(fromPage, groupKey);
   if(!moving.length) return;
   var toPage = activateContentPage(toIndex);
   toPage.contacts = toPage.contacts.concat(moving);
@@ -1628,8 +1637,8 @@ function moveGroupBetweenPages(fromIndex, toIndex, groupKey){
 
 /* drop target: sends a group to a freshly appended page of its own,
    cascading overflow forward from there exactly like any other placement. */
-function moveGroupToNewPage(fromIndex, groupKey){
-  var moving = takeGroupOffPage(fromIndex, groupKey);
+function moveGroupToNewPage(fromPage, groupKey){
+  var moving = takeGroup(fromPage, groupKey);
   if(!moving.length) return;
   var newIndex = state.pages.length;
   state.pages.push(blankPage(defaultLayoutForOrientation(), moving));
@@ -1638,13 +1647,14 @@ function moveGroupToNewPage(fromIndex, groupKey){
   renderViewer();
 }
 
-/* drop target: takes a group off the page it's on and puts it nowhere
-   else -- e.g. dragging IT off page 3 without clearing the rest of that
-   page. The contacts are never deleted (still in state.contacts): they
-   just go back to "Not placed yet" in the department list above, ready
-   to be added somewhere else later if wanted. */
-function removeGroupFromPage(fromIndex, groupKey){
-  if(!takeGroupOffPage(fromIndex, groupKey).length) return;
+/* drop target: takes a group off the page it's on (or, dragged from the
+   unplaced pool, off every page it's on) and puts it nowhere else -- e.g.
+   dragging IT off page 3 without clearing the rest of that page. The
+   contacts are never deleted (still in state.contacts): they just go back
+   to being unplaced, ready to be dragged somewhere else later if wanted. */
+function removeGroupFromPage(fromPage, groupKey){
+  var taken = fromPage == null ? takeGroupOffAllPages(groupKey) : takeGroupOffPage(fromPage, groupKey);
+  if(!taken.length) return;
   renderViewer();
 }
 
@@ -1719,35 +1729,25 @@ function renderGroupPanel(){
     var placed = pageNums.length > 0;
     var tile = el("div", {
       class: "groupTile" + (placed ? " placed" : ""),
-      title: placed ? ("On page" + (pageNums.length>1 ? "s " : " ") + pageNums.join(", ")) : "Not placed yet"
+      draggable: "true",
+      title: (placed ? ("On page" + (pageNums.length>1 ? "s " : " ") + pageNums.join(", ")) : "Not placed yet") + " -- drag onto a page below"
     });
     tile.appendChild(el("div", { class:"groupTileName", text:g.label }));
     tile.appendChild(el("div", { class:"groupTileCount", text:g.contacts.length + (placed ? " · p" + pageNums.join(",") : "") }));
-
-    var addRow = el("div", { class:"groupTileAdd" });
-    var pageInput = document.createElement("input");
-    pageInput.type = "number"; pageInput.min = "1"; pageInput.step = "1";
-    pageInput.value = String(state.pages.length + 1); /* defaults to "next new page" for sequential one-group-per-page building */
-    addRow.appendChild(pageInput);
-    var addBtn = el("button", { type:"button", text:"+" });
-    addBtn.title = "Add to page";
-    addBtn.addEventListener("click", function(){
-      var target = parseInt(pageInput.value, 10);
-      if(!target || target < 1) return;
-      addGroupToPage(g, target);
+    /* fromPage:null marks this as a drag from the unplaced-pool grid
+       (as opposed to a specific page's chip) -- see takeGroup() */
+    tile.addEventListener("dragstart", function(e){
+      e.dataTransfer.setData(GROUP_DRAG_MIME, JSON.stringify({ fromPage:null, groupKey:g.key }));
+      e.dataTransfer.effectAllowed = "move";
     });
-    addRow.appendChild(addBtn);
-    tile.appendChild(addRow);
     grid.appendChild(tile);
   });
   panel.appendChild(grid);
 
   panel.appendChild(el("h2", { text:"Pages", style:"margin-top:14px;" }));
-  if(!state.pages.length){
-    panel.appendChild(el("div", { class:"emptyNote", text:"No pages yet." }));
-    return;
-  }
 
+  /* always rendered, even with zero pages -- "+ New page" is the only way
+     to create the very first one now that placement is drag-only */
   var actionZone = el("div", { class:"pageActionZone" });
   var newPageZone = el("div", { class:"dropZone newPageZone", text:"+ New page" });
   var deleteZone = el("div", { class:"dropZone deleteZone", text:"✕ Remove from page" });
@@ -1756,6 +1756,11 @@ function renderGroupPanel(){
   actionZone.appendChild(newPageZone);
   actionZone.appendChild(deleteZone);
   panel.appendChild(actionZone);
+
+  if(!state.pages.length){
+    panel.appendChild(el("div", { class:"emptyNote", text:"No pages yet." }));
+    return;
+  }
 
   state.pages.forEach(function(p, i){
     var card = el("div", { class:"pageCard" });
