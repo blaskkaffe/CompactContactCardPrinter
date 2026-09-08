@@ -109,8 +109,18 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .pageCardHeader{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;}
 #groupPanel .pageCardHeader span.full{color:#a00;}
 #groupPanel .pageCardHeader button{font-size:10px; padding:1px 5px; cursor:pointer;}
+/* one compact row: layout select + color controls (+ Line 2/empty-mode
+   select, when shown) all fit together instead of each wrapping onto its
+   own line -- a fixed, small width with ellipsis keeps a long option name
+   (e.g. "Slate Gray") from blowing the row back out */
 #groupPanel .pageControls{display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-bottom:6px;}
-#groupPanel .pageControls select, #groupPanel .pageControls input{font-size:10.5px; padding:2px 4px; border-radius:3px; border:1px solid #bbb; background:#fff;}
+#groupPanel .pageControls select, #groupPanel .pageControls button, #groupPanel .pageControls input{font-size:10px; padding:2px 3px; border-radius:3px; border:1px solid #bbb; background:#fff; cursor:pointer;}
+#groupPanel .pageControls > select{width:76px; min-width:0; text-overflow:ellipsis; overflow:hidden;}
+#groupPanel .colorControls{display:flex; gap:3px; align-items:center; min-width:0;}
+#groupPanel .colorControls select{width:76px; min-width:0; text-overflow:ellipsis; overflow:hidden;}
+#groupPanel .colorControls button{padding:2px 6px;}
+#groupPanel .rgbBox{display:flex; gap:3px; flex-basis:100%; margin-top:2px;}
+#groupPanel .rgbBox input{width:34px;}
 #groupPanel .pageControls input[type="file"]{width:100%;}
 #groupPanel .pageGroupList{display:flex; flex-wrap:wrap; gap:4px;}
 #groupPanel .pageGroupChip{display:flex; align-items:center; gap:2px; background:#eef3fb; border:1px solid #9bbde0; border-radius:3px; padding:2px 6px; font-size:11px; cursor:grab;}
@@ -274,11 +284,14 @@ var IMPORT_HEADER_ALIASES = {
    of its own; which number is "work" vs "home" is shown once, structurally,
    via the header legend below instead of repeating a tag on every row.
    layoutRows("v10") is the contact count (10), not the printed line count. */
+/* shortLabel is only for the compact per-page layout select (see
+   pageLayoutOptionsSelect) -- label is the full descriptive name used
+   everywhere else (page card headers, etc). */
 var LAYOUTS = {
-  v20:   { key:"v20",   label:"20-row vertical",              orientation:"vertical",   phones:1, showDept:true,  doubleRow:false },
-  v10:   { key:"v10",   label:"10-contact vertical (2 lines)", orientation:"vertical",   phones:2, showDept:false, doubleRow:true, phoneRowLegend:"Work / Home" },
-  h2:    { key:"h2",    label:"2-number horizontal",           orientation:"horizontal", phones:2, showDept:false, doubleRow:false },
-  empty: { key:"empty", label:"Empty page",                    orientation:"vertical",   phones:0, showDept:false, doubleRow:false }
+  v20:   { key:"v20",   label:"20-row vertical",              shortLabel:"20-row",      orientation:"vertical",   phones:1, showDept:true,  doubleRow:false },
+  v10:   { key:"v10",   label:"10-contact vertical (2 lines)", shortLabel:"10 (2-line)", orientation:"vertical",   phones:2, showDept:false, doubleRow:true, phoneRowLegend:"Work / Home" },
+  h2:    { key:"h2",    label:"2-number horizontal",           shortLabel:"2-num horiz", orientation:"horizontal", phones:2, showDept:false, doubleRow:false },
+  empty: { key:"empty", label:"Empty page",                    shortLabel:"Empty",       orientation:"vertical",   phones:0, showDept:false, doubleRow:false }
 };
 
 /* -- header background presets -- all verified >=8:1 WCAG contrast ratio
@@ -1350,8 +1363,9 @@ function doPrint(){
 
 function pageLayoutOptionsSelect(currentKey, onChange){
   var sel = document.createElement("select");
+  sel.title = "Layout";
   ["v20","v10","h2","empty"].forEach(function(key){
-    sel.appendChild(el("option", { value:key, text:LAYOUTS[key].label }));
+    sel.appendChild(el("option", { value:key, text:LAYOUTS[key].shortLabel }));
   });
   sel.value = currentKey;
   sel.addEventListener("change", function(){ onChange(sel.value); });
@@ -1368,9 +1382,10 @@ function hexToRgb(hex){
    for an arbitrary custom color -- contrast with white is the picker's
    own responsibility there, unlike the vetted presets */
 function buildHeaderColorControls(pageState){
-  var wrap = el("div", { style:"display:flex; gap:2px; align-items:center;" });
+  var wrap = el("div", { class:"colorControls" });
 
   var sel = document.createElement("select");
+  sel.title = "Header color";
   COLOR_PRESETS.forEach(function(c){
     sel.appendChild(el("option", { value:c.hex, text:c.name }));
   });
@@ -1382,19 +1397,20 @@ function buildHeaderColorControls(pageState){
   sel.addEventListener("change", function(){ pageState.headerColor = sel.value; renderViewer(); });
   wrap.appendChild(sel);
 
-  var customBtn = el("button", { type:"button", text:"RGB..." });
+  var customBtn = el("button", { type:"button", text:"RGB", title:"Custom RGB color" });
   wrap.appendChild(customBtn);
 
   /* one "Apply" action reads all three fields at once -- applying on each
      individual field's change would trigger a full re-render (this app
      rebuilds page DOM on every state change) that collapses this box
-     before the other two fields could be set */
-  var rgbBox = el("div", { style:"display:none; gap:2px;" });
+     before the other two fields could be set. Its own row (flex-basis via
+     .rgbBox) so it drops to a second line only when actually opened. */
+  var rgbBox = el("div", { class:"rgbBox", style:"display:none;" });
   var startColor = isPreset ? { r:0,g:0,b:0 } : hexToRgb(pageState.headerColor);
   var inputs = ["R","G","B"].map(function(ch, idx){
     var input = document.createElement("input");
     input.type = "number"; input.min = "0"; input.max = "255";
-    input.style.width = "36px";
+    input.title = ch;
     input.value = [startColor.r, startColor.g, startColor.b][idx];
     rgbBox.appendChild(input);
     return input;
