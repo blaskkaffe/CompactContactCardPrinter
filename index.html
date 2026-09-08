@@ -1673,16 +1673,22 @@ function takeGroupOffAllPages(groupKey){
 }
 /* the department groups grid (the "unplaced pool") is draggable too, and
    isn't tied to any one page -- its drags carry fromPage:null. Dragging
-   it onto a page consolidates the WHOLE group there, taking it off every
-   page it's currently on (so it never ends up duplicated across pages);
-   if it was never placed anywhere, its contacts come straight from the
-   roster instead. Dragging an actual page's chip (fromPage is a real
-   index) still only ever touches that one page's portion, as before. */
+   it onto a page consolidates the WHOLE group there: every member gets
+   taken off whatever page(s) it's currently on, AND every member that was
+   never placed anywhere is pulled in from the roster too -- a department
+   is very often a mix of both (e.g. after one of its contacts was already
+   dragged there individually) rather than all-placed or all-unplaced, so
+   neither source alone is enough. Dragging an actual page's chip (fromPage
+   is a real index) still only ever touches that one page's portion, as
+   before. */
 function takeGroup(fromPage, groupKey){
   if(fromPage == null){
-    var taken = takeGroupOffAllPages(groupKey);
-    if(taken.length) return taken;
-    return state.contacts.filter(function(c){ return deptGroupKey(c.department) === groupKey; });
+    var fromPages = takeGroupOffAllPages(groupKey);
+    var alreadyTaken = new Set(fromPages);
+    var stillUnplaced = state.contacts.filter(function(c){
+      return deptGroupKey(c.department) === groupKey && !alreadyTaken.has(c);
+    });
+    return fromPages.concat(stillUnplaced);
   }
   return takeGroupOffPage(fromPage, groupKey);
 }
@@ -1771,23 +1777,18 @@ function removeContactFromPage(fromPage, contactId){
   renderViewer();
 }
 
-/* removes a page outright. Any contacts it was showing (including ones
-   hidden in savedContacts because it was currently "empty") are never just
-   discarded -- they're folded into a fresh page reinserted at the same
-   spot and cascaded forward via reflowFromPage, the same overflow-safe
-   path every other page-capacity change already uses. If the page had
-   nothing to rescue, it's simply removed. Re-pads to an even count
-   afterward, same as every other page-count change. */
+/* removes a page outright. Its contacts are never deleted -- they're still
+   in state.contacts, same as any other unplaced group/contact -- they just
+   go back to being unassigned, ready to be dragged onto a different page
+   from the pool. (An earlier version reinserted a fresh page with the same
+   contacts at the same spot instead, which "rescued" the data but made
+   Remove look like it did nothing whenever the page had content -- the
+   page count never actually dropped.) Re-pads to an even count afterward,
+   same as every other page-count change. */
 function removePage(index){
   var page = state.pages[index];
   if(!page) return;
-  var toRescue = page.contacts.concat(page.savedContacts || []);
   state.pages.splice(index, 1);
-  if(toRescue.length){
-    var insertAt = Math.min(index, state.pages.length);
-    state.pages.splice(insertAt, 0, blankPage(defaultLayoutForOrientation(), toRescue));
-    reflowFromPage(insertAt);
-  }
   if(state.pages.length % 2 !== 0){
     state.pages.push(emptyFillerPage());
   }
