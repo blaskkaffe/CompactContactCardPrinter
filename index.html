@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="sv">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Compact Contact Card Printer</title>
+<title>Kompakt kontaktkortsskrivare</title>
 <style>
 *{box-sizing:border-box;}
 html,body{height:100%;}
@@ -108,7 +108,11 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .pageCard.dragOver{background:#dff0ff; border-color:#0080ff;}
 #groupPanel .pageCardHeader{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;}
 #groupPanel .full{color:#a00;}
-#groupPanel .pageCardHeader button{font-size:10px; padding:1px 5px; cursor:pointer;}
+/* always exactly one row: the usage text truncates with an ellipsis
+   (title carries the full text) rather than wrapping and pushing Remove
+   out of alignment */
+#groupPanel .pageCardHeader span{font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1 1 auto;}
+#groupPanel .pageCardHeader button{font-size:10px; padding:1px 5px; cursor:pointer; flex:0 0 auto;}
 /* one compact row: layout select + color controls (+ Line 2/empty-mode
    select, when shown) all fit together instead of each wrapping onto its
    own line -- a fixed, small width with ellipsis keeps a long option name
@@ -137,10 +141,10 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 <body>
 
 <header class="toolbar">
-  <h1>Compact Contact Card Printer</h1>
+  <h1>Kompakt kontaktkortsskrivare</h1>
   <span id="gridInfo"></span>
   <div class="spacer"></div>
-  <span id="dataStatus">Drop a CSV or XLSX file to begin</span>
+  <span id="dataStatus">Släpp en CSV- eller XLSX-fil för att börja</span>
 </header>
 
 <div id="mainRow">
@@ -149,12 +153,12 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
        which only ever touches #groupPanelBody. -->
   <aside id="groupPanel">
     <div id="viewControls">
-      <label class="tool">Paper:
+      <label class="tool">Papper:
         <select id="paperSize"></select>
       </label>
       <button id="viewModeBtn"></button>
-      <label class="tool" title="When on, dragging a group or contact from the pool onto a page copies it there instead of taking it off every page it's already on">
-        <input type="checkbox" id="allowDuplicatesToggle">Allow dupes
+      <label class="tool" title="När aktiverat kopieras en grupp eller kontakt till sidan när den dras dit från poolen, istället för att tas bort från alla sidor den redan finns på">
+        <input type="checkbox" id="allowDuplicatesToggle">Tillåt dubbletter
       </label>
     </div>
     <div id="groupPanelBody"></div>
@@ -165,10 +169,10 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
        there through scrolling in "View: All" mode. -->
   <main id="viewerWrap">
     <div id="viewerNav">
-      <button id="prevBtn">&larr; Prev</button>
+      <button id="prevBtn">&larr; Föreg.</button>
       <span id="pageIndicator"></span>
-      <button id="nextBtn">Next &rarr;</button>
-      <button id="printBtn">Print</button>
+      <button id="nextBtn">Nästa &rarr;</button>
+      <button id="printBtn">Skriv ut</button>
     </div>
     <div id="viewerContent"></div>
   </main>
@@ -178,10 +182,10 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
      hidden by default and toggled by #configToggleBtn -- see initDebugPanel().
      Both float above everything else, independent of #mainRow's layout, so
      hiding the panel never changes how much width the viewer gets. -->
-<button id="configToggleBtn" type="button">&#9881; Config</button>
+<button id="configToggleBtn" type="button">&#9881; Inställningar</button>
 <aside id="debugPanel" hidden></aside>
 
-<div id="dropOverlay" hidden>Drop CSV or XLSX file to import contacts</div>
+<div id="dropOverlay" hidden>Släpp en CSV- eller XLSX-fil för att importera kontakter</div>
 <div id="printArea"></div>
 
 <script>
@@ -293,31 +297,31 @@ var IMPORT_HEADER_ALIASES = {
    pageLayoutOptionsSelect) -- label is the full descriptive name used
    everywhere else (page card headers, etc). */
 var LAYOUTS = {
-  v20:   { key:"v20",   label:"20-row vertical",              shortLabel:"20-row",      orientation:"vertical",   phones:1, showDept:true,  doubleRow:false },
-  v10:   { key:"v10",   label:"10-contact vertical (2 lines)", shortLabel:"10 (2-line)", orientation:"vertical",   phones:2, showDept:false, doubleRow:true, phoneRowLegend:"Work / Home" },
-  h2:    { key:"h2",    label:"2-number horizontal",           shortLabel:"2-num horiz", orientation:"horizontal", phones:2, showDept:false, doubleRow:false },
-  empty: { key:"empty", label:"Empty page",                    shortLabel:"Empty",       orientation:"vertical",   phones:0, showDept:false, doubleRow:false }
+  v20:   { key:"v20",   label:"20 rader vertikal",              shortLabel:"20 rader",   orientation:"vertical",   phones:1, showDept:true,  doubleRow:false },
+  v10:   { key:"v10",   label:"10 kontakter vertikal (2 rader)", shortLabel:"10 (2 rad)", orientation:"vertical",   phones:2, showDept:false, doubleRow:true, phoneRowLegend:"Jobb / Hem" },
+  h2:    { key:"h2",    label:"2 nummer horisontell",            shortLabel:"2-num hor.", orientation:"horizontal", phones:2, showDept:false, doubleRow:false },
+  empty: { key:"empty", label:"Tom sida",                        shortLabel:"Tom",        orientation:"vertical",   phones:0, showDept:false, doubleRow:false }
 };
 
 /* -- header background presets -- all verified >=8:1 WCAG contrast ratio
    against white text, so white header text always reads clearly against
    any of them -- */
 var COLOR_PRESETS = [
-  { name:"Black",        hex:"#000000" },
-  { name:"Charcoal",     hex:"#2B2B2B" },
-  { name:"Slate Gray",   hex:"#37474F" },
-  { name:"Navy",         hex:"#001F54" },
-  { name:"Dark Blue",    hex:"#0B3D91" },
-  { name:"Indigo",       hex:"#2E1A47" },
-  { name:"Dark Purple",  hex:"#4A148C" },
-  { name:"Dark Magenta", hex:"#6A1B4D" },
-  { name:"Dark Red",     hex:"#8B0000" },
-  { name:"Maroon",       hex:"#6B0F1A" },
-  { name:"Dark Brown",   hex:"#3E2723" },
-  { name:"Dark Olive",   hex:"#4B5320" },
-  { name:"Forest Green", hex:"#14432A" },
-  { name:"Dark Teal",    hex:"#01414D" },
-  { name:"Dark Cyan",    hex:"#004D4D" }
+  { name:"Svart",         hex:"#000000" },
+  { name:"Antracit",      hex:"#2B2B2B" },
+  { name:"Skiffergrå",    hex:"#37474F" },
+  { name:"Marinblå",      hex:"#001F54" },
+  { name:"Mörkblå",       hex:"#0B3D91" },
+  { name:"Indigo",        hex:"#2E1A47" },
+  { name:"Mörklila",      hex:"#4A148C" },
+  { name:"Mörk magenta",  hex:"#6A1B4D" },
+  { name:"Mörkröd",       hex:"#8B0000" },
+  { name:"Vinröd",        hex:"#6B0F1A" },
+  { name:"Mörkbrun",      hex:"#3E2723" },
+  { name:"Mörk olivgrön", hex:"#4B5320" },
+  { name:"Skogsgrön",     hex:"#14432A" },
+  { name:"Mörk petrol",   hex:"#01414D" },
+  { name:"Mörk cyan",     hex:"#004D4D" }
 ];
 
 /* ================= shared utilities ================= */
@@ -399,9 +403,9 @@ function gridForDims(pageDims, cardDims){
    that card shape -- it is never chosen directly by the user */
 function pickPageOrientation(cardDims){
   var p = PAPER_SIZES[state.paperSize];
-  var portrait = { w:p.wMM, h:p.hMM, name:"portrait" };
+  var portrait = { w:p.wMM, h:p.hMM, name:"stående" };
   if(p.wMM === p.hMM) return portrait;
-  var landscape = { w:p.hMM, h:p.wMM, name:"landscape" };
+  var landscape = { w:p.hMM, h:p.wMM, name:"liggande" };
   return gridForDims(landscape, cardDims).count > gridForDims(portrait, cardDims).count ? landscape : portrait;
 }
 
@@ -439,7 +443,7 @@ function deptGroupKey(dept){ return (dept||"").trim().replace(/^c\.?\s+/i,"").to
 /* the chief-prefix-stripped department name, for anywhere a department is
    shown without wanting the "C " marker (the card header's dept summary,
    the group panel) -- distinct from deptGroupKey, which lowercases too */
-function deptDisplayLabel(dept){ return (dept||"").trim().replace(/^c\.?\s+/i, "") || "(no department)"; }
+function deptDisplayLabel(dept){ return (dept||"").trim().replace(/^c\.?\s+/i, "") || "(ingen avdelning)"; }
 /* one entry per distinct department among these contacts, in first-seen
    order -- shared by the card header's dept summary and its edit-overlay
    prefill, so what you see is what you'd start editing from */
@@ -635,7 +639,7 @@ function parseSheetToRows(xmlText, sharedStrings){
 async function parseXLSX(arrayBuffer){
   var xmlByName = await readZipXmlEntries(arrayBuffer);
   var sheetName = Object.keys(xmlByName).sort().find(function(n){ return /^xl\/worksheets\/sheet\d+\.xml$/.test(n); });
-  if(!sheetName) throw new Error("No worksheet found in this .xlsx file");
+  if(!sheetName) throw new Error("Inget kalkylblad hittades i denna .xlsx-fil");
   var sharedStrings = parseSharedStrings(xmlByName["xl/sharedStrings.xml"]);
   return parseSheetToRows(xmlByName[sheetName], sharedStrings);
 }
@@ -760,14 +764,14 @@ async function handleFile(file){
       rows = parseCSV(await file.text());
     }
     var contacts = rowsToContacts(rows);
-    if(!contacts.length){ setStatus("No contacts found in \""+file.name+"\" (need a Name column)"); return; }
+    if(!contacts.length){ setStatus("Inga kontakter hittades i \""+file.name+"\" (behöver en Namn-kolumn)"); return; }
     state.contacts = sortContacts(contacts);
     state.currentPage = 0;
     regeneratePages();
-    setStatus(state.contacts.length + " contacts loaded from " + file.name);
+    setStatus(state.contacts.length + " kontakter inlästa från " + file.name);
     renderViewer();
   } catch(err){
-    setStatus("Could not read \""+file.name+"\": " + err.message);
+    setStatus("Kunde inte läsa \""+file.name+"\": " + err.message);
   }
 }
 function setStatus(text){ $("#dataStatus").textContent = text; }
@@ -805,7 +809,7 @@ function setupDropZone(){
     var dt = e.dataTransfer;
     var file = dt && dt.files && dt.files[0];
     if(!file){
-      setStatus("That drop didn't carry a file the browser could read -- if you dragged it from a chat/web attachment, save it to disk first and drag it from your file manager instead.");
+      setStatus("Släppet innehöll ingen fil som webbläsaren kunde läsa -- om du drog den från en chatt-/webbilaga, spara den till disk först och dra den från filhanteraren istället.");
       return;
     }
     handleFile(file);
@@ -895,7 +899,7 @@ function formatPhoneNumber(raw){
                    label1, which still tags phone1 on line 1 as always
    Shared by drawCard and getEditableRegions so a click always edits
    whichever field is actually on screen. */
-var LINE2_MODES = { email:"Email", empty:"Empty", username:"Username" };
+var LINE2_MODES = { email:"E-post", empty:"Tom", username:"Användarnamn" };
 function pickLine2Field(contact, mode){
   if(mode === "empty") return { key:null, value:"" };
   if(mode === "username") return { key:"label2", value:(contact.label2 || "").trim() };
@@ -1180,7 +1184,7 @@ function renderCardsOntoCanvas(canvas, pageIndex){
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
   if(!pageState){
-    drawCenteredMessage(ctx, canvas.width, canvas.height, "Drop a CSV or XLSX file to begin");
+    drawCenteredMessage(ctx, canvas.width, canvas.height, "Släpp en CSV- eller XLSX-fil för att börja");
     return;
   }
   if(layoutKey === "empty"){
@@ -1188,7 +1192,7 @@ function renderCardsOntoCanvas(canvas, pageIndex){
     return;
   }
   if(geo.grid.count <= 0){
-    drawCenteredMessage(ctx, canvas.width, canvas.height, "Cards don't fit the page with the current size/margin settings");
+    drawCenteredMessage(ctx, canvas.width, canvas.height, "Korten får inte plats på sidan med nuvarande storleks-/marginalinställningar");
     return;
   }
 
@@ -1393,7 +1397,7 @@ function doPrint(){
     area.appendChild(canvas);
   }
   if(failures > 0){
-    setStatus("Print: " + failures + " of " + total + " page(s) failed to render (check the console) -- printing the rest.");
+    setStatus("Utskrift: " + failures + " av " + total + " sida/sidor kunde inte renderas (se konsolen) -- skriver ut resten.");
   }
   window.print();
 }
@@ -1433,19 +1437,19 @@ function buildHeaderColorControls(pageState){
   var wrap = el("div", { class:"colorControls" });
 
   var sel = document.createElement("select");
-  sel.title = "Header color";
+  sel.title = "Rubrikfärg";
   COLOR_PRESETS.forEach(function(c){
     sel.appendChild(el("option", { value:c.hex, text:c.name }));
   });
   var isPreset = COLOR_PRESETS.some(function(c){ return c.hex.toLowerCase() === (pageState.headerColor||"").toLowerCase(); });
   if(!isPreset){
-    sel.appendChild(el("option", { value:pageState.headerColor, text:"Custom" }));
+    sel.appendChild(el("option", { value:pageState.headerColor, text:"Anpassad" }));
   }
   sel.value = pageState.headerColor;
   sel.addEventListener("change", function(){ pageState.headerColor = sel.value; renderViewer(); });
   wrap.appendChild(sel);
 
-  var customBtn = el("button", { type:"button", text:"RGB", title:"Custom RGB color" });
+  var customBtn = el("button", { type:"button", text:"RGB", title:"Anpassad RGB-färg" });
   wrap.appendChild(customBtn);
 
   /* one "Apply" action reads all three fields at once -- applying on each
@@ -1463,7 +1467,7 @@ function buildHeaderColorControls(pageState){
     rgbBox.appendChild(input);
     return input;
   });
-  var applyBtn = el("button", { type:"button", text:"Apply" });
+  var applyBtn = el("button", { type:"button", text:"Använd" });
   applyBtn.addEventListener("click", function(){
     var vals = inputs.map(function(inp){ return Math.max(0, Math.min(255, parseInt(inp.value,10)||0)); });
     var hex = "#" + vals.map(function(v){ return v.toString(16).padStart(2,"0"); }).join("");
@@ -1511,14 +1515,14 @@ function buildPageControls(index){
        in file order, instead of whatever's been manually dragged onto this
        page. "None" (the default) leaves manual placement in charge. */
     var chainSel = document.createElement("select");
-    chainSel.title = "Chain (a named v10 list from the imported file)";
-    chainSel.appendChild(el("option", { value:"", text:"Chain: None" }));
+    chainSel.title = "Kedja (en namngiven V10-lista från den importerade filen)";
+    chainSel.appendChild(el("option", { value:"", text:"Kedja: Ingen" }));
     var chainNames = computeChainNames();
     chainNames.forEach(function(name){
-      chainSel.appendChild(el("option", { value:name, text:"Chain: " + name }));
+      chainSel.appendChild(el("option", { value:name, text:"Kedja: " + name }));
     });
     if(pageState.chain && !chainNames.some(function(n){ return listKey(n) === listKey(pageState.chain); })){
-      chainSel.appendChild(el("option", { value:pageState.chain, text:"Chain: " + pageState.chain + " (not found)" }));
+      chainSel.appendChild(el("option", { value:pageState.chain, text:"Kedja: " + pageState.chain + " (hittades inte)" }));
     }
     chainSel.value = pageState.chain || "";
     chainSel.addEventListener("change", function(){ pageState.chain = chainSel.value || null; renderViewer(); });
@@ -1528,7 +1532,7 @@ function buildPageControls(index){
        instead of auto-detected, see pickLine2Field() */
     var line2Sel = document.createElement("select");
     Object.keys(LINE2_MODES).forEach(function(key){
-      line2Sel.appendChild(el("option", { value:key, text:"Line 2: " + LINE2_MODES[key] }));
+      line2Sel.appendChild(el("option", { value:key, text:"Rad 2: " + LINE2_MODES[key] }));
     });
     line2Sel.value = pageState.line2Mode || "email";
     line2Sel.addEventListener("change", function(){ pageState.line2Mode = line2Sel.value; renderViewer(); });
@@ -1537,7 +1541,7 @@ function buildPageControls(index){
 
   if(pageState.layout === "empty"){
     var modeSel = document.createElement("select");
-    [["blank","Blank"],["rows","Empty grid"],["image","Custom image"]].forEach(function(opt){
+    [["blank","Tom"],["rows","Tomt rutnät"],["image","Anpassad bild"]].forEach(function(opt){
       modeSel.appendChild(el("option", { value:opt[0], text:opt[1] }));
     });
     modeSel.value = pageState.emptyMode;
@@ -1567,7 +1571,7 @@ function buildPageControls(index){
 
 function buildPageEl(index){
   var page = el("div", { class:"page", "data-index":String(index) });
-  page.appendChild(el("span", { class:"pageLabel", text:"Page " + (index+1) + " / " + totalPagesCount() }));
+  page.appendChild(el("span", { class:"pageLabel", text:"Sida " + (index+1) + " / " + totalPagesCount() }));
   var canvas = document.createElement("canvas");
   canvas.addEventListener("click", function(e){ onCanvasClick(e, canvas, index); });
   page.appendChild(canvas);
@@ -1640,19 +1644,19 @@ function renderViewer(){
 }
 
 function updateIndicator(){
-  $("#pageIndicator").textContent = "Page " + (state.currentPage+1) + " / " + totalPagesCount();
+  $("#pageIndicator").textContent = "Sida " + (state.currentPage+1) + " / " + totalPagesCount();
 }
 function updateGridInfo(){
   var geo = pageGeometryForIndex(state.currentPage);
   if(geo.layout.key === "empty"){
-    $("#gridInfo").textContent = "Empty page (" + geo.pageDims.name + ")";
+    $("#gridInfo").textContent = "Tom sida (" + geo.pageDims.name + ")";
   } else {
-    $("#gridInfo").textContent = geo.grid.cols+" x "+geo.grid.rows+" = "+geo.grid.count+" cards ("+geo.layout.label+", "+geo.pageDims.name+")";
+    $("#gridInfo").textContent = geo.grid.cols+" x "+geo.grid.rows+" = "+geo.grid.count+" kort ("+geo.layout.label+", "+geo.pageDims.name+")";
   }
 }
 
 function renderToolbar(){
-  $("#viewModeBtn").textContent = state.viewMode === "single" ? "View: Single" : "View: All";
+  $("#viewModeBtn").textContent = state.viewMode === "single" ? "Vy: Enkel" : "Vy: Alla";
 }
 
 function scrollToPage(idx){
@@ -1986,10 +1990,10 @@ function buildContactList(contacts, fromPage){
     var chip = el("div", {
       class: "contactChip" + (placed ? " placed" : ""),
       draggable: "true",
-      title: (placed ? ("On page" + (pageNums.length>1 ? "s " : " ") + pageNums.join(", ")) : "Not placed yet") + " -- drag onto a page, \"+ New page\", or \"" + "✕ Remove from page" + "\""
+      title: (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till en sida, \"+ Ny sida\", eller \"" + "✕ Ta bort från sida" + "\""
     });
     chip.appendChild(el("span", { class:"contactChipName", text:c.name }));
-    if(placed) chip.appendChild(el("span", { class:"contactChipPage", text:"p"+pageNums.join(",") }));
+    if(placed) chip.appendChild(el("span", { class:"contactChipPage", text:"s"+pageNums.join(",") }));
     chip.addEventListener("dragstart", function(e){
       e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify({ type:"contact", fromPage:fromPage, contactId:c.id }));
       e.dataTransfer.effectAllowed = "move";
@@ -2003,14 +2007,14 @@ function renderGroupPanel(){
   var panel = $("#groupPanelBody");
   if(!panel) return;
   panel.innerHTML = "";
-  panel.appendChild(el("h2", { text:"Department groups" }));
+  panel.appendChild(el("h2", { text:"Avdelningsgrupper" }));
 
   if(!state.contacts.length){
-    panel.appendChild(el("div", { class:"emptyNote", text:"Import a CSV/XLSX to see groups here." }));
+    panel.appendChild(el("div", { class:"emptyNote", text:"Importera en CSV/XLSX för att se grupper här." }));
     return;
   }
 
-  var clearBtn = el("button", { type:"button", text:"Clear pages, group manually", style:"width:100%; margin-bottom:10px; font-size:11px; padding:4px;" });
+  var clearBtn = el("button", { type:"button", text:"Rensa sidor, gruppera manuellt", style:"width:100%; margin-bottom:10px; font-size:11px; padding:4px;" });
   clearBtn.addEventListener("click", function(){
     state.pages = [];
     renderViewer();
@@ -2025,11 +2029,11 @@ function renderGroupPanel(){
     var tile = el("div", {
       class: "groupTile" + (placed ? " placed" : ""),
       draggable: "true",
-      title: (placed ? ("On page" + (pageNums.length>1 ? "s " : " ") + pageNums.join(", ")) : "Not placed yet") + " -- drag onto a page below"
+      title: (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till en sida nedan"
     });
     var nameRow = el("div", { class:"groupTileNameRow" });
     var toggle = el("span", { class:"groupTileToggle", text: expanded ? "▾" : "▸" });
-    toggle.title = expanded ? "Hide individual contacts" : "Show individual contacts";
+    toggle.title = expanded ? "Dölj enskilda kontakter" : "Visa enskilda kontakter";
     /* a click on the toggle only expands/collapses -- it must never start
        (or count as) a drag of the whole department tile */
     toggle.addEventListener("dragstart", function(e){ e.preventDefault(); e.stopPropagation(); });
@@ -2041,7 +2045,7 @@ function renderGroupPanel(){
     nameRow.appendChild(toggle);
     nameRow.appendChild(el("span", { class:"groupTileName", text:g.label }));
     tile.appendChild(nameRow);
-    tile.appendChild(el("div", { class:"groupTileCount", text:g.contacts.length + (placed ? " · p" + pageNums.join(",") : "") }));
+    tile.appendChild(el("div", { class:"groupTileCount", text:g.contacts.length + (placed ? " · s" + pageNums.join(",") : "") }));
     /* fromPage:null marks this as a drag from the unplaced-pool grid
        (as opposed to a specific page's chip) -- see takeGroup() */
     tile.addEventListener("dragstart", function(e){
@@ -2053,13 +2057,13 @@ function renderGroupPanel(){
   });
   panel.appendChild(grid);
 
-  panel.appendChild(el("h2", { text:"Pages", style:"margin-top:14px;" }));
+  panel.appendChild(el("h2", { text:"Sidor", style:"margin-top:14px;" }));
 
   /* always rendered, even with zero pages -- "+ New page" is the only way
      to create the very first one now that placement is drag-only */
   var actionZone = el("div", { class:"pageActionZone" });
-  var newPageZone = el("div", { class:"dropZone newPageZone", text:"+ New page" });
-  var deleteZone = el("div", { class:"dropZone deleteZone", text:"✕ Remove from page" });
+  var newPageZone = el("div", { class:"dropZone newPageZone", text:"+ Ny sida" });
+  var deleteZone = el("div", { class:"dropZone deleteZone", text:"✕ Ta bort från sida" });
   wireDropTarget(newPageZone, function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage); });
   wireDropTarget(deleteZone, function(data){ handlePanelDrop(data, removeGroupFromPage, removeContactFromPage); });
   actionZone.appendChild(newPageZone);
@@ -2067,7 +2071,7 @@ function renderGroupPanel(){
   panel.appendChild(actionZone);
 
   if(!state.pages.length){
-    panel.appendChild(el("div", { class:"emptyNote", text:"No pages yet." }));
+    panel.appendChild(el("div", { class:"emptyNote", text:"Inga sidor än." }));
     return;
   }
 
@@ -2076,11 +2080,15 @@ function renderGroupPanel(){
 
     var headerRow = el("div", { class:"pageCardHeader" });
     var cap = layoutRows(p.layout), used = contactsForPage(p).length, free = Math.max(0, cap-used);
+    /* the layout name itself is dropped here -- it's redundant with the
+       Layout select shown right below -- so this stays short enough to
+       always fit one row next to Remove; title carries the full text too,
+       and text-overflow:ellipsis (see CSS) is a hard backstop regardless */
     var headerText = p.layout === "empty"
-      ? "Page " + (i+1) + ": empty"
-      : "Page " + (i+1) + " (" + LAYOUTS[p.layout].label + "): " + used + "/" + cap + " used, " + free + " free";
-    headerRow.appendChild(el("span", { class: free === 0 && p.layout !== "empty" ? "full" : "", text:headerText }));
-    var removeBtn = el("button", { type:"button", text:"Remove" });
+      ? "Sida " + (i+1) + ": tom"
+      : "Sida " + (i+1) + ": " + used + "/" + cap + " använda, " + free + " lediga";
+    headerRow.appendChild(el("span", { class: free === 0 && p.layout !== "empty" ? "full" : "", text:headerText, title:headerText }));
+    var removeBtn = el("button", { type:"button", text:"Ta bort" });
     removeBtn.addEventListener("click", function(){ removePage(i); });
     headerRow.appendChild(removeBtn);
     card.appendChild(headerRow);
@@ -2094,9 +2102,9 @@ function renderGroupPanel(){
          instead of draggable department chips, which wouldn't reflect or
          control this page's actual content */
       var chainTotal = contactsForChain(p.chain).length;
-      var chainNote = "Chain \"" + p.chain + "\": " + Math.min(chainTotal, cap) + " of " + chainTotal + " shown";
+      var chainNote = "Kedja \"" + p.chain + "\": " + Math.min(chainTotal, cap) + " av " + chainTotal + " visas";
       if(chainTotal > cap){
-        chainNote += " -- " + (chainTotal - cap) + " more tagged \"" + p.chain + "\" don't fit on one card";
+        chainNote += " -- " + (chainTotal - cap) + " till taggade \"" + p.chain + "\" får inte plats på ett kort";
       }
       chipList.appendChild(el("div", { class: chainTotal > cap ? "emptyNote full" : "emptyNote", text:chainNote }));
     } else {
@@ -2105,7 +2113,7 @@ function renderGroupPanel(){
         var expandedP = !!state.expandedPageGroups[pgKey];
         var chip = el("div", { class:"pageGroupChip", draggable:"true" });
         var toggleP = el("span", { class:"chipToggle", text: expandedP ? "▾" : "▸" });
-        toggleP.title = expandedP ? "Hide individual contacts" : "Show individual contacts";
+        toggleP.title = expandedP ? "Dölj enskilda kontakter" : "Visa enskilda kontakter";
         toggleP.addEventListener("dragstart", function(e){ e.preventDefault(); e.stopPropagation(); });
         toggleP.addEventListener("click", function(e){
           e.stopPropagation();
@@ -2122,7 +2130,7 @@ function renderGroupPanel(){
         if(expandedP) chipList.appendChild(buildContactList(g.contacts, i));
       });
       if(!chipList.children.length){
-        chipList.appendChild(el("div", { class:"emptyNote", text: p.layout === "empty" ? "Drop a group here to fill it" : "No contacts here yet" }));
+        chipList.appendChild(el("div", { class:"emptyNote", text: p.layout === "empty" ? "Släpp en grupp här för att fylla den" : "Inga kontakter än" }));
       }
     }
     card.appendChild(chipList);
@@ -2149,27 +2157,27 @@ function initDebugPanel(){
   var panel = $("#debugPanel");
   if(!panel) return;
   panel.innerHTML = "";
-  panel.appendChild(el("h2", { text:"Config (overrides)" }));
+  panel.appendChild(el("h2", { text:"Avancerade inställningar" }));
 
   var settings = [
     /* card/margin geometry -- moved here from the toolbar so it lives
        alongside every other override in one hideable panel */
-    { label:"Card width (mm)",  get:function(){ return state.cardWmm; },  set:function(v){ state.cardWmm=v; },  step:0.01 },
-    { label:"Card height (mm)", get:function(){ return state.cardHmm; },  set:function(v){ state.cardHmm=v; },  step:0.01 },
-    { label:"Margin (mm)",      get:function(){ return state.marginMm; }, set:function(v){ state.marginMm=v; }, min:0, step:1 },
-    { label:"Render DPI", get:function(){ return RENDER_DPI; }, set:function(v){ RENDER_DPI=v; } },
-    { label:"Header font (pt)", get:function(){ return HEADER_FONT_PT; }, set:function(v){ HEADER_FONT_PT=v; } },
-    { label:"Header height (x rows)", get:function(){ return HEADER_HEIGHT_FACTOR; }, set:function(v){ HEADER_HEIGHT_FACTOR=v; } },
-    { label:"Name font (pt)",   get:function(){ return NAME_FONT_PT; },   set:function(v){ NAME_FONT_PT=v; } },
-    { label:"Name font, w/ dept (pt)", get:function(){ return NAME_FONT_PT_TIGHT; }, set:function(v){ NAME_FONT_PT_TIGHT=v; } },
-    { label:"Email font (pt)",  get:function(){ return EMAIL_FONT_PT; },  set:function(v){ EMAIL_FONT_PT=v; } },
-    { label:"Phone font (pt)",  get:function(){ return PHONE_FONT_PT; },  set:function(v){ PHONE_FONT_PT=v; } },
-    { label:"Dept font (pt)",   get:function(){ return DEPT_FONT_PT; },   set:function(v){ DEPT_FONT_PT=v; } },
-    { label:"Dept max chars",   get:function(){ return DEPT_MAX_CHARS; }, set:function(v){ DEPT_MAX_CHARS=v; } },
-    { label:"Label max chars",  get:function(){ return LABEL_MAX_CHARS; }, set:function(v){ LABEL_MAX_CHARS=v; } },
-    { label:"Rows: 20-row vert.", get:function(){ return ROWS_V20; }, set:function(v){ ROWS_V20=v; } },
-    { label:"Rows: 10-row vert.", get:function(){ return ROWS_V10; }, set:function(v){ ROWS_V10=v; } },
-    { label:"Rows: 2-num horiz.", get:function(){ return ROWS_H2; },  set:function(v){ ROWS_H2=v; } }
+    { label:"Kortbredd (mm)",  get:function(){ return state.cardWmm; },  set:function(v){ state.cardWmm=v; },  step:0.01 },
+    { label:"Korthöjd (mm)",   get:function(){ return state.cardHmm; },  set:function(v){ state.cardHmm=v; },  step:0.01 },
+    { label:"Marginal (mm)",   get:function(){ return state.marginMm; }, set:function(v){ state.marginMm=v; }, min:0, step:1 },
+    { label:"Rendering-DPI", get:function(){ return RENDER_DPI; }, set:function(v){ RENDER_DPI=v; } },
+    { label:"Rubriktypsnitt (pt)", get:function(){ return HEADER_FONT_PT; }, set:function(v){ HEADER_FONT_PT=v; } },
+    { label:"Rubrikhöjd (x rader)", get:function(){ return HEADER_HEIGHT_FACTOR; }, set:function(v){ HEADER_HEIGHT_FACTOR=v; } },
+    { label:"Namntypsnitt (pt)",   get:function(){ return NAME_FONT_PT; },   set:function(v){ NAME_FONT_PT=v; } },
+    { label:"Namntypsnitt, m/ avd (pt)", get:function(){ return NAME_FONT_PT_TIGHT; }, set:function(v){ NAME_FONT_PT_TIGHT=v; } },
+    { label:"E-posttypsnitt (pt)",  get:function(){ return EMAIL_FONT_PT; },  set:function(v){ EMAIL_FONT_PT=v; } },
+    { label:"Telefontypsnitt (pt)",  get:function(){ return PHONE_FONT_PT; },  set:function(v){ PHONE_FONT_PT=v; } },
+    { label:"Avdelningstypsnitt (pt)",   get:function(){ return DEPT_FONT_PT; },   set:function(v){ DEPT_FONT_PT=v; } },
+    { label:"Avd. max tecken",   get:function(){ return DEPT_MAX_CHARS; }, set:function(v){ DEPT_MAX_CHARS=v; } },
+    { label:"Etikett max tecken",  get:function(){ return LABEL_MAX_CHARS; }, set:function(v){ LABEL_MAX_CHARS=v; } },
+    { label:"Rader: 20-rad vert.", get:function(){ return ROWS_V20; }, set:function(v){ ROWS_V20=v; } },
+    { label:"Rader: 10-rad vert.", get:function(){ return ROWS_V10; }, set:function(v){ ROWS_V10=v; } },
+    { label:"Rader: 2-num horis.", get:function(){ return ROWS_H2; },  set:function(v){ ROWS_H2=v; } }
   ];
 
   settings.forEach(function(s){
