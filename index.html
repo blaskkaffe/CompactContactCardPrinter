@@ -79,7 +79,8 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 
 /* ===================== GROUP PANEL (department grouping helper) ===================== */
 #groupPanel{flex:0 0 260px; background:#f0f0f0; color:#111; display:flex; flex-direction:column; border-right:1px solid #bbb;}
-#viewControls{flex:0 0 auto; display:flex; align-items:center; gap:10px; padding:10px; border-bottom:1px solid #ccc; background:#e8e8e8;}
+#viewControls{flex:0 0 auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding:10px; border-bottom:1px solid #ccc; background:#e8e8e8;}
+#viewControls label.tool{white-space:nowrap;}
 #viewControls select, #viewControls button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
 #viewControls button:hover{background:#eee;}
 #groupPanelBody{flex:1 1 auto; overflow-y:auto; padding:10px; font-size:12px;}
@@ -142,6 +143,9 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
         <select id="paperSize"></select>
       </label>
       <button id="viewModeBtn"></button>
+      <label class="tool" title="When on, dragging a group or contact from the pool onto a page copies it there instead of taking it off every page it's already on">
+        <input type="checkbox" id="allowDuplicatesToggle">Allow dupes
+      </label>
     </div>
     <div id="groupPanelBody"></div>
   </aside>
@@ -216,11 +220,6 @@ var DEPT_FONT_PT = 6;
 /* -- text length caps -- */
 var DEPT_MAX_CHARS = 4;   /* plus the "C " chief prefix, kept separately -- department is the least important field, so it's kept small to give the name column room */
 var LABEL_MAX_CHARS = 6;  /* number-type tags on the 10-contact layout, e.g. "Work"/"Home" */
-/* v10 line 2's wide column shows the email, but falls back to label2 when
-   the email field isn't carrying much (or any) real information -- empty,
-   too short to be a real address, or missing an "@" (so it's probably
-   being used to hold something else entirely). See pickLine2Field(). */
-var EMAIL_FALLBACK_MIN_CHARS = 5;
 
 /* -- row capacity per layout (contacts per card) -- */
 var ROWS_V20 = 20;
@@ -248,7 +247,9 @@ var DEFAULT_CARD_H_MM = 85.60;
 var DEFAULT_MARGIN_MM = 10;    /* printer-unsafe border kept clear on every edge */
 
 var PAPER_SIZES = {
-  A4: { label:"A4", wMM:210, hMM:297 }
+  A3: { label:"A3", wMM:297, hMM:420 },
+  A4: { label:"A4", wMM:210, hMM:297 }, /* default -- see state.paperSize */
+  A5: { label:"A5", wMM:148, hMM:210 }
 };
 
 /* -- CSV/XLSX column header names recognized on import (case-insensitive) -- */
@@ -319,6 +320,7 @@ function ptToPx(pt, dpi){ return pt * dpi / 72; }
 var state = {
   paperSize: "A4",
   viewMode: "single",          /* "single" | "all" */
+  allowDuplicates: false,      /* when true, dragging from the pool copies a group/contact onto a page instead of consolidating it there */
   currentPage: 0,              /* 0-indexed */
   cardWmm: DEFAULT_CARD_W_MM,
   cardHmm: DEFAULT_CARD_H_MM,
@@ -825,17 +827,20 @@ function formatPhoneNumber(raw){
   return digits || (raw||"").trim();
 }
 
-/* v10 line 2's wide column shows the email, unless it doesn't look like one
-   is really there -- empty, shorter than EMAIL_FALLBACK_MIN_CHARS, or
-   missing an "@" (so the field is probably being used for something else)
-   -- in which case label2 is shown there instead. Shared by drawCard and
-   getEditableRegions so a click always edits whichever field is actually
-   on screen. */
-function pickLine2Field(contact){
-  var email = (contact.email || "").trim();
-  var looksLikeEmail = email.length >= EMAIL_FALLBACK_MIN_CHARS && email.indexOf("@") !== -1;
-  if(looksLikeEmail) return { key:"email", value:email };
-  return { key:"label2", value:(contact.label2 || "").trim() };
+/* v10 line 2's wide column is a per-page choice (pageState.line2Mode), not
+   auto-detected -- see the "Line 2" select in buildPageControls:
+     "email"    -- always the email field (blank if there isn't one)
+     "empty"    -- always blank, and not editable (no field backs it)
+     "username" -- always label2, repurposed here as a free-text handle/
+                   username rather than a phone-type tag; independent of
+                   label1, which still tags phone1 on line 1 as always
+   Shared by drawCard and getEditableRegions so a click always edits
+   whichever field is actually on screen. */
+var LINE2_MODES = { email:"Email", empty:"Empty", username:"Username" };
+function pickLine2Field(contact, mode){
+  if(mode === "empty") return { key:null, value:"" };
+  if(mode === "username") return { key:"label2", value:(contact.label2 || "").trim() };
+  return { key:"email", value:(contact.email || "").trim() };
 }
 
 /* ---------------- column layout (shared by drawing and click hit-testing) ---------------- */
@@ -955,7 +960,7 @@ function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact, layout){
   drawGenericRow(ctx, xPx, rowTop, wPx, rowH, dpi, cols, values);
 }
 
-function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, legendOverride){
+function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, legendOverride, line2Mode){
   ctx.save();
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(xPx, yPx, wPx, hPx);
@@ -1022,7 +1027,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
       var c = contacts[i];
       if(!c) continue;
       drawGenericRow(ctx, xPx, top1, wPx, subRowH, dpi, colSet.line1, [c.name, formatLabelForRow(c.label1), formatPhoneNumber(c.phone)]);
-      drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, colSet.line2, [pickLine2Field(c).value, formatPhoneNumber(c.phone2)]);
+      drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, colSet.line2, [pickLine2Field(c, line2Mode).value, formatPhoneNumber(c.phone2)]);
     }
   } else {
     var rowH = bodyH / capacity;
@@ -1139,7 +1144,7 @@ function renderCardsOntoCanvas(canvas, pageIndex){
     var yPx = mmToPx(startYmm + row*geo.cardDims.h, RENDER_DPI);
     var wPx = mmToPx(geo.cardDims.w, RENDER_DPI);
     var hPx = mmToPx(geo.cardDims.h, RENDER_DPI);
-    drawCard(ctx, xPx, yPx, wPx, hPx, pageState.contacts, RENDER_DPI, geo.layout, pageState.headerColor, pageState.headerLegend);
+    drawCard(ctx, xPx, yPx, wPx, hPx, pageState.contacts, RENDER_DPI, geo.layout, pageState.headerColor, pageState.headerLegend, pageState.line2Mode);
   }
   drawCropMarks(ctx, canvas.width, canvas.height, mmToPx(startXmm,RENDER_DPI), mmToPx(startYmm,RENDER_DPI), mmToPx(blockWmm,RENDER_DPI), mmToPx(blockHmm,RENDER_DPI), RENDER_DPI);
 }
@@ -1148,7 +1153,7 @@ function renderCardsOntoCanvas(canvas, pageIndex){
 /* every editable field's box within ONE card, relative to that card's own
    top-left corner -- shared by both drawing (implicitly, via the same
    column-layout functions) and click hit-testing */
-function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts){
+function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts, line2Mode){
   var regions = [];
   var headerH = computeHeaderH(hPx, layout);
   var bodyY = headerH, bodyH = hPx - headerH;
@@ -1168,13 +1173,17 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts){
     var fieldsLine1 = ["name","label1","phone"];
     for(var i=0;i<capacity;i++){
       var top1 = bodyY + subRowH*2*i, top2 = top1 + subRowH;
-      /* line 2's wide field is either "email" or "label2" depending on the
-         contact (see pickLine2Field) -- the edit target must match exactly
-         what's drawn there, so it's resolved per-contact, not fixed */
+      /* line 2's wide field depends on the page's line2Mode (see
+         pickLine2Field) -- the edit target must match exactly what's drawn
+         there. "empty" mode has no field backing it, so that column isn't
+         clickable at all (nothing to edit into). */
       var contact = contacts && contacts[i];
-      var fieldsLine2 = [contact ? pickLine2Field(contact).key : "email", "phone2"];
+      var fieldsLine2 = [contact ? pickLine2Field(contact, line2Mode).key : "email", "phone2"];
       colSet.line1.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine1[ci], x:col.x, y:top1, w:col.w, h:subRowH }); });
-      colSet.line2.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine2[ci], x:col.x, y:top2, w:col.w, h:subRowH }); });
+      colSet.line2.forEach(function(col, ci){
+        if(fieldsLine2[ci] == null) return;
+        regions.push({ contactIndex:i, field:fieldsLine2[ci], x:col.x, y:top2, w:col.w, h:subRowH });
+      });
     }
   } else {
     var rowH = bodyH / capacity;
@@ -1243,7 +1252,7 @@ function onCanvasClick(e, canvas, pageIndex){
   var xInCard = xInBlock - cardCol*cardWpx, yInCard = yInBlock - cardRow*cardHpx;
 
   var ctx = canvas.getContext("2d");
-  var regions = getEditableRegions(ctx, cardWpx, cardHpx, RENDER_DPI, geo.layout, pageState.contacts);
+  var regions = getEditableRegions(ctx, cardWpx, cardHpx, RENDER_DPI, geo.layout, pageState.contacts, pageState.line2Mode);
   var hit = regions.find(function(r){ return xInCard>=r.x && xInCard<r.x+r.w && yInCard>=r.y && yInCard<r.y+r.h; });
   if(!hit) return;
 
@@ -1433,6 +1442,18 @@ function buildPageControls(index){
     box.appendChild(buildHeaderColorControls(pageState));
   }
 
+  if(pageState.layout === "v10"){
+    /* line 2's wide field (name row's second line) -- a per-page choice
+       instead of auto-detected, see pickLine2Field() */
+    var line2Sel = document.createElement("select");
+    Object.keys(LINE2_MODES).forEach(function(key){
+      line2Sel.appendChild(el("option", { value:key, text:"Line 2: " + LINE2_MODES[key] }));
+    });
+    line2Sel.value = pageState.line2Mode || "email";
+    line2Sel.addEventListener("change", function(){ pageState.line2Mode = line2Sel.value; renderViewer(); });
+    box.appendChild(line2Sel);
+  }
+
   if(pageState.layout === "empty"){
     var modeSel = document.createElement("select");
     [["blank","Blank"],["rows","Empty grid"],["image","Custom image"]].forEach(function(opt){
@@ -1595,6 +1616,9 @@ function initEvents(){
     state.viewMode = state.viewMode === "single" ? "all" : "single";
     renderToolbar(); renderViewer();
   });
+  $("#allowDuplicatesToggle").addEventListener("change", function(){
+    state.allowDuplicates = $("#allowDuplicatesToggle").checked;
+  });
   $("#prevBtn").addEventListener("click", goPrev);
   $("#nextBtn").addEventListener("click", goNext);
   $("#printBtn").addEventListener("click", doPrint);
@@ -1693,15 +1717,29 @@ function takeGroupOffAllPages(groupKey){
    dragged there individually) rather than all-placed or all-unplaced, so
    neither source alone is enough. Dragging an actual page's chip (fromPage
    is a real index) still only ever touches that one page's portion, as
-   before. */
+   before.
+
+   With state.allowDuplicates on, every drag becomes a copy instead: nothing
+   is ever taken off any page, the full membership just comes straight from
+   the roster, so the same department can end up placed on several pages at
+   once on purpose. */
 function takeGroup(fromPage, groupKey){
+  if(state.allowDuplicates){
+    return state.contacts.filter(function(c){ return deptGroupKey(c.department) === groupKey; });
+  }
   if(fromPage == null){
+    /* a contact placed on more than one page (via allowDuplicates) gets
+       extracted once per page it was on, so fromPages can contain the same
+       reference more than once -- the Set both tracks what's already
+       accounted for AND, converted back to an array, dedupes the final
+       result so consolidating never doubles someone up on the one
+       destination page */
     var fromPages = takeGroupOffAllPages(groupKey);
     var alreadyTaken = new Set(fromPages);
     var stillUnplaced = state.contacts.filter(function(c){
       return deptGroupKey(c.department) === groupKey && !alreadyTaken.has(c);
     });
-    return fromPages.concat(stillUnplaced);
+    return Array.from(alreadyTaken).concat(stillUnplaced);
   }
   return takeGroupOffPage(fromPage, groupKey);
 }
@@ -1759,6 +1797,9 @@ function takeContactOffAllPages(contactId){
   return found;
 }
 function takeContact(fromPage, contactId){
+  if(state.allowDuplicates){
+    return state.contacts.find(function(c){ return c.id === contactId; }) || null;
+  }
   if(fromPage == null){
     var found = takeContactOffAllPages(contactId);
     if(found) return found;
@@ -1842,13 +1883,15 @@ function handlePanelDrop(data, onGroup, onContact){
   else onGroup(data.fromPage, data.groupKey);
 }
 
-/* which 1-indexed page currently shows this exact contact (by reference,
-   same reasoning as pageNumbersForGroup), or null if it's unplaced */
-function pageNumberForContact(contact){
+/* every 1-indexed page currently showing this exact contact (by reference,
+   same reasoning as pageNumbersForGroup) -- normally at most one, but with
+   allowDuplicates on the same contact can legitimately sit on several */
+function pageNumbersForContact(contact){
+  var nums = [];
   for(var i=0;i<state.pages.length;i++){
-    if(state.pages[i].contacts.indexOf(contact) !== -1) return i+1;
+    if(state.pages[i].contacts.indexOf(contact) !== -1) nums.push(i+1);
   }
-  return null;
+  return nums;
 }
 
 /* one draggable row per contact, used both under an expanded pool tile and
@@ -1857,14 +1900,15 @@ function pageNumberForContact(contact){
 function buildContactList(contacts, fromPage){
   var list = el("div", { class:"contactList" });
   contacts.forEach(function(c){
-    var pageNum = pageNumberForContact(c);
+    var pageNums = pageNumbersForContact(c);
+    var placed = pageNums.length > 0;
     var chip = el("div", {
-      class: "contactChip" + (pageNum ? " placed" : ""),
+      class: "contactChip" + (placed ? " placed" : ""),
       draggable: "true",
-      title: (pageNum ? ("On page " + pageNum) : "Not placed yet") + " -- drag onto a page, \"+ New page\", or \"" + "✕ Remove from page" + "\""
+      title: (placed ? ("On page" + (pageNums.length>1 ? "s " : " ") + pageNums.join(", ")) : "Not placed yet") + " -- drag onto a page, \"+ New page\", or \"" + "✕ Remove from page" + "\""
     });
     chip.appendChild(el("span", { class:"contactChipName", text:c.name }));
-    if(pageNum) chip.appendChild(el("span", { class:"contactChipPage", text:"p"+pageNum }));
+    if(placed) chip.appendChild(el("span", { class:"contactChipPage", text:"p"+pageNums.join(",") }));
     chip.addEventListener("dragstart", function(e){
       e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify({ type:"contact", fromPage:fromPage, contactId:c.id }));
       e.dataTransfer.effectAllowed = "move";
