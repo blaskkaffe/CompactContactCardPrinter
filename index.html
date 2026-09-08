@@ -20,7 +20,7 @@ label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
 #dataStatus{font-size:12px; color:#ccc;}
 #gridInfo{font-size:12px; color:#ccc;}
 
-/* holds the page viewer and the debug settings panel side by side */
+/* holds the group panel, page viewer, and debug settings panel side by side */
 #mainRow{flex:1 1 auto; display:flex; overflow:hidden;}
 
 main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0;}
@@ -113,33 +113,93 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 (function(){
 "use strict";
 
-/* ================= layout types ================= */
-/* row counts are separate mutable vars (not baked into LAYOUTS) so the
-   debug panel can tune them live */
+/* ============================================================
+   CONFIG -- every tunable constant lives here: font sizes, the
+   spacing "distances" used throughout the card layout, default
+   card/paper geometry, and the column header names recognized
+   when importing a CSV/XLSX. Edit values here instead of
+   hunting for a magic number elsewhere in the file.
+
+   Font sizes, text-length caps, row capacities, and the header
+   height factor are also live-editable from the debug panel
+   near the bottom of this file (see initDebugPanel) -- it reads
+   and writes these exact same vars, so the two never drift.
+   ============================================================ */
+
+/* -- rendering -- */
+var RENDER_DPI = 150;
+var FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
+
+/* -- font sizes (pt) --
+   Real prints came out at roughly half the intended physical size (a
+   print-scaling issue outside this app's control), so sizes below are set
+   a bit above half of the originally-specified 16/12/12/11pt to match
+   what actually ends up on paper. */
+var HEADER_FONT_PT = 9;
+var NAME_FONT_PT = 7;
+/* v20's name column shares its row with a department column and only a
+   single phone, so it's the tightest layout on a 54mm-wide card -- it gets
+   its own (smaller) name font, independent of NAME_FONT_PT (used by h2 and
+   v10, which have room to spare and shouldn't shrink just because v20
+   needs to). Small enough that a long name like "Roberto von Hemansson
+   III" fits without truncation alongside a department and a full phone
+   number. */
+var NAME_FONT_PT_TIGHT = 4;
+var EMAIL_FONT_PT = 7;   /* the 10-contact layout's email line only -- independent of NAME_FONT_PT */
+var PHONE_FONT_PT = 7;
+var DEPT_FONT_PT = 6;
+
+/* -- text length caps -- */
+var DEPT_MAX_CHARS = 1;   /* plus the "C " chief prefix, kept separately -- department is the least important field, so it's kept minimal to give the name column room */
+var LABEL_MAX_CHARS = 6;  /* number-type tags on the 10-contact layout, e.g. "Work"/"Home" */
+
+/* -- row capacity per layout (contacts per card) --
+   separate mutable vars (not baked into LAYOUTS) so the debug panel can
+   tune them live */
 var ROWS_V20 = 20;
 var ROWS_V10 = 10;
 var ROWS_H2 = 12;
-function layoutRows(key){
-  if(key === "v20") return ROWS_V20;
-  if(key === "v10") return ROWS_V10;
-  if(key === "h2") return ROWS_H2;
-  return 0;
-}
-/* header height is sized relative to one row's height (HEADER_HEIGHT_FACTOR
-   times it) rather than a fixed fraction of the card, so it shrinks along
-   with the rows instead of eating a constant ~10% regardless of row count.
-   Solves headerH = k*rowH where rowH = (hPx-headerH)/rowUnits. Shared by
-   drawCard and getEditableRegions so hit-testing always matches what's
-   actually drawn. */
-function computeHeaderH(hPx, layout){
-  var capacity = layoutRows(layout.key);
-  var rowUnits = layout.doubleRow ? capacity*2 : capacity;
-  if(rowUnits <= 0) return hPx * 0.1; /* empty page has no rows to size against */
-  return HEADER_HEIGHT_FACTOR * hPx / (rowUnits + HEADER_HEIGHT_FACTOR);
-}
-/* v10 is 10 CONTACTS, each spanning two printed lines:
-     line 1: name | label1 (number type, e.g. "Work") | phone1
-     line 2: email | label2                            | phone2
+
+/* -- header sizing --
+   header height = HEADER_HEIGHT_FACTOR rows' worth of height (see
+   computeHeaderH), rather than a fixed fraction of the card, so it shrinks
+   along with the rows instead of eating a constant share regardless of
+   row count. */
+var HEADER_HEIGHT_FACTOR = 1.3;
+
+/* -- spacing "distances" (mm) -- */
+var CELL_PADDING_MM = 1.5;   /* inner padding of every row/column */
+var BORDER_WIDTH_MM = 0.3;   /* card border, crop marks, empty-card outline */
+var DIVIDER_INSET_MM = 2;    /* how far a row divider stays clear of the card's left/right edges */
+var DIVIDER_ALPHA = 0.5;     /* row divider opacity */
+var DIVIDER_WIDTH_MM = 0.1;  /* row divider line weight */
+
+/* -- default card / paper geometry -- */
+var DEFAULT_CARD_W_MM = 53.98; /* ISO/IEC 7810 ID-1 credit card -- always the VERTICAL shape */
+var DEFAULT_CARD_H_MM = 85.60;
+var DEFAULT_MARGIN_MM = 10;    /* printer-unsafe border kept clear on every edge */
+
+var PAPER_SIZES = {
+  A4: { label:"A4", wMM:210, hMM:297 }
+};
+
+/* -- CSV/XLSX column header names recognized on import (case-insensitive) -- */
+var IMPORT_HEADER_ALIASES = {
+  name:       ["name","full name","fullname"],
+  firstName:  ["first name","firstname","first"],
+  lastName:   ["last name","lastname","last","surname"],
+  department: ["department","dept"],
+  phone:      ["phone","number","phone1","phone 1"],
+  phone2:     ["phone2","phone 2"],
+  label1:     ["label1","label 1","type1","type 1","number type"],
+  email:      ["email","e-mail"]
+};
+
+/* -- card layout definitions --
+   v10 is 10 CONTACTS, each spanning two printed lines:
+     line 1: name  | label1 (number type, e.g. "Work") | phone1
+     line 2: email |                                   | phone2
+   (line 2 has no label of its own -- see phoneRowLegend below).
    layoutRows("v10") is the contact count (10), not the printed line count. */
 var LAYOUTS = {
   v20:   { key:"v20",   label:"20-row vertical",              orientation:"vertical",   phones:1, showDept:true,  doubleRow:false },
@@ -148,9 +208,9 @@ var LAYOUTS = {
   empty: { key:"empty", label:"Empty page",                    orientation:"vertical",   phones:0, showDept:false, doubleRow:false }
 };
 
-/* header background presets -- all verified >=8:1 WCAG contrast ratio
-   against white text (see commit notes), so white header text always
-   reads clearly against any of them */
+/* -- header background presets -- all verified >=8:1 WCAG contrast ratio
+   against white text, so white header text always reads clearly against
+   any of them -- */
 var COLOR_PRESETS = [
   { name:"Black",        hex:"#000000" },
   { name:"Charcoal",     hex:"#2B2B2B" },
@@ -169,24 +229,7 @@ var COLOR_PRESETS = [
   { name:"Dark Cyan",    hex:"#004D4D" }
 ];
 
-/* ================= paper / page geometry ================= */
-var PAPER_SIZES = {
-  A4: { label:"A4", wMM:210, hMM:297 }
-};
-var RENDER_DPI = 150;
-
-var state = {
-  paperSize: "A4",
-  cardOrientation: "vertical", /* default orientation used when auto-generating NEW pages */
-  viewMode: "single",          /* "single" | "all" */
-  currentPage: 0,              /* 0-indexed */
-  cardWmm: 53.98,              /* exact ISO/IEC 7810 ID-1 credit card -- always the VERTICAL shape */
-  cardHmm: 85.60,
-  marginMm: 10,                /* printer-unsafe border to keep clear on every edge */
-  contacts: [],
-  pages: []                    /* [{layout, contacts, emptyMode, image}] -- one entry per generated page */
-};
-
+/* ================= shared utilities ================= */
 function $(sel){ return document.querySelector(sel); }
 function el(tag, attrs, children){
   var e = document.createElement(tag);
@@ -196,6 +239,50 @@ function el(tag, attrs, children){
   }
   (children||[]).forEach(function(c){ e.appendChild(c); });
   return e;
+}
+function mmToPx(mm, dpi){ return mm * dpi / 25.4; }
+function ptToPx(pt, dpi){ return pt * dpi / 72; }
+
+/* ================= app state ================= */
+var state = {
+  paperSize: "A4",
+  cardOrientation: "vertical", /* default orientation used when auto-generating NEW pages */
+  viewMode: "single",          /* "single" | "all" */
+  currentPage: 0,              /* 0-indexed */
+  cardWmm: DEFAULT_CARD_W_MM,
+  cardHmm: DEFAULT_CARD_H_MM,
+  marginMm: DEFAULT_MARGIN_MM,
+  contacts: [],
+  pages: []  /* [{layout, contacts, emptyMode, image, headerColor, headerLegend, savedContacts}] -- one entry per generated page */
+};
+
+
+/* ============================================================
+   PRINT / RENDER ENGINE
+   Page/card geometry, CSV+XLSX import, page generation, contact
+   formatting, canvas drawing, click-to-edit hit-testing, and the
+   print pipeline. This section only reads/writes `state` and the
+   CONFIG values above -- it has no knowledge of the toolbar or
+   any menu UI. See MENU / VIEWER UI below for anything about how
+   controls look or are laid out.
+   ============================================================ */
+
+/* ---------------- page geometry ---------------- */
+function layoutRows(key){
+  if(key === "v20") return ROWS_V20;
+  if(key === "v10") return ROWS_V10;
+  if(key === "h2") return ROWS_H2;
+  return 0;
+}
+
+/* shared by drawCard and getEditableRegions so hit-testing always matches
+   what's actually drawn. Solves headerH = k*rowH where
+   rowH = (hPx-headerH)/rowUnits. */
+function computeHeaderH(hPx, layout){
+  var capacity = layoutRows(layout.key);
+  var rowUnits = layout.doubleRow ? capacity*2 : capacity;
+  if(rowUnits <= 0) return hPx * 0.1; /* empty page has no rows to size against */
+  return HEADER_HEIGHT_FACTOR * hPx / (rowUnits + HEADER_HEIGHT_FACTOR);
 }
 
 function cardDimsForOrientation(orientation){
@@ -253,7 +340,7 @@ function pageGeometryForIndex(index){
   return { layout:LAYOUTS[layoutKey], cardDims:geo.cardDims, pageDims:geo.pageDims, grid:geo.grid };
 }
 
-/* ================= contact sorting (alphabetical, chief dept first) ================= */
+/* ---------------- contact sorting (alphabetical, chief dept first) ---------------- */
 function isChiefDept(dept){ return /^c\.?\s+/i.test((dept||"").trim()); }
 function deptGroupKey(dept){ return (dept||"").trim().replace(/^c\.?\s+/i,"").toLowerCase(); }
 function sortContacts(list){
@@ -266,7 +353,7 @@ function sortContacts(list){
   });
 }
 
-/* ================= CSV parsing ================= */
+/* ---------------- CSV parsing ---------------- */
 function parseCSV(text){
   var rows = [], row = [], field = "", inQuotes = false;
   for(var i=0;i<text.length;i++){
@@ -289,7 +376,7 @@ function parseCSV(text){
   return rows.filter(function(r){ return r.length>1 || (r[0]||"").trim()!==""; });
 }
 
-/* ================= XLSX parsing (no libraries: native unzip + XML) ================= */
+/* ---------------- XLSX parsing (no libraries: native unzip + XML) ---------------- */
 function colLetterToIndex(ref){
   var m = /^([A-Z]+)/i.exec(ref);
   if(!m) return 0;
@@ -403,7 +490,7 @@ async function parseXLSX(arrayBuffer){
   return parseSheetToRows(xmlByName[sheetName], sharedStrings);
 }
 
-/* ================= rows -> contacts (shared by CSV and XLSX) ================= */
+/* ---------------- rows -> contacts (shared by CSV and XLSX) ---------------- */
 function headerIndex(headers, names){
   for(var i=0;i<headers.length;i++){
     var h = String(headers[i]||"").trim().toLowerCase();
@@ -415,15 +502,14 @@ function rowsToContacts(rows){
   if(!rows.length) return [];
   var headers = rows[0];
   var idx = {
-    name: headerIndex(headers, ["name","full name","fullname"]),
-    firstName: headerIndex(headers, ["first name","firstname","first"]),
-    lastName: headerIndex(headers, ["last name","lastname","last","surname"]),
-    department: headerIndex(headers, ["department","dept"]),
-    phone: headerIndex(headers, ["phone","number","phone1","phone 1"]),
-    phone2: headerIndex(headers, ["phone2","phone 2"]),
-    label1: headerIndex(headers, ["label1","label 1","type1","type 1","number type"]),
-    label2: headerIndex(headers, ["label2","label 2","type2","type 2"]),
-    email: headerIndex(headers, ["email","e-mail"])
+    name:       headerIndex(headers, IMPORT_HEADER_ALIASES.name),
+    firstName:  headerIndex(headers, IMPORT_HEADER_ALIASES.firstName),
+    lastName:   headerIndex(headers, IMPORT_HEADER_ALIASES.lastName),
+    department: headerIndex(headers, IMPORT_HEADER_ALIASES.department),
+    phone:      headerIndex(headers, IMPORT_HEADER_ALIASES.phone),
+    phone2:     headerIndex(headers, IMPORT_HEADER_ALIASES.phone2),
+    label1:     headerIndex(headers, IMPORT_HEADER_ALIASES.label1),
+    email:      headerIndex(headers, IMPORT_HEADER_ALIASES.email)
   };
   var out = [];
   for(var r=1;r<rows.length;r++){
@@ -436,28 +522,37 @@ function rowsToContacts(rows){
     if(!name) continue;
     out.push({
       name:name, department:get(idx.department), phone:get(idx.phone), phone2:get(idx.phone2),
-      label1:get(idx.label1), label2:get(idx.label2), email:get(idx.email)
+      label1:get(idx.label1), email:get(idx.email)
     });
   }
   return out;
 }
 
-/* ================= page generation ================= */
+/* ---------------- page generation ---------------- */
 /* auto-chunks contacts sequentially into pages using the current default
    orientation's layout, padded to an even count with a blank page. Each
    page keeps its own contacts snapshot, so changing one page's layout
    later doesn't reshuffle any other page. */
+function defaultLayoutForOrientation(){
+  return state.cardOrientation === "horizontal" ? "h2" : "v20";
+}
+function blankPage(layout, contacts){
+  return { layout:layout, contacts:contacts||[], emptyMode:"blank", image:null, headerColor:"#000000" };
+}
+function emptyFillerPage(){
+  return { layout:"empty", contacts:[], emptyMode:"rows", image:null, headerColor:"#000000" };
+}
 function regeneratePages(){
-  var defaultLayout = state.cardOrientation === "horizontal" ? "h2" : "v20";
+  var defaultLayout = defaultLayoutForOrientation();
   var capacity = layoutRows(defaultLayout);
   var pages = [];
   if(capacity > 0){
     for(var i=0;i<state.contacts.length;i+=capacity){
-      pages.push({ layout:defaultLayout, contacts:state.contacts.slice(i,i+capacity), emptyMode:"blank", image:null, headerColor:"#000000" });
+      pages.push(blankPage(defaultLayout, state.contacts.slice(i,i+capacity)));
     }
   }
   if(pages.length && pages.length % 2 !== 0){
-    pages.push({ layout:"empty", emptyMode:"rows", contacts:[], image:null, headerColor:"#000000" });
+    pages.push(emptyFillerPage());
   }
   state.pages = pages;
 }
@@ -482,9 +577,9 @@ function reflowFromPage(index){
          page, that would resolve right back to "empty" and re-lose the
          data it's supposed to rescue. Use the same default content layout
          regeneratePages() would pick for brand-new pages instead. */
-      var fallbackLayout = state.cardOrientation === "horizontal" ? "h2" : "v20";
+      var fallbackLayout = defaultLayoutForOrientation();
       var newCap = layoutRows(fallbackLayout) || carry.length;
-      state.pages.push({ layout:fallbackLayout, contacts:carry.splice(0, newCap), emptyMode:"blank", image:null, headerColor:"#000000" });
+      state.pages.push(blankPage(fallbackLayout, carry.splice(0, newCap)));
       continue;
     }
     var merged = carry.concat(next.contacts);
@@ -494,109 +589,11 @@ function reflowFromPage(index){
     idx++;
   }
   if(state.pages.length % 2 !== 0){
-    state.pages.push({ layout:"empty", emptyMode:"rows", contacts:[], image:null, headerColor:"#000000" });
+    state.pages.push(emptyFillerPage());
   }
 }
 
-/* ================= department grouping helper (sidebar) ================= */
-/* state.contacts is already grouped contiguously by department (sortContacts
-   groups by deptGroupKey first), so this only needs one pass collecting
-   consecutive runs -- no separate grouping/sorting logic to keep in sync. */
-function deptDisplayLabel(dept){ return (dept||"").trim().replace(/^c\.?\s+/i, "") || "(no department)"; }
-function computeDepartmentGroups(){
-  var groups = [];
-  var current = null;
-  state.contacts.forEach(function(c){
-    var key = deptGroupKey(c.department);
-    if(!current || current.key !== key){
-      current = { key:key, label:deptDisplayLabel(c.department), contacts:[] };
-      groups.push(current);
-    }
-    current.contacts.push(c);
-  });
-  return groups;
-}
-
-/* appends a whole department group onto the given 1-indexed page, creating
-   pages up to that index if needed, then reuses the existing overflow
-   cascade (reflowFromPage) so nothing is ever dropped if it doesn't fit --
-   the same guarantee a manual layout-capacity change already gets. */
-function addGroupToPage(group, pageNumber){
-  var index = pageNumber - 1;
-  if(index < 0) return;
-  var defaultLayout = state.cardOrientation === "horizontal" ? "h2" : "v20";
-  while(state.pages.length <= index){
-    state.pages.push({ layout:defaultLayout, contacts:[], emptyMode:"blank", image:null, headerColor:"#000000" });
-  }
-  var target = state.pages[index];
-  if(target.layout === "empty"){
-    target.layout = defaultLayout;
-    target.savedContacts = null;
-  }
-  target.contacts = target.contacts.concat(group.contacts);
-  reflowFromPage(index);
-  renderViewer();
-}
-
-function renderGroupPanel(){
-  var panel = $("#groupPanel");
-  if(!panel) return;
-  panel.innerHTML = "";
-  panel.appendChild(el("h2", { text:"Department groups" }));
-
-  if(!state.contacts.length){
-    panel.appendChild(el("div", { class:"emptyNote", text:"Import a CSV/XLSX to see groups here." }));
-    return;
-  }
-
-  var clearBtn = el("button", { type:"button", text:"Clear pages, group manually", style:"width:100%; margin-bottom:10px; font-size:11px; padding:4px;" });
-  clearBtn.addEventListener("click", function(){
-    state.pages = [];
-    renderViewer();
-  });
-  panel.appendChild(clearBtn);
-
-  computeDepartmentGroups().forEach(function(g){
-    var row = el("div", { class:"groupRow" });
-    row.appendChild(el("div", { class:"groupTitle", text:g.label + " (" + g.contacts.length + ")" }));
-    var addRow = el("div", { class:"groupAdd" });
-    addRow.appendChild(el("span", { text:"Page" }));
-    var pageInput = document.createElement("input");
-    pageInput.type = "number"; pageInput.min = "1"; pageInput.step = "1";
-    pageInput.value = String(state.pages.length + 1); /* defaults to "next new page" for sequential one-group-per-page building */
-    addRow.appendChild(pageInput);
-    var addBtn = el("button", { type:"button", text:"Add" });
-    addBtn.addEventListener("click", function(){
-      var target = parseInt(pageInput.value, 10);
-      if(!target || target < 1) return;
-      addGroupToPage(g, target);
-    });
-    addRow.appendChild(addBtn);
-    row.appendChild(addRow);
-    panel.appendChild(row);
-  });
-
-  panel.appendChild(el("h2", { text:"Page slots", style:"margin-top:14px;" }));
-  if(!state.pages.length){
-    panel.appendChild(el("div", { class:"emptyNote", text:"No pages yet." }));
-    return;
-  }
-  var ul = el("ul", { class:"pageSlots" });
-  state.pages.forEach(function(p, i){
-    var li = document.createElement("li");
-    if(p.layout === "empty"){
-      li.textContent = "Page " + (i+1) + ": empty";
-    } else {
-      var cap = layoutRows(p.layout), used = p.contacts.length, free = Math.max(0, cap-used);
-      li.textContent = "Page " + (i+1) + " (" + LAYOUTS[p.layout].label + "): " + used + "/" + cap + " used, " + free + " free";
-      if(free === 0) li.className = "full";
-    }
-    ul.appendChild(li);
-  });
-  panel.appendChild(ul);
-}
-
-/* ================= file drop handling ================= */
+/* ---------------- file drop handling ---------------- */
 async function handleFile(file){
   try{
     var rows;
@@ -641,31 +638,7 @@ function setupDropZone(){
   }, opts);
 }
 
-/* ================= card + page canvas rendering ================= */
-function mmToPx(mm, dpi){ return mm * dpi / 25.4; }
-function ptToPx(pt, dpi){ return pt * dpi / 72; }
-
-var FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
-/* real prints came out at roughly half the intended physical size (a
-   print-scaling issue outside this app's control), so sizes are set a
-   bit above half of the originally-specified 16/12/12/11pt to match
-   what actually ends up on paper. All adjustable live via the debug panel. */
-var HEADER_FONT_PT = 9;
-var NAME_FONT_PT = 7;
-/* v20's name column shares its row with a department column and only a
-   single phone, so it's the tightest layout on a 54mm-wide card -- it gets
-   its own (smaller) name font, independent of NAME_FONT_PT (used by h2 and
-   v10, which have room to spare and shouldn't shrink just because v20 needs
-   to). Small enough that a long name like "Roberto von Hemansson III"
-   fits without truncation alongside a department and a full phone number. */
-var NAME_FONT_PT_TIGHT = 4;
-var PHONE_FONT_PT = 7;
-var DEPT_FONT_PT = 6;
-var DEPT_MAX_CHARS = 1; /* plus the "C " chief prefix, kept separately -- department is the least important field, so it's kept minimal to give the name column room */
-var LABEL_MAX_CHARS = 6; /* number-type tags on the 10-contact layout, e.g. "Work"/"Home" */
-var EMAIL_FONT_PT = 7; /* the 10-contact layout's email line only -- independent of NAME_FONT_PT */
-var HEADER_HEIGHT_FACTOR = 1.3; /* header height, expressed as a multiple of one row's height (see computeHeaderH) */
-
+/* ---------------- contact field formatting ---------------- */
 function truncateText(ctx, text, maxWidth){
   if(ctx.measureText(text).width <= maxWidth) return text;
   var lo = 0, hi = text.length;
@@ -676,7 +649,7 @@ function truncateText(ctx, text, maxWidth){
   return lo <= 0 ? "." : text.slice(0, lo) + ".";
 }
 
-/* department column: keep a leading chief marker ("C "/"C./ etc) outside the
+/* department column: keep a leading chief marker ("C "/"C." etc) outside the
    character budget, cap the rest at DEPT_MAX_CHARS, dot-truncate if cut */
 function formatDeptForRow(dept){
   var d = (dept||"").trim();
@@ -709,6 +682,7 @@ function formatPhoneNumber(raw){
   return digits || (raw||"").trim();
 }
 
+/* ---------------- column layout (shared by drawing and click hit-testing) ---------------- */
 /* the phone column is always exactly wide enough for the 10-digit grouped
    format -- that's the longest a number can ever be, so there's nothing to
    measure per-dataset. Cached per PHONE_FONT_PT since it only depends on
@@ -736,7 +710,7 @@ function measureMiddleColWidth(ctx, dpi, fontPt, maxChars, hasChiefPrefix){
    The department-to-phone gap is narrower than the other gaps (department
    is the least important field), handing the difference back to name. */
 function layoutRowColumns(ctx, wPx, dpi, layout){
-  var pad = mmToPx(1.5, dpi);
+  var pad = mmToPx(CELL_PADDING_MM, dpi);
   var gap = pad/2;
   ctx.font = ptToPx(DEPT_FONT_PT, dpi) + "px " + FONT_FAMILY;
   var deptCharW = ctx.measureText("0").width; /* one extra character of breathing room before the phone column */
@@ -772,7 +746,7 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
    legend (top row = phone1, bottom row = phone2), so line 2 hands that
    whole column back to the email address instead. */
 function layoutDoubleRowColumns(ctx, wPx, dpi){
-  var pad = mmToPx(1.5, dpi);
+  var pad = mmToPx(CELL_PADDING_MM, dpi);
   var gap = pad/2;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
   var middleW = measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, LABEL_MAX_CHARS, false) + pad*0.5;
@@ -791,6 +765,7 @@ function layoutDoubleRowColumns(ctx, wPx, dpi){
   return { line1:[name, mid, phone1], line2:[email, phone2] };
 }
 
+/* ---------------- card drawing ---------------- */
 /* draws one printed line from a positional (not keyed) column layout --
    used for both flat single-line rows and each line of a double-row card */
 function drawGenericRow(ctx, xPx, rowTop, wPx, rowH, dpi, cols, values){
@@ -826,7 +801,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(xPx, yPx, wPx, hPx);
   ctx.strokeStyle = "#000";
-  ctx.lineWidth = Math.max(1, mmToPx(0.3, dpi));
+  ctx.lineWidth = Math.max(1, mmToPx(BORDER_WIDTH_MM, dpi));
   ctx.strokeRect(xPx+0.5, yPx+0.5, wPx-1, hPx-1);
 
   var headerH = computeHeaderH(hPx, layout);
@@ -834,7 +809,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
   ctx.fillRect(xPx, yPx, wPx, headerH);
   ctx.font = ptToPx(HEADER_FONT_PT, dpi) + "px " + FONT_FAMILY;
   ctx.textBaseline = "middle";
-  var pad = mmToPx(1.5, dpi);
+  var pad = mmToPx(CELL_PADDING_MM, dpi);
   var halfW = wPx*0.5;
 
   ctx.save();
@@ -864,11 +839,11 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
 
   var bodyY = yPx+headerH, bodyH = hPx-headerH;
   var capacity = layoutRows(layout.key);
-  var lineInset = mmToPx(2, dpi);
+  var lineInset = mmToPx(DIVIDER_INSET_MM, dpi);
 
-  function divider(y, alpha, widthMm){
-    ctx.strokeStyle = "rgba(0,0,0,"+alpha+")";
-    ctx.lineWidth = Math.max(1, mmToPx(widthMm, dpi));
+  function divider(y){
+    ctx.strokeStyle = "rgba(0,0,0,"+DIVIDER_ALPHA+")";
+    ctx.lineWidth = Math.max(1, mmToPx(DIVIDER_WIDTH_MM, dpi));
     ctx.beginPath();
     ctx.moveTo(xPx+lineInset, y);
     ctx.lineTo(xPx+wPx-lineInset, y);
@@ -881,7 +856,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
     for(var i=0;i<capacity;i++){
       var top1 = bodyY + subRowH*2*i;
       var top2 = top1 + subRowH;
-      if(i>0) divider(top1, 0.5, 0.1);
+      if(i>0) divider(top1);
       var c = contacts[i];
       if(!c) continue;
       drawGenericRow(ctx, xPx, top1, wPx, subRowH, dpi, colSet.line1, [c.name, formatLabelForRow(c.label1), formatPhoneNumber(c.phone)]);
@@ -891,7 +866,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
     var rowH = bodyH / capacity;
     for(var j=0;j<capacity;j++){
       var rowTop = bodyY + rowH*j;
-      if(j>0) divider(rowTop, 0.5, 0.1);
+      if(j>0) divider(rowTop);
       var contact = contacts[j];
       if(!contact) continue;
       drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact, layout);
@@ -916,7 +891,7 @@ function drawEmptyCardOutline(ctx, xPx, yPx, wPx, hPx, dpi){
   ctx.fillStyle = "#fff";
   ctx.fillRect(xPx, yPx, wPx, hPx);
   ctx.strokeStyle = "#000";
-  ctx.lineWidth = Math.max(1, mmToPx(0.3, dpi));
+  ctx.lineWidth = Math.max(1, mmToPx(BORDER_WIDTH_MM, dpi));
   ctx.strokeRect(xPx+0.5, yPx+0.5, wPx-1, hPx-1);
   ctx.restore();
 }
@@ -928,7 +903,7 @@ function drawEmptyCardOutline(ctx, xPx, yPx, wPx, hPx, dpi){
 function drawCropMarks(ctx, pageWpx, pageHpx, blockX, blockY, blockW, blockH, dpi){
   ctx.save();
   ctx.strokeStyle = "#000";
-  ctx.lineWidth = Math.max(1, mmToPx(0.3, dpi));
+  ctx.lineWidth = Math.max(1, mmToPx(BORDER_WIDTH_MM, dpi));
   var right = blockX + blockW, bottom = blockY + blockH;
   function line(x1,y1,x2,y2){ ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
   line(0, blockY, blockX, blockY);           line(blockX, 0, blockX, blockY);
@@ -1007,131 +982,7 @@ function renderCardsOntoCanvas(canvas, pageIndex){
   drawCropMarks(ctx, canvas.width, canvas.height, mmToPx(startXmm,RENDER_DPI), mmToPx(startYmm,RENDER_DPI), mmToPx(blockWmm,RENDER_DPI), mmToPx(blockHmm,RENDER_DPI), RENDER_DPI);
 }
 
-/* ================= page element + viewer (navigation/scroll/orientation) ================= */
-function pageLayoutOptionsSelect(currentKey, onChange){
-  var sel = document.createElement("select");
-  ["v20","v10","h2","empty"].forEach(function(key){
-    sel.appendChild(el("option", { value:key, text:LAYOUTS[key].label }));
-  });
-  sel.value = currentKey;
-  sel.addEventListener("change", function(){ onChange(sel.value); });
-  return sel;
-}
-
-/* per-page header color: 15 preset swatches (all pre-verified for good
-   contrast with white text) plus a button revealing R/G/B number inputs
-   for an arbitrary custom color -- contrast with white is the picker's
-   own responsibility there, unlike the vetted presets */
-function buildHeaderColorControls(pageState){
-  var wrap = el("div", { style:"display:flex; gap:2px; align-items:center;" });
-
-  var sel = document.createElement("select");
-  COLOR_PRESETS.forEach(function(c){
-    sel.appendChild(el("option", { value:c.hex, text:c.name }));
-  });
-  var isPreset = COLOR_PRESETS.some(function(c){ return c.hex.toLowerCase() === (pageState.headerColor||"").toLowerCase(); });
-  if(!isPreset){
-    sel.appendChild(el("option", { value:pageState.headerColor, text:"Custom" }));
-  }
-  sel.value = pageState.headerColor;
-  sel.addEventListener("change", function(){ pageState.headerColor = sel.value; renderViewer(); });
-  wrap.appendChild(sel);
-
-  var customBtn = el("button", { type:"button", text:"RGB..." });
-  wrap.appendChild(customBtn);
-
-  /* one "Apply" action reads all three fields at once -- applying on each
-     individual field's change would trigger a full re-render (this app
-     rebuilds page DOM on every state change) that collapses this box
-     before the other two fields could be set */
-  var rgbBox = el("div", { style:"display:none; gap:2px;" });
-  var startColor = isPreset ? { r:0,g:0,b:0 } : hexToRgb(pageState.headerColor);
-  var inputs = ["R","G","B"].map(function(ch, idx){
-    var input = document.createElement("input");
-    input.type = "number"; input.min = "0"; input.max = "255";
-    input.style.width = "36px";
-    input.value = [startColor.r, startColor.g, startColor.b][idx];
-    rgbBox.appendChild(input);
-    return input;
-  });
-  var applyBtn = el("button", { type:"button", text:"Apply" });
-  applyBtn.addEventListener("click", function(){
-    var vals = inputs.map(function(inp){ return Math.max(0, Math.min(255, parseInt(inp.value,10)||0)); });
-    var hex = "#" + vals.map(function(v){ return v.toString(16).padStart(2,"0"); }).join("");
-    pageState.headerColor = hex;
-    renderViewer();
-  });
-  rgbBox.appendChild(applyBtn);
-  customBtn.addEventListener("click", function(){
-    rgbBox.style.display = rgbBox.style.display === "none" ? "flex" : "none";
-  });
-  wrap.appendChild(rgbBox);
-  return wrap;
-}
-function hexToRgb(hex){
-  hex = (hex||"#000000").replace("#","");
-  return { r:parseInt(hex.slice(0,2),16)||0, g:parseInt(hex.slice(2,4),16)||0, b:parseInt(hex.slice(4,6),16)||0 };
-}
-
-function buildPageControls(index){
-  var box = el("div", { class:"pageControls" });
-  var pageState = state.pages[index];
-  if(!pageState) return box; /* no data yet -- nothing to configure */
-
-  box.appendChild(pageLayoutOptionsSelect(pageState.layout, function(newKey){
-    var oldLayout = pageState.layout;
-    /* "empty" just hides this page's contacts rather than cascading them
-       away like a real capacity shrink would -- they're remembered on the
-       page itself (savedContacts) and restored if you switch back to a
-       content layout, until a fresh import replaces state.pages outright */
-    if(newKey === "empty" && oldLayout !== "empty"){
-      pageState.savedContacts = pageState.contacts;
-      pageState.contacts = [];
-    } else if(newKey !== "empty" && oldLayout === "empty"){
-      pageState.contacts = pageState.savedContacts || [];
-      pageState.savedContacts = null;
-    }
-    pageState.layout = newKey;
-    if(newKey === "empty" && !pageState.emptyMode) pageState.emptyMode = "blank";
-    reflowFromPage(index);
-    renderViewer();
-  }));
-
-  if(pageState.layout !== "empty"){
-    box.appendChild(buildHeaderColorControls(pageState));
-  }
-
-  if(pageState.layout === "empty"){
-    var modeSel = document.createElement("select");
-    [["blank","Blank"],["rows","Empty grid"],["image","Custom image"]].forEach(function(opt){
-      modeSel.appendChild(el("option", { value:opt[0], text:opt[1] }));
-    });
-    modeSel.value = pageState.emptyMode;
-    modeSel.addEventListener("change", function(){ pageState.emptyMode = modeSel.value; renderViewer(); });
-    box.appendChild(modeSel);
-
-    if(pageState.emptyMode === "image"){
-      var fileInput = document.createElement("input");
-      fileInput.type = "file";
-      fileInput.accept = "image/*";
-      fileInput.addEventListener("change", function(){
-        var f = fileInput.files[0];
-        if(!f) return;
-        var reader = new FileReader();
-        reader.onload = function(){
-          var img = new Image();
-          img.onload = function(){ pageState.image = img; renderViewer(); };
-          img.src = reader.result;
-        };
-        reader.readAsDataURL(f);
-      });
-      box.appendChild(fileInput);
-    }
-  }
-  return box;
-}
-
-/* ================= click-to-edit ================= */
+/* ---------------- click-to-edit ---------------- */
 /* every editable field's box within ONE card, relative to that card's own
    top-left corner -- shared by both drawing (implicitly, via the same
    column-layout functions) and click hit-testing */
@@ -1241,6 +1092,163 @@ function onCanvasClick(e, canvas, pageIndex){
   var cssScale = rect.width / canvas.width;
   openEditOverlay(canvas.parentElement, target, hit.field,
     absXpx*cssScale, absYpx*cssScale, hit.w*cssScale, hit.h*cssScale, initialValue);
+}
+
+/* ---------------- print ---------------- */
+/* CSS @page can only declare one physical size for the whole print job,
+   so mixed page orientations/sizes across pages print using the first
+   page's size -- a real limitation of print CSS, not something this app
+   can route around. Each canvas still gets its own correct mm CSS size. */
+function doPrint(){
+  var total = totalPagesCount();
+  var firstDims = currentPageDims(0);
+  $("#pageSizeStyle").textContent = "@page { size: " + firstDims.w + "mm " + firstDims.h + "mm; margin: 0; }";
+  var area = $("#printArea");
+  area.innerHTML = "";
+  for(var i=0;i<total;i++){
+    var dims = currentPageDims(i);
+    var canvas = document.createElement("canvas");
+    canvas.style.width = dims.w + "mm";
+    canvas.style.height = dims.h + "mm";
+    renderCardsOntoCanvas(canvas, i);
+    area.appendChild(canvas);
+  }
+  window.print();
+}
+
+
+/* ============================================================
+   MENU / VIEWER UI
+   Toolbar, per-page controls, the page viewer/scroller, and the
+   department-grouping sidebar. Everything in this section builds
+   DOM and wires up events; the actual card drawing is delegated
+   to the render engine above (renderCardsOntoCanvas, onCanvasClick).
+   Edit here for anything about how controls look or are laid out
+   -- it doesn't touch card layout/drawing logic.
+   ============================================================ */
+
+function pageLayoutOptionsSelect(currentKey, onChange){
+  var sel = document.createElement("select");
+  ["v20","v10","h2","empty"].forEach(function(key){
+    sel.appendChild(el("option", { value:key, text:LAYOUTS[key].label }));
+  });
+  sel.value = currentKey;
+  sel.addEventListener("change", function(){ onChange(sel.value); });
+  return sel;
+}
+
+function hexToRgb(hex){
+  hex = (hex||"#000000").replace("#","");
+  return { r:parseInt(hex.slice(0,2),16)||0, g:parseInt(hex.slice(2,4),16)||0, b:parseInt(hex.slice(4,6),16)||0 };
+}
+
+/* per-page header color: 15 preset swatches (all pre-verified for good
+   contrast with white text) plus a button revealing R/G/B number inputs
+   for an arbitrary custom color -- contrast with white is the picker's
+   own responsibility there, unlike the vetted presets */
+function buildHeaderColorControls(pageState){
+  var wrap = el("div", { style:"display:flex; gap:2px; align-items:center;" });
+
+  var sel = document.createElement("select");
+  COLOR_PRESETS.forEach(function(c){
+    sel.appendChild(el("option", { value:c.hex, text:c.name }));
+  });
+  var isPreset = COLOR_PRESETS.some(function(c){ return c.hex.toLowerCase() === (pageState.headerColor||"").toLowerCase(); });
+  if(!isPreset){
+    sel.appendChild(el("option", { value:pageState.headerColor, text:"Custom" }));
+  }
+  sel.value = pageState.headerColor;
+  sel.addEventListener("change", function(){ pageState.headerColor = sel.value; renderViewer(); });
+  wrap.appendChild(sel);
+
+  var customBtn = el("button", { type:"button", text:"RGB..." });
+  wrap.appendChild(customBtn);
+
+  /* one "Apply" action reads all three fields at once -- applying on each
+     individual field's change would trigger a full re-render (this app
+     rebuilds page DOM on every state change) that collapses this box
+     before the other two fields could be set */
+  var rgbBox = el("div", { style:"display:none; gap:2px;" });
+  var startColor = isPreset ? { r:0,g:0,b:0 } : hexToRgb(pageState.headerColor);
+  var inputs = ["R","G","B"].map(function(ch, idx){
+    var input = document.createElement("input");
+    input.type = "number"; input.min = "0"; input.max = "255";
+    input.style.width = "36px";
+    input.value = [startColor.r, startColor.g, startColor.b][idx];
+    rgbBox.appendChild(input);
+    return input;
+  });
+  var applyBtn = el("button", { type:"button", text:"Apply" });
+  applyBtn.addEventListener("click", function(){
+    var vals = inputs.map(function(inp){ return Math.max(0, Math.min(255, parseInt(inp.value,10)||0)); });
+    var hex = "#" + vals.map(function(v){ return v.toString(16).padStart(2,"0"); }).join("");
+    pageState.headerColor = hex;
+    renderViewer();
+  });
+  rgbBox.appendChild(applyBtn);
+  customBtn.addEventListener("click", function(){
+    rgbBox.style.display = rgbBox.style.display === "none" ? "flex" : "none";
+  });
+  wrap.appendChild(rgbBox);
+  return wrap;
+}
+
+function buildPageControls(index){
+  var box = el("div", { class:"pageControls" });
+  var pageState = state.pages[index];
+  if(!pageState) return box; /* no data yet -- nothing to configure */
+
+  box.appendChild(pageLayoutOptionsSelect(pageState.layout, function(newKey){
+    var oldLayout = pageState.layout;
+    /* "empty" just hides this page's contacts rather than cascading them
+       away like a real capacity shrink would -- they're remembered on the
+       page itself (savedContacts) and restored if you switch back to a
+       content layout, until a fresh import replaces state.pages outright */
+    if(newKey === "empty" && oldLayout !== "empty"){
+      pageState.savedContacts = pageState.contacts;
+      pageState.contacts = [];
+    } else if(newKey !== "empty" && oldLayout === "empty"){
+      pageState.contacts = pageState.savedContacts || [];
+      pageState.savedContacts = null;
+    }
+    pageState.layout = newKey;
+    if(newKey === "empty" && !pageState.emptyMode) pageState.emptyMode = "blank";
+    reflowFromPage(index);
+    renderViewer();
+  }));
+
+  if(pageState.layout !== "empty"){
+    box.appendChild(buildHeaderColorControls(pageState));
+  }
+
+  if(pageState.layout === "empty"){
+    var modeSel = document.createElement("select");
+    [["blank","Blank"],["rows","Empty grid"],["image","Custom image"]].forEach(function(opt){
+      modeSel.appendChild(el("option", { value:opt[0], text:opt[1] }));
+    });
+    modeSel.value = pageState.emptyMode;
+    modeSel.addEventListener("change", function(){ pageState.emptyMode = modeSel.value; renderViewer(); });
+    box.appendChild(modeSel);
+
+    if(pageState.emptyMode === "image"){
+      var fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = "image/*";
+      fileInput.addEventListener("change", function(){
+        var f = fileInput.files[0];
+        if(!f) return;
+        var reader = new FileReader();
+        reader.onload = function(){
+          var img = new Image();
+          img.onload = function(){ pageState.image = img; renderViewer(); };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(f);
+      });
+      box.appendChild(fileInput);
+    }
+  }
+  return box;
 }
 
 function buildPageEl(index){
@@ -1354,28 +1362,6 @@ function scrollToPage(idx){
 function goPrev(){ scrollToPage(state.currentPage - 1); }
 function goNext(){ scrollToPage(state.currentPage + 1); }
 
-/* ================= print ================= */
-/* CSS @page can only declare one physical size for the whole print job,
-   so mixed page orientations/sizes across pages print using the first
-   page's size -- a real limitation of print CSS, not something this app
-   can route around. Each canvas still gets its own correct mm CSS size. */
-function doPrint(){
-  var total = totalPagesCount();
-  var firstDims = currentPageDims(0);
-  $("#pageSizeStyle").textContent = "@page { size: " + firstDims.w + "mm " + firstDims.h + "mm; margin: 0; }";
-  var area = $("#printArea");
-  area.innerHTML = "";
-  for(var i=0;i<total;i++){
-    var dims = currentPageDims(i);
-    var canvas = document.createElement("canvas");
-    canvas.style.width = dims.w + "mm";
-    canvas.style.height = dims.h + "mm";
-    renderCardsOntoCanvas(canvas, i);
-    area.appendChild(canvas);
-  }
-  window.print();
-}
-
 var wheelCooldown = false;
 function onWheel(e){
   if(state.viewMode !== "single") return;
@@ -1387,7 +1373,6 @@ function onWheel(e){
   setTimeout(function(){ wheelCooldown = false; }, 350);
 }
 
-/* ================= init ================= */
 function populatePaperSizes(){
   var sel = $("#paperSize");
   sel.innerHTML = "";
@@ -1437,11 +1422,109 @@ function initEvents(){
   setupDropZone();
 }
 
+/* ---------------- department grouping sidebar ---------------- */
+/* state.contacts is already grouped contiguously by department (sortContacts
+   groups by deptGroupKey first), so this only needs one pass collecting
+   consecutive runs -- no separate grouping/sorting logic to keep in sync. */
+function deptDisplayLabel(dept){ return (dept||"").trim().replace(/^c\.?\s+/i, "") || "(no department)"; }
+function computeDepartmentGroups(){
+  var groups = [];
+  var current = null;
+  state.contacts.forEach(function(c){
+    var key = deptGroupKey(c.department);
+    if(!current || current.key !== key){
+      current = { key:key, label:deptDisplayLabel(c.department), contacts:[] };
+      groups.push(current);
+    }
+    current.contacts.push(c);
+  });
+  return groups;
+}
+
+/* appends a whole department group onto the given 1-indexed page, creating
+   pages up to that index if needed, then reuses the existing overflow
+   cascade (reflowFromPage) so nothing is ever dropped if it doesn't fit --
+   the same guarantee a manual layout-capacity change already gets. */
+function addGroupToPage(group, pageNumber){
+  var index = pageNumber - 1;
+  if(index < 0) return;
+  var defaultLayout = defaultLayoutForOrientation();
+  while(state.pages.length <= index){
+    state.pages.push(blankPage(defaultLayout));
+  }
+  var target = state.pages[index];
+  if(target.layout === "empty"){
+    target.layout = defaultLayout;
+    target.savedContacts = null;
+  }
+  target.contacts = target.contacts.concat(group.contacts);
+  reflowFromPage(index);
+  renderViewer();
+}
+
+function renderGroupPanel(){
+  var panel = $("#groupPanel");
+  if(!panel) return;
+  panel.innerHTML = "";
+  panel.appendChild(el("h2", { text:"Department groups" }));
+
+  if(!state.contacts.length){
+    panel.appendChild(el("div", { class:"emptyNote", text:"Import a CSV/XLSX to see groups here." }));
+    return;
+  }
+
+  var clearBtn = el("button", { type:"button", text:"Clear pages, group manually", style:"width:100%; margin-bottom:10px; font-size:11px; padding:4px;" });
+  clearBtn.addEventListener("click", function(){
+    state.pages = [];
+    renderViewer();
+  });
+  panel.appendChild(clearBtn);
+
+  computeDepartmentGroups().forEach(function(g){
+    var row = el("div", { class:"groupRow" });
+    row.appendChild(el("div", { class:"groupTitle", text:g.label + " (" + g.contacts.length + ")" }));
+    var addRow = el("div", { class:"groupAdd" });
+    addRow.appendChild(el("span", { text:"Page" }));
+    var pageInput = document.createElement("input");
+    pageInput.type = "number"; pageInput.min = "1"; pageInput.step = "1";
+    pageInput.value = String(state.pages.length + 1); /* defaults to "next new page" for sequential one-group-per-page building */
+    addRow.appendChild(pageInput);
+    var addBtn = el("button", { type:"button", text:"Add" });
+    addBtn.addEventListener("click", function(){
+      var target = parseInt(pageInput.value, 10);
+      if(!target || target < 1) return;
+      addGroupToPage(g, target);
+    });
+    addRow.appendChild(addBtn);
+    row.appendChild(addRow);
+    panel.appendChild(row);
+  });
+
+  panel.appendChild(el("h2", { text:"Page slots", style:"margin-top:14px;" }));
+  if(!state.pages.length){
+    panel.appendChild(el("div", { class:"emptyNote", text:"No pages yet." }));
+    return;
+  }
+  var ul = el("ul", { class:"pageSlots" });
+  state.pages.forEach(function(p, i){
+    var li = document.createElement("li");
+    if(p.layout === "empty"){
+      li.textContent = "Page " + (i+1) + ": empty";
+    } else {
+      var cap = layoutRows(p.layout), used = p.contacts.length, free = Math.max(0, cap-used);
+      li.textContent = "Page " + (i+1) + " (" + LAYOUTS[p.layout].label + "): " + used + "/" + cap + " used, " + free + " free";
+      if(free === 0) li.className = "full";
+    }
+    ul.appendChild(li);
+  });
+  panel.appendChild(ul);
+}
+
 /* ===================== DEBUG PANEL (temporary) =====================
-   Exposes the module-level tuning constants as live inputs. Reads/writes
-   the same vars the renderer already uses, so deleting this whole
-   function (+ its call below, + the <aside id="debugPanel"> element and
-   its CSS block) fully removes the feature -- nothing else depends on it. */
+   Exposes the CONFIG constants above as live inputs. Reads/writes the
+   same vars the renderer already uses, so deleting this whole function
+   (+ its call below, + the <aside id="debugPanel"> element and its CSS
+   block) fully removes the feature -- nothing else depends on it. */
 function initDebugPanel(){
   var panel = $("#debugPanel");
   if(!panel) return;
