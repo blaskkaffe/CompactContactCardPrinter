@@ -178,6 +178,7 @@ var BORDER_WIDTH_MM = 0.3;   /* card border, crop marks, empty-card outline */
 var DIVIDER_INSET_MM = 2;    /* how far a row divider stays clear of the card's left/right edges */
 var DIVIDER_ALPHA = 0.5;     /* row divider opacity */
 var DIVIDER_WIDTH_MM = 0.1;  /* row divider line weight */
+var INTER_PHONE_GAP_MM = 3;  /* extra breathing room between phone1 and phone2 on a 2-phone row (h2) -- wider than the normal cell gap so the two numbers don't read as one run of digits */
 
 /* -- default card / paper geometry -- */
 var DEFAULT_CARD_W_MM = 53.98; /* ISO/IEC 7810 ID-1 credit card -- always the VERTICAL shape */
@@ -735,15 +736,15 @@ function measureMiddleColWidth(ctx, dpi, fontPt, maxChars, hasChiefPrefix){
 function layoutRowColumns(ctx, wPx, dpi, layout){
   var pad = mmToPx(CELL_PADDING_MM, dpi);
   var gap = pad/2;
+  var interPhoneGap = mmToPx(INTER_PHONE_GAP_MM, dpi);
   ctx.font = ptToPx(DEPT_FONT_PT, dpi) + "px " + FONT_FAMILY;
   var deptCharW = ctx.measureText("0").width; /* one extra character of breathing room before the phone column */
   var deptPhoneGap = gap * 0.5 + deptCharW;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
   var phoneCount = layout.phones;
   var middleW = layout.showDept ? (measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, DEPT_MAX_CHARS, true) + pad*0.5) : 0;
-  var totalGaps = layout.showDept
-    ? gap + deptPhoneGap + gap*(phoneCount-1)
-    : gap*phoneCount;
+  var phoneGapsTotal = phoneCount === 2 ? interPhoneGap : 0;
+  var totalGaps = (layout.showDept ? (gap + deptPhoneGap) : gap) + phoneGapsTotal;
   var nameW = Math.max(0, wPx - pad*2 - phoneW*phoneCount - middleW - totalGaps);
 
   var cols = [];
@@ -756,8 +757,11 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
        sitting flush against the gap after name */
     cols.push({ x:x, w:middleW, pt:DEPT_FONT_PT, key:"department", align:"right" }); x += middleW + deptPhoneGap;
   }
-  cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone" }); x += phoneW + gap;
+  cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone" }); x += phoneW;
   if(phoneCount === 2){
+    /* wider than the standard cell gap -- two adjacent phone numbers read
+       as one run of digits otherwise */
+    x += interPhoneGap;
     cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone2" });
   }
   return cols;
@@ -1014,8 +1018,12 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts){
   var headerH = computeHeaderH(hPx, layout);
   var bodyY = headerH, bodyH = hPx - headerH;
   var capacity = layoutRows(layout.key);
-  if(layout.phoneRowLegend){
-    /* page-level field (contactIndex:-1), not tied to any one contact */
+  if(!layout.showDept){
+    /* the right half of the header is free text on any layout that isn't
+       showing a department summary there -- v10 defaults it to a legend
+       (phoneRowLegend), h2 has no default and starts blank, but both are
+       editable the same way. Page-level field (contactIndex:-1), not tied
+       to any one contact. */
     regions.push({ contactIndex:-1, field:"headerLegend", x:wPx*0.5, y:0, w:wPx*0.5, h:headerH });
   }
   if(layout.doubleRow){
