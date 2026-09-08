@@ -726,25 +726,34 @@ function truncateText(ctx, text, maxWidth){
   return lo <= 0 ? "." : text.slice(0, lo) + ".";
 }
 
-/* card header's dept summary: pack whole department names (never cut
-   mid-word) separated by " · " until the next one wouldn't fit, then
-   collapse everything left over into a single "+N" count -- e.g.
-   "IT · Finance · HR +2" instead of a comma-and-dot pileup like
-   "Fina., HR, IT,." from truncating each name AND the joined list. ctx.font
-   must already be set to the header font before calling this. */
+/* card header's dept summary: every department always appears, full name
+   if there's room ("Finance HR IT Production"); if not, all of them get
+   cut down to the same shared character cap -- the largest cap that still
+   fits everyone -- rather than truncating one at a time and dropping the
+   rest behind a count ("Fina HR IT Prod" instead of "Fina., HR, IT,." or
+   "IT · Finance +2"). Names already shorter than the cap are left alone,
+   so short department names like "HR" never get cut. ctx.font must already
+   be set to the header font before calling this. */
 function buildDeptSummary(ctx, contacts, maxWidth){
   var names = collectDeptNames(contacts);
   if(!names.length) return "";
-  var shown = 0;
-  for(var i=1;i<=names.length;i++){
-    var remaining = names.length - i;
-    var candidate = names.slice(0, i).join(" · ") + (remaining>0 ? " +"+remaining : "");
-    if(ctx.measureText(candidate).width > maxWidth) break;
-    shown = i;
+  var full = names.join(" ");
+  if(ctx.measureText(full).width <= maxWidth) return full;
+
+  function joinedAtCap(cap){
+    return names.map(function(n){ return n.length > cap ? n.slice(0, cap) : n; }).join(" ");
   }
-  if(shown === 0) return truncateText(ctx, names[0], maxWidth);
-  var leftover = names.length - shown;
-  return names.slice(0, shown).join(" · ") + (leftover>0 ? " +"+leftover : "");
+  var maxLen = names.reduce(function(m, n){ return Math.max(m, n.length); }, 1);
+  var lo = 1, hi = maxLen, best = 1;
+  while(lo <= hi){
+    var mid = (lo + hi) >> 1;
+    if(ctx.measureText(joinedAtCap(mid)).width <= maxWidth){ best = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  /* even every name cut to a single letter can theoretically still overflow
+     with enough departments -- truncateText is the last-resort safety net
+     that guarantees the header never overflows its own width */
+  return truncateText(ctx, joinedAtCap(best), maxWidth);
 }
 
 /* department column: keep a leading chief marker ("C "/"C." etc) outside the
@@ -1211,7 +1220,7 @@ function onCanvasClick(e, canvas, pageIndex){
     target = pageState;
     initialValue = pageState.headerLegend
       ? pageState.headerLegend
-      : (geo.layout.showDept ? collectDeptNames(pageState.contacts).join(" · ") : (geo.layout.phoneRowLegend || ""));
+      : (geo.layout.showDept ? collectDeptNames(pageState.contacts).join(" ") : (geo.layout.phoneRowLegend || ""));
   } else {
     target = pageState.contacts[hit.contactIndex];
     if(!target) return;
