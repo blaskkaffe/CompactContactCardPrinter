@@ -50,9 +50,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 .mode-all .page{width:100%; aspect-ratio:var(--ratio);}
 .page canvas{display:block; width:100%; height:100%;}
 
-.pageLabel{position:absolute; top:6px; left:8px; font-size:11px; color:#999; pointer-events:none; z-index:1;}
-.pageControls{position:absolute; top:4px; right:4px; z-index:2; display:flex; flex-direction:column; gap:2px; align-items:flex-end;}
-.pageControls select, .pageControls input{font-size:10px; padding:1px 3px;}
+.pageLabel{position:absolute; top:6px; left:50%; transform:translateX(-50%); font-size:11px; color:#999; pointer-events:none; z-index:1;}
 
 #dropOverlay{position:fixed; inset:0; background:rgba(20,20,20,.75); color:#fff; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:bold; z-index:1000; pointer-events:none;}
 #dropOverlay[hidden]{display:none;}
@@ -110,6 +108,9 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .pageCardHeader{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;}
 #groupPanel .pageCardHeader span.full{color:#a00;}
 #groupPanel .pageCardHeader button{font-size:10px; padding:1px 5px; cursor:pointer;}
+#groupPanel .pageControls{display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-bottom:6px;}
+#groupPanel .pageControls select, #groupPanel .pageControls input{font-size:10.5px; padding:2px 4px; border-radius:3px; border:1px solid #bbb; background:#fff;}
+#groupPanel .pageControls input[type="file"]{width:100%;}
 #groupPanel .pageGroupList{display:flex; flex-wrap:wrap; gap:4px;}
 #groupPanel .pageGroupChip{display:flex; align-items:center; gap:2px; background:#eef3fb; border:1px solid #9bbde0; border-radius:3px; padding:2px 6px; font-size:11px; cursor:grab;}
 #groupPanel .pageGroupChip:active{cursor:grabbing;}
@@ -126,7 +127,6 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 
 <header class="toolbar">
   <h1>Compact Contact Card Printer</h1>
-  <button id="cardOrientationBtn"></button>
   <span id="gridInfo"></span>
   <div class="spacer"></div>
   <span id="dataStatus">Drop a CSV or XLSX file to begin</span>
@@ -318,7 +318,6 @@ function ptToPx(pt, dpi){ return pt * dpi / 72; }
 /* ================= app state ================= */
 var state = {
   paperSize: "A4",
-  cardOrientation: "vertical", /* default orientation used when auto-generating NEW pages */
   viewMode: "single",          /* "single" | "all" */
   currentPage: 0,              /* 0-indexed */
   cardWmm: DEFAULT_CARD_W_MM,
@@ -624,12 +623,14 @@ function rowsToContacts(rows){
 }
 
 /* ---------------- page generation ---------------- */
-/* auto-chunks contacts sequentially into pages using the current default
-   orientation's layout, padded to an even count with a blank page. Each
-   page keeps its own contacts snapshot, so changing one page's layout
-   later doesn't reshuffle any other page. */
+/* auto-chunks contacts sequentially into pages using the default layout,
+   padded to an even count with a blank page. Each page keeps its own
+   contacts snapshot, so changing one page's layout later doesn't reshuffle
+   any other page. Every freshly created page starts as v20 -- its own
+   layout dropdown (in its page box in the left menu) is how you change it
+   afterward, same as any existing page. */
 function defaultLayoutForOrientation(){
-  return state.cardOrientation === "horizontal" ? "h2" : "v20";
+  return "v20";
 }
 function blankPage(layout, contacts){
   return { layout:layout, contacts:contacts||[], emptyMode:"blank", image:null, headerColor:"#000000" };
@@ -1290,19 +1291,39 @@ function pageSizeCssValue(dims){
   return dims.w === p.wMM && dims.h === p.hMM ? key : key + " landscape";
 }
 
+/* every canvas is rendered inside its own try/catch: without this, one
+   page hitting an unexpected error (e.g. from an edited/dragged-into state
+   the renderer doesn't expect) would throw partway through the loop below
+   and abort the whole function -- window.print() would never run, and
+   nothing visible would happen at all. A page that fails to render still
+   gets a blank placeholder instead of vanishing outright, and print goes
+   ahead with whatever did render rather than not happening at all. */
 function doPrint(){
   var total = totalPagesCount();
-  var firstDims = currentPageDims(0);
-  $("#pageSizeStyle").textContent = "@page { size: " + pageSizeCssValue(firstDims) + "; margin: 0; }";
   var area = $("#printArea");
   area.innerHTML = "";
+  var failures = 0;
+  try {
+    var firstDims = currentPageDims(0);
+    $("#pageSizeStyle").textContent = "@page { size: " + pageSizeCssValue(firstDims) + "; margin: 0; }";
+  } catch(e){
+    console.error("Print: failed to compute page size", e);
+  }
   for(var i=0;i<total;i++){
-    var dims = currentPageDims(i);
     var canvas = document.createElement("canvas");
-    canvas.style.width = dims.w + "mm";
-    canvas.style.height = dims.h + "mm";
-    renderCardsOntoCanvas(canvas, i);
+    try {
+      var dims = currentPageDims(i);
+      canvas.style.width = dims.w + "mm";
+      canvas.style.height = dims.h + "mm";
+      renderCardsOntoCanvas(canvas, i);
+    } catch(e){
+      failures++;
+      console.error("Print: page " + (i+1) + " failed to render", e);
+    }
     area.appendChild(canvas);
+  }
+  if(failures > 0){
+    setStatus("Print: " + failures + " of " + total + " page(s) failed to render (check the console) -- printing the rest.");
   }
   window.print();
 }
@@ -1445,7 +1466,6 @@ function buildPageControls(index){
 function buildPageEl(index){
   var page = el("div", { class:"page", "data-index":String(index) });
   page.appendChild(el("span", { class:"pageLabel", text:"Page " + (index+1) + " / " + totalPagesCount() }));
-  page.appendChild(buildPageControls(index));
   var canvas = document.createElement("canvas");
   canvas.addEventListener("click", function(e){ onCanvasClick(e, canvas, index); });
   page.appendChild(canvas);
@@ -1530,7 +1550,6 @@ function updateGridInfo(){
 }
 
 function renderToolbar(){
-  $("#cardOrientationBtn").textContent = "New pages: " + (state.cardOrientation === "vertical" ? "Vertical" : "Horizontal");
   $("#viewModeBtn").textContent = state.viewMode === "single" ? "View: Single" : "View: All";
 }
 
@@ -1572,12 +1591,6 @@ function populatePaperSizes(){
 
 function initEvents(){
   $("#paperSize").addEventListener("change", function(){ state.paperSize = $("#paperSize").value; renderViewer(); });
-  $("#cardOrientationBtn").addEventListener("click", function(){
-    /* only affects the default layout used for newly-generated pages on
-       the next file drop -- existing pages keep whatever layout they have */
-    state.cardOrientation = state.cardOrientation === "vertical" ? "horizontal" : "vertical";
-    renderToolbar();
-  });
   $("#viewModeBtn").addEventListener("click", function(){
     state.viewMode = state.viewMode === "single" ? "all" : "single";
     renderToolbar(); renderViewer();
@@ -1783,15 +1796,20 @@ function removeContactFromPage(fromPage, contactId){
    from the pool. (An earlier version reinserted a fresh page with the same
    contacts at the same spot instead, which "rescued" the data but made
    Remove look like it did nothing whenever the page had content -- the
-   page count never actually dropped.) Re-pads to an even count afterward,
-   same as every other page-count change. */
+   page count never actually dropped.)
+
+   Deliberately does NOT re-pad to an even count the way page-creating
+   actions do: this is an explicit "I want fewer pages" action, and
+   re-padding fought that intent outright once nothing was left to
+   rescue -- removing an already-empty trailing page would immediately
+   get replaced by a fresh empty filler, so the count could never drop
+   below whatever it happened to pad up to, and Remove looked like it did
+   nothing at all. An odd final page count is fine: pageGeometryForIndex's
+   partner lookup already tolerates a page with no pair. */
 function removePage(index){
   var page = state.pages[index];
   if(!page) return;
   state.pages.splice(index, 1);
-  if(state.pages.length % 2 !== 0){
-    state.pages.push(emptyFillerPage());
-  }
   renderViewer();
 }
 
@@ -1941,6 +1959,8 @@ function renderGroupPanel(){
     removeBtn.addEventListener("click", function(){ removePage(i); });
     headerRow.appendChild(removeBtn);
     card.appendChild(headerRow);
+
+    card.appendChild(buildPageControls(i));
 
     var chipList = el("div", { class:"pageGroupList" });
     groupContactsByDepartment(p.contacts).forEach(function(g){
