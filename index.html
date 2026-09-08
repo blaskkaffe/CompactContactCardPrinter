@@ -130,11 +130,7 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 var RENDER_DPI = 150;
 var FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
 
-/* -- font sizes (pt) --
-   Real prints came out at roughly half the intended physical size (a
-   print-scaling issue outside this app's control), so sizes below are set
-   a bit above half of the originally-specified 16/12/12/11pt to match
-   what actually ends up on paper. */
+/* -- font sizes (pt) -- */
 var HEADER_FONT_PT = 9;
 var NAME_FONT_PT = 7;
 /* v20's name column shares its row with a department column and only a
@@ -158,9 +154,7 @@ var LABEL_MAX_CHARS = 6;  /* number-type tags on the 10-contact layout, e.g. "Wo
    being used to hold something else entirely). See pickLine2Field(). */
 var EMAIL_FALLBACK_MIN_CHARS = 5;
 
-/* -- row capacity per layout (contacts per card) --
-   separate mutable vars (not baked into LAYOUTS) so the debug panel can
-   tune them live */
+/* -- row capacity per layout (contacts per card) -- */
 var ROWS_V20 = 20;
 var ROWS_V10 = 10;
 var ROWS_H2 = 12;
