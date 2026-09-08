@@ -731,7 +731,9 @@ function measureMiddleColWidth(ctx, dpi, fontPt, maxChars, hasChiefPrefix){
 function layoutRowColumns(ctx, wPx, dpi, layout){
   var pad = mmToPx(1.5, dpi);
   var gap = pad/2;
-  var deptPhoneGap = gap * 0.5;
+  ctx.font = ptToPx(DEPT_FONT_PT, dpi) + "px " + FONT_FAMILY;
+  var deptCharW = ctx.measureText("0").width; /* one extra character of breathing room before the phone column */
+  var deptPhoneGap = gap * 0.5 + deptCharW;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
   var phoneCount = layout.phones;
   var middleW = layout.showDept ? (measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, DEPT_MAX_CHARS, true) + pad*0.5) : 0;
