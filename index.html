@@ -92,8 +92,8 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .groupTileName{font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;}
 #groupPanel .groupTileCount{color:#777; margin-top:1px;}
 #groupPanel .groupTile.placed .groupTileCount{color:#a60;}
-#groupPanel .groupTileToggle, #groupPanel .chipToggle{cursor:pointer; color:#888; font-size:9px; flex:none; user-select:none; padding:0 1px;}
-#groupPanel .groupTileToggle:hover, #groupPanel .chipToggle:hover{color:#333;}
+#groupPanel .groupTileToggle{cursor:pointer; color:#888; font-size:9px; flex:none; user-select:none; padding:0 1px;}
+#groupPanel .groupTileToggle:hover{color:#333;}
 #groupPanel .contactList{grid-column:1 / -1; display:flex; flex-direction:column; gap:3px; padding:2px 0 4px 6px; margin-top:-2px; border-left:2px solid #eee; flex-basis:100%;}
 #groupPanel .contactChip{display:flex; justify-content:space-between; align-items:center; gap:4px; background:#fff; border:1px solid #ddd; border-radius:3px; padding:2px 6px; font-size:10.5px; cursor:grab; min-width:0;}
 #groupPanel .contactChip:active{cursor:grabbing;}
@@ -216,9 +216,9 @@ var HEADER_FONT_PT = 9;
 var NAME_FONT_PT = 7;
 /* v20's name column shares its row with a department column and only a
    single phone, so it's the tightest layout on a 54mm-wide card -- it gets
-   its own (smaller) name font, independent of NAME_FONT_PT (used by h2 and
-   v10, which have room to spare and shouldn't shrink just because v20
-   needs to). Small enough that a long name like "Roberto von Hemansson
+   its own (smaller) name font, independent of NAME_FONT_PT (used by v10,
+   which has room to spare and shouldn't shrink just because v20 needs
+   to). Small enough that a long name like "Roberto von Hemansson
    III" fits without truncation alongside a department and a full phone
    number. */
 var NAME_FONT_PT_TIGHT = 7;
@@ -233,7 +233,6 @@ var LABEL_MAX_CHARS = 6;  /* number-type tags on the 10-contact layout, e.g. "Wo
 /* -- row capacity per layout (contacts per card) -- */
 var ROWS_V20 = 20;
 var ROWS_V10 = 10;
-var ROWS_H2 = 12;
 
 /* -- header sizing --
    header height = HEADER_HEIGHT_FACTOR rows' worth of height (see
@@ -248,7 +247,7 @@ var BORDER_WIDTH_MM = 0.3;   /* card border, crop marks, empty-card outline */
 var DIVIDER_INSET_MM = 2;    /* how far a row divider stays clear of the card's left/right edges */
 var DIVIDER_ALPHA = 0.5;     /* row divider opacity */
 var DIVIDER_WIDTH_MM = 0.1;  /* row divider line weight */
-var INTER_PHONE_GAP_MM = 3;  /* extra breathing room between phone1 and phone2 on a 2-phone row (h2) -- wider than the normal cell gap so the two numbers don't read as one run of digits */
+var INTER_PHONE_GAP_MM = 3;  /* extra breathing room between phone1 and phone2 on a 2-phone row -- wider than the normal cell gap so the two numbers don't read as one run of digits */
 
 /* -- default card / paper geometry -- */
 var DEFAULT_CARD_W_MM = 53.98; /* ISO/IEC 7810 ID-1 credit card -- always the VERTICAL shape */
@@ -294,7 +293,6 @@ var IMPORT_HEADER_ALIASES = {
 var LAYOUTS = {
   v20:   { key:"v20",   label:"20 rader vertikal",              shortLabel:"20 rader",   orientation:"vertical",   phones:1, showDept:true,  doubleRow:false },
   v10:   { key:"v10",   label:"10 kontakter vertikal (2 rader)", shortLabel:"10 (2 rad)", orientation:"vertical",   phones:2, showDept:false, doubleRow:true, phoneRowLegend:"Jobb / Hem" },
-  h2:    { key:"h2",    label:"2 nummer horisontell",            shortLabel:"2-num hor.", orientation:"horizontal", phones:2, showDept:false, doubleRow:false },
   empty: { key:"empty", label:"Tom sida",                        shortLabel:"Tom",        orientation:"vertical",   phones:0, showDept:false, doubleRow:false }
 };
 
@@ -363,7 +361,6 @@ var state = {
 function layoutRows(key){
   if(key === "v20") return ROWS_V20;
   if(key === "v10") return ROWS_V10;
-  if(key === "h2") return ROWS_H2;
   return 0;
 }
 
@@ -992,6 +989,26 @@ function layoutDoubleRowColumns(ctx, wPx, dpi){
 }
 
 /* ---------------- card drawing ---------------- */
+/* shared by every straight line drawn on a card or page: row dividers,
+   crop-mark guides. Caller sets strokeStyle/lineWidth first. */
+function strokeLine(ctx, x1, y1, x2, y2){
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+}
+
+/* the plain white-filled, black-bordered card rectangle every card starts
+   from -- a real card before its header/rows go on top, or an empty-grid
+   outline standing in for one */
+function fillCardBase(ctx, xPx, yPx, wPx, hPx, dpi){
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(xPx, yPx, wPx, hPx);
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = Math.max(1, mmToPx(BORDER_WIDTH_MM, dpi));
+  ctx.strokeRect(xPx+0.5, yPx+0.5, wPx-1, hPx-1);
+}
+
 /* draws one printed line from a positional (not keyed) column layout --
    used for both flat single-line rows and each line of a double-row card */
 function drawGenericRow(ctx, xPx, rowTop, wPx, rowH, dpi, cols, values){
@@ -1024,11 +1041,7 @@ function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact, layout){
 
 function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, legendOverride, line2Mode){
   ctx.save();
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(xPx, yPx, wPx, hPx);
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = Math.max(1, mmToPx(BORDER_WIDTH_MM, dpi));
-  ctx.strokeRect(xPx+0.5, yPx+0.5, wPx-1, hPx-1);
+  fillCardBase(ctx, xPx, yPx, wPx, hPx, dpi);
 
   var headerH = computeHeaderH(hPx, layout);
   ctx.fillStyle = headerColor || "#000000";
@@ -1073,10 +1086,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
   function divider(y){
     ctx.strokeStyle = "rgba(0,0,0,"+DIVIDER_ALPHA+")";
     ctx.lineWidth = Math.max(1, mmToPx(DIVIDER_WIDTH_MM, dpi));
-    ctx.beginPath();
-    ctx.moveTo(xPx+lineInset, y);
-    ctx.lineTo(xPx+wPx-lineInset, y);
-    ctx.stroke();
+    strokeLine(ctx, xPx+lineInset, y, xPx+wPx-lineInset, y);
   }
 
   if(layout.doubleRow){
@@ -1117,11 +1127,7 @@ function drawCenteredMessage(ctx, w, h, text){
 
 function drawEmptyCardOutline(ctx, xPx, yPx, wPx, hPx, dpi){
   ctx.save();
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(xPx, yPx, wPx, hPx);
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = Math.max(1, mmToPx(BORDER_WIDTH_MM, dpi));
-  ctx.strokeRect(xPx+0.5, yPx+0.5, wPx-1, hPx-1);
+  fillCardBase(ctx, xPx, yPx, wPx, hPx, dpi);
   ctx.restore();
 }
 
@@ -1134,7 +1140,7 @@ function drawCropMarks(ctx, pageWpx, pageHpx, blockX, blockY, blockW, blockH, dp
   ctx.strokeStyle = "#000";
   ctx.lineWidth = Math.max(1, mmToPx(BORDER_WIDTH_MM, dpi));
   var right = blockX + blockW, bottom = blockY + blockH;
-  function line(x1,y1,x2,y2){ ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+  function line(x1,y1,x2,y2){ strokeLine(ctx, x1, y1, x2, y2); }
   line(0, blockY, blockX, blockY);           line(blockX, 0, blockX, blockY);
   line(right, blockY, pageWpx, blockY);      line(right, 0, right, blockY);
   line(0, bottom, blockX, bottom);           line(blockX, bottom, blockX, pageHpx);
@@ -1223,9 +1229,9 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts, line2Mode){
   var capacity = layoutRows(layout.key);
   /* the right side of the header is always free text -- a department-
      showing card defaults to the auto-built summary, v10 defaults to a
-     legend (phoneRowLegend), h2 has no default and starts blank, but all
-     three are editable the same way. Page-level field (contactIndex:-1),
-     not tied to any one contact. Matches drawCard's leftW/rightW split
+     legend (phoneRowLegend), but both are editable the same way.
+     Page-level field (contactIndex:-1), not tied to any one contact.
+     Matches drawCard's leftW/rightW split
      exactly (the date only claims as much width as it needs). */
   ctx.font = ptToPx(HEADER_FONT_PT, dpi) + "px " + FONT_FAMILY;
   var dateW = ctx.measureText(new Date().toISOString().slice(0,10)).width + mmToPx(CELL_PADDING_MM, dpi)*2;
@@ -1412,15 +1418,21 @@ function doPrint(){
    -- it doesn't touch card layout/drawing logic.
    ============================================================ */
 
-function pageLayoutOptionsSelect(currentKey, onChange){
+/* builds a <select> from an array of [value,text] option pairs -- every
+   dropdown in the page/group controls otherwise repeats the same create/
+   populate/set-value/wire-change skeleton with only the options differing */
+function buildSelect(options, value, onChange, title){
   var sel = document.createElement("select");
-  sel.title = "Layout";
-  ["v20","v10","h2","empty"].forEach(function(key){
-    sel.appendChild(el("option", { value:key, text:LAYOUTS[key].shortLabel }));
-  });
-  sel.value = currentKey;
+  if(title) sel.title = title;
+  options.forEach(function(o){ sel.appendChild(el("option", { value:o[0], text:o[1] })); });
+  sel.value = value;
   sel.addEventListener("change", function(){ onChange(sel.value); });
   return sel;
+}
+
+function pageLayoutOptionsSelect(currentKey, onChange){
+  var options = ["v20","v10","empty"].map(function(key){ return [key, LAYOUTS[key].shortLabel]; });
+  return buildSelect(options, currentKey, onChange, "Layout");
 }
 
 function hexToRgb(hex){
@@ -1435,17 +1447,10 @@ function hexToRgb(hex){
 function buildHeaderColorControls(pageState){
   var wrap = el("div", { class:"colorControls" });
 
-  var sel = document.createElement("select");
-  sel.title = "Rubrikfärg";
-  COLOR_PRESETS.forEach(function(c){
-    sel.appendChild(el("option", { value:c.hex, text:c.name }));
-  });
+  var options = COLOR_PRESETS.map(function(c){ return [c.hex, c.name]; });
   var isPreset = COLOR_PRESETS.some(function(c){ return c.hex.toLowerCase() === (pageState.headerColor||"").toLowerCase(); });
-  if(!isPreset){
-    sel.appendChild(el("option", { value:pageState.headerColor, text:"Anpassad" }));
-  }
-  sel.value = pageState.headerColor;
-  sel.addEventListener("change", function(){ pageState.headerColor = sel.value; renderViewer(); });
+  if(!isPreset) options.push([pageState.headerColor, "Anpassad"]);
+  var sel = buildSelect(options, pageState.headerColor, function(v){ pageState.headerColor = v; renderViewer(); }, "Rubrikfärg");
   wrap.appendChild(sel);
 
   var customBtn = el("button", { type:"button", text:"RGB", title:"Anpassad RGB-färg" });
@@ -1513,39 +1518,23 @@ function buildPageControls(index){
     /* named "chain" -- shows that list's contacts (see contactsForChain),
        in file order, instead of whatever's been manually dragged onto this
        page. "None" (the default) leaves manual placement in charge. */
-    var chainSel = document.createElement("select");
-    chainSel.title = "Kedja (en namngiven V10-lista från den importerade filen)";
-    chainSel.appendChild(el("option", { value:"", text:"Kedja: Ingen" }));
     var chainNames = computeChainNames();
-    chainNames.forEach(function(name){
-      chainSel.appendChild(el("option", { value:name, text:"Kedja: " + name }));
-    });
+    var chainOptions = [["", "Kedja: Ingen"]].concat(chainNames.map(function(name){ return [name, "Kedja: " + name]; }));
     if(pageState.chain && !chainNames.some(function(n){ return listKey(n) === listKey(pageState.chain); })){
-      chainSel.appendChild(el("option", { value:pageState.chain, text:"Kedja: " + pageState.chain + " (hittades inte)" }));
+      chainOptions.push([pageState.chain, "Kedja: " + pageState.chain + " (hittades inte)"]);
     }
-    chainSel.value = pageState.chain || "";
-    chainSel.addEventListener("change", function(){ pageState.chain = chainSel.value || null; renderViewer(); });
-    box.appendChild(chainSel);
+    box.appendChild(buildSelect(chainOptions, pageState.chain || "", function(v){ pageState.chain = v || null; renderViewer(); },
+      "Kedja (en namngiven V10-lista från den importerade filen)"));
 
     /* line 2's wide field (name row's second line) -- a per-page choice
        instead of auto-detected, see pickLine2Field() */
-    var line2Sel = document.createElement("select");
-    Object.keys(LINE2_MODES).forEach(function(key){
-      line2Sel.appendChild(el("option", { value:key, text:"Rad 2: " + LINE2_MODES[key] }));
-    });
-    line2Sel.value = pageState.line2Mode || "email";
-    line2Sel.addEventListener("change", function(){ pageState.line2Mode = line2Sel.value; renderViewer(); });
-    box.appendChild(line2Sel);
+    var line2Options = Object.keys(LINE2_MODES).map(function(key){ return [key, "Rad 2: " + LINE2_MODES[key]]; });
+    box.appendChild(buildSelect(line2Options, pageState.line2Mode || "email", function(v){ pageState.line2Mode = v; renderViewer(); }));
   }
 
   if(pageState.layout === "empty"){
-    var modeSel = document.createElement("select");
-    [["blank","Tom"],["rows","Tomt rutnät"],["image","Anpassad bild"]].forEach(function(opt){
-      modeSel.appendChild(el("option", { value:opt[0], text:opt[1] }));
-    });
-    modeSel.value = pageState.emptyMode;
-    modeSel.addEventListener("change", function(){ pageState.emptyMode = modeSel.value; renderViewer(); });
-    box.appendChild(modeSel);
+    var modeOptions = [["blank","Tom"],["rows","Tomt rutnät"],["image","Anpassad bild"]];
+    box.appendChild(buildSelect(modeOptions, pageState.emptyMode, function(v){ pageState.emptyMode = v; renderViewer(); }));
 
     if(pageState.emptyMode === "image"){
       var fileInput = document.createElement("input");
@@ -1924,6 +1913,16 @@ function handlePanelDrop(data, onGroup, onContact){
   if(data.type === "contact") onContact(data.fromPage, data.contactId);
   else onGroup(data.fromPage, data.groupKey);
 }
+/* starts a panel drag carrying `payload` (a {type, fromPage, ...} object
+   matching handlePanelDrop's expectations) -- shared by every draggable
+   pool tile/chip, which otherwise all repeat the same setData+effectAllowed
+   pair with only the payload differing */
+function wireDragStart(node, payload){
+  node.addEventListener("dragstart", function(e){
+    e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify(payload));
+    e.dataTransfer.effectAllowed = "move";
+  });
+}
 
 /* every 1-indexed page currently showing this exact contact -- normally at
    most one, but with allowDuplicates on the same contact can legitimately
@@ -1931,6 +1930,18 @@ function handlePanelDrop(data, onGroup, onContact){
    purpose, so it reuses pageNumbersForGroup's own reference-matching logic. */
 function pageNumbersForContact(contact){
   return pageNumbersForGroup({ contacts:[contact] });
+}
+
+/* the expand/collapse triangle shown on both a pool department tile and a
+   page's own department chip -- identical either way: flips the caller's
+   expanded flag and re-renders, and must never itself start (or count as)
+   a drag of the whole tile/chip it sits on */
+function buildExpandToggle(expanded, onToggle){
+  var toggle = el("span", { class:"groupTileToggle", text: expanded ? "▾" : "▸" });
+  toggle.title = expanded ? "Dölj enskilda kontakter" : "Visa enskilda kontakter";
+  toggle.addEventListener("dragstart", function(e){ e.preventDefault(); e.stopPropagation(); });
+  toggle.addEventListener("click", function(e){ e.stopPropagation(); onToggle(); });
+  return toggle;
 }
 
 /* one draggable row per contact, used both under an expanded pool tile and
@@ -1948,10 +1959,7 @@ function buildContactList(contacts, fromPage){
     });
     chip.appendChild(el("span", { class:"contactChipName", text:c.name }));
     if(placed) chip.appendChild(el("span", { class:"contactChipPage", text:"s"+pageNums.join(",") }));
-    chip.addEventListener("dragstart", function(e){
-      e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify({ type:"contact", fromPage:fromPage, contactId:c.id }));
-      e.dataTransfer.effectAllowed = "move";
-    });
+    wireDragStart(chip, { type:"contact", fromPage:fromPage, contactId:c.id });
     list.appendChild(chip);
   });
   return list;
@@ -1986,26 +1994,16 @@ function renderGroupPanel(){
       title: (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till en sida nedan"
     });
     var nameRow = el("div", { class:"groupTileNameRow" });
-    var toggle = el("span", { class:"groupTileToggle", text: expanded ? "▾" : "▸" });
-    toggle.title = expanded ? "Dölj enskilda kontakter" : "Visa enskilda kontakter";
-    /* a click on the toggle only expands/collapses -- it must never start
-       (or count as) a drag of the whole department tile */
-    toggle.addEventListener("dragstart", function(e){ e.preventDefault(); e.stopPropagation(); });
-    toggle.addEventListener("click", function(e){
-      e.stopPropagation();
+    nameRow.appendChild(buildExpandToggle(expanded, function(){
       state.expandedGroups[g.key] = !expanded;
       renderGroupPanel();
-    });
-    nameRow.appendChild(toggle);
+    }));
     nameRow.appendChild(el("span", { class:"groupTileName", text:g.label }));
     tile.appendChild(nameRow);
     tile.appendChild(el("div", { class:"groupTileCount", text:g.contacts.length + (placed ? " · s" + pageNums.join(",") : "") }));
     /* fromPage:null marks this as a drag from the unplaced-pool grid
        (as opposed to a specific page's chip) -- see takeGroup() */
-    tile.addEventListener("dragstart", function(e){
-      e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify({ type:"group", fromPage:null, groupKey:g.key }));
-      e.dataTransfer.effectAllowed = "move";
-    });
+    wireDragStart(tile, { type:"group", fromPage:null, groupKey:g.key });
     grid.appendChild(tile);
     if(expanded) grid.appendChild(buildContactList(g.contacts, null));
   });
@@ -2066,20 +2064,12 @@ function renderGroupPanel(){
         var pgKey = i + ":" + g.key;
         var expandedP = !!state.expandedPageGroups[pgKey];
         var chip = el("div", { class:"pageGroupChip", draggable:"true" });
-        var toggleP = el("span", { class:"chipToggle", text: expandedP ? "▾" : "▸" });
-        toggleP.title = expandedP ? "Dölj enskilda kontakter" : "Visa enskilda kontakter";
-        toggleP.addEventListener("dragstart", function(e){ e.preventDefault(); e.stopPropagation(); });
-        toggleP.addEventListener("click", function(e){
-          e.stopPropagation();
+        chip.appendChild(buildExpandToggle(expandedP, function(){
           state.expandedPageGroups[pgKey] = !expandedP;
           renderGroupPanel();
-        });
-        chip.appendChild(toggleP);
+        }));
         chip.appendChild(el("span", { text:g.label + " " + g.contacts.length }));
-        chip.addEventListener("dragstart", function(e){
-          e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify({ type:"group", fromPage:i, groupKey:g.key }));
-          e.dataTransfer.effectAllowed = "move";
-        });
+        wireDragStart(chip, { type:"group", fromPage:i, groupKey:g.key });
         chipList.appendChild(chip);
         if(expandedP) chipList.appendChild(buildContactList(g.contacts, i));
       });
@@ -2130,8 +2120,7 @@ function initDebugPanel(){
     { label:"Avd. max tecken",   get:function(){ return DEPT_MAX_CHARS; }, set:function(v){ DEPT_MAX_CHARS=v; } },
     { label:"Etikett max tecken",  get:function(){ return LABEL_MAX_CHARS; }, set:function(v){ LABEL_MAX_CHARS=v; } },
     { label:"Rader: 20-rad vert.", get:function(){ return ROWS_V20; }, set:function(v){ ROWS_V20=v; } },
-    { label:"Rader: 10-rad vert.", get:function(){ return ROWS_V10; }, set:function(v){ ROWS_V10=v; } },
-    { label:"Rader: 2-num horis.", get:function(){ return ROWS_H2; },  set:function(v){ ROWS_H2=v; } }
+    { label:"Rader: 10-rad vert.", get:function(){ return ROWS_V10; }, set:function(v){ ROWS_V10=v; } }
   ];
 
   settings.forEach(function(s){
