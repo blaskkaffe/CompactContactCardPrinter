@@ -79,6 +79,10 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 #groupPanel .pageGroupList{display:flex; flex-wrap:wrap; gap:4px;}
 #groupPanel .pageGroupChip{background:#eef3fb; border:1px solid #9bbde0; border-radius:3px; padding:2px 6px; font-size:11px; cursor:grab;}
 #groupPanel .pageGroupChip:active{cursor:grabbing;}
+#groupPanel .pageActionZone{display:flex; gap:6px; margin-bottom:8px;}
+#groupPanel .dropZone{flex:1 1 0; text-align:center; font-size:11px; padding:8px 4px; border:2px dashed #aaa; border-radius:4px; color:#666; transition:background-color .1s, border-color .1s;}
+#groupPanel .dropZone.dragOver{background:#dff0ff; border-color:#0080ff; color:#0060c0;}
+#groupPanel .deleteZone.dragOver{background:#fde4e4; border-color:#c00; color:#c00;}
 #groupPanel .emptyNote{color:#777; font-style:italic;}
 /* ===================== END GROUP PANEL ===================== */
 </style>
@@ -1596,16 +1600,47 @@ function addGroupToPage(group, pageNumber){
    actually present on the source page move (so dragging a group that's
    split across pages only takes its portion off the page you dragged from),
    and the destination cascades overflow forward exactly like Add does. */
+/* removes and returns the contacts belonging to one department group from
+   one page's contacts -- the shared first step of moving, delete-from-
+   page, and send-to-a-new-page. Never touches state.contacts itself, so
+   the contacts are only ever "unassigned from this page", not deleted. */
+function takeGroupOffPage(pageIndex, groupKey){
+  var page = state.pages[pageIndex];
+  if(!page) return [];
+  var taken = page.contacts.filter(function(c){ return deptGroupKey(c.department) === groupKey; });
+  if(taken.length) page.contacts = page.contacts.filter(function(c){ return deptGroupKey(c.department) !== groupKey; });
+  return taken;
+}
+
 function moveGroupBetweenPages(fromIndex, toIndex, groupKey){
   if(fromIndex === toIndex) return;
-  var fromPage = state.pages[fromIndex];
-  if(!fromPage) return;
-  var moving = fromPage.contacts.filter(function(c){ return deptGroupKey(c.department) === groupKey; });
+  var moving = takeGroupOffPage(fromIndex, groupKey);
   if(!moving.length) return;
-  fromPage.contacts = fromPage.contacts.filter(function(c){ return deptGroupKey(c.department) !== groupKey; });
   var toPage = activateContentPage(toIndex);
   toPage.contacts = toPage.contacts.concat(moving);
   reflowFromPage(toIndex);
+  renderViewer();
+}
+
+/* drop target: sends a group to a freshly appended page of its own,
+   cascading overflow forward from there exactly like any other placement. */
+function moveGroupToNewPage(fromIndex, groupKey){
+  var moving = takeGroupOffPage(fromIndex, groupKey);
+  if(!moving.length) return;
+  var newIndex = state.pages.length;
+  state.pages.push(blankPage(defaultLayoutForOrientation(), moving));
+  reflowFromPage(newIndex);
+  if(state.pages.length % 2 !== 0) state.pages.push(emptyFillerPage());
+  renderViewer();
+}
+
+/* drop target: takes a group off the page it's on and puts it nowhere
+   else -- e.g. dragging IT off page 3 without clearing the rest of that
+   page. The contacts are never deleted (still in state.contacts): they
+   just go back to "Not placed yet" in the department list above, ready
+   to be added somewhere else later if wanted. */
+function removeGroupFromPage(fromIndex, groupKey){
+  if(!takeGroupOffPage(fromIndex, groupKey).length) return;
   renderViewer();
 }
 
@@ -1630,6 +1665,30 @@ function removePage(index){
     state.pages.push(emptyFillerPage());
   }
   renderViewer();
+}
+
+/* custom MIME type carrying {fromPage, groupKey} for the group panel's
+   own internal drag-and-drop -- never "Files", so isFileDrag() never
+   mistakes it for a real file drop */
+var GROUP_DRAG_MIME = "application/x-cccp-group";
+/* wires up dragover/dragleave/drop on any element so it accepts a group
+   chip drag, calling onDrop(fromPage, groupKey) -- shared by every drop
+   target in the group panel (page cards, "New page", "Remove from page") */
+function wireGroupDropTarget(target, onDrop){
+  target.addEventListener("dragover", function(e){
+    if(e.dataTransfer.types.indexOf(GROUP_DRAG_MIME) === -1) return;
+    e.preventDefault();
+    target.classList.add("dragOver");
+  });
+  target.addEventListener("dragleave", function(){ target.classList.remove("dragOver"); });
+  target.addEventListener("drop", function(e){
+    e.preventDefault();
+    target.classList.remove("dragOver");
+    var raw = e.dataTransfer.getData(GROUP_DRAG_MIME);
+    if(!raw) return;
+    var data = JSON.parse(raw);
+    onDrop(data.fromPage, data.groupKey);
+  });
 }
 
 function renderGroupPanel(){
@@ -1687,7 +1746,15 @@ function renderGroupPanel(){
     return;
   }
 
-  var DRAG_MIME = "application/x-cccp-group";
+  var actionZone = el("div", { class:"pageActionZone" });
+  var newPageZone = el("div", { class:"dropZone newPageZone", text:"+ New page" });
+  var deleteZone = el("div", { class:"dropZone deleteZone", text:"✕ Remove from page" });
+  wireGroupDropTarget(newPageZone, function(fromPage, groupKey){ moveGroupToNewPage(fromPage, groupKey); });
+  wireGroupDropTarget(deleteZone, function(fromPage, groupKey){ removeGroupFromPage(fromPage, groupKey); });
+  actionZone.appendChild(newPageZone);
+  actionZone.appendChild(deleteZone);
+  panel.appendChild(actionZone);
+
   state.pages.forEach(function(p, i){
     var card = el("div", { class:"pageCard" });
 
@@ -1706,7 +1773,7 @@ function renderGroupPanel(){
     groupContactsByDepartment(p.contacts).forEach(function(g){
       var chip = el("div", { class:"pageGroupChip", draggable:"true", text:g.label + " " + g.contacts.length });
       chip.addEventListener("dragstart", function(e){
-        e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ fromPage:i, groupKey:g.key }));
+        e.dataTransfer.setData(GROUP_DRAG_MIME, JSON.stringify({ fromPage:i, groupKey:g.key }));
         e.dataTransfer.effectAllowed = "move";
       });
       chipList.appendChild(chip);
@@ -1719,20 +1786,7 @@ function renderGroupPanel(){
     /* the whole card is a drop target -- dragging a group chip from any
        page (including this one, a no-op) onto it moves that group's
        contacts on the source page here, cascading overflow like Add does */
-    card.addEventListener("dragover", function(e){
-      if(e.dataTransfer.types.indexOf(DRAG_MIME) === -1) return;
-      e.preventDefault();
-      card.classList.add("dragOver");
-    });
-    card.addEventListener("dragleave", function(){ card.classList.remove("dragOver"); });
-    card.addEventListener("drop", function(e){
-      e.preventDefault();
-      card.classList.remove("dragOver");
-      var raw = e.dataTransfer.getData(DRAG_MIME);
-      if(!raw) return;
-      var data = JSON.parse(raw);
-      moveGroupBetweenPages(data.fromPage, i, data.groupKey);
-    });
+    wireGroupDropTarget(card, function(fromPage, groupKey){ moveGroupBetweenPages(fromPage, i, groupKey); });
 
     panel.appendChild(card);
   });
