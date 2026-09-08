@@ -598,22 +598,26 @@ function measureMiddleColWidth(ctx, dpi, fontPt, maxChars, hasChiefPrefix){
 }
 
 /* name gets all the width the phone column(s) and (if shown) the middle
-   column don't need; a 2-phone layout has no department column at all */
+   column don't need; a 2-phone layout has no department column at all.
+   The department-to-phone gap is narrower than the other gaps (department
+   is the least important field), handing the difference back to name. */
 function layoutRowColumns(ctx, wPx, dpi, layout){
   var pad = mmToPx(1.5, dpi);
   var gap = pad/2;
+  var deptPhoneGap = gap * 0.5;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
   var phoneCount = layout.phones;
   var middleW = layout.showDept ? (measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, DEPT_MAX_CHARS, true) + pad*0.5) : 0;
-  var segCount = (layout.showDept ? 2 : 1) + phoneCount;
-  var totalGaps = gap * (segCount - 1);
+  var totalGaps = layout.showDept
+    ? gap + deptPhoneGap + gap*(phoneCount-1)
+    : gap*phoneCount;
   var nameW = Math.max(0, wPx - pad*2 - phoneW*phoneCount - middleW - totalGaps);
 
   var cols = [];
   var x = pad;
   cols.push({ x:x, w:nameW, pt:NAME_FONT_PT, key:"name" }); x += nameW + gap;
   if(layout.showDept){
-    cols.push({ x:x, w:middleW, pt:DEPT_FONT_PT, key:"department" }); x += middleW + gap;
+    cols.push({ x:x, w:middleW, pt:DEPT_FONT_PT, key:"department" }); x += middleW + deptPhoneGap;
   }
   cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone" }); x += phoneW + gap;
   if(phoneCount === 2){
@@ -674,7 +678,7 @@ function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact, layout){
   drawGenericRow(ctx, xPx, rowTop, wPx, rowH, dpi, cols, values);
 }
 
-function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor){
+function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, legendOverride){
   ctx.save();
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(xPx, yPx, wPx, hPx);
@@ -706,12 +710,12 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor){
     ctx.textAlign = "right";
     ctx.fillText(truncateText(ctx, depts.join(", "), halfW-pad), xPx+wPx-pad, yPx+headerH/2);
     ctx.restore();
-  } else if(layout.phoneRowLegend){
+  } else if(legendOverride || layout.phoneRowLegend){
     ctx.save();
     ctx.beginPath(); ctx.rect(xPx+halfW, yPx, wPx-halfW, headerH); ctx.clip();
     ctx.fillStyle = "#fff";
     ctx.textAlign = "right";
-    ctx.fillText(truncateText(ctx, layout.phoneRowLegend, halfW-pad), xPx+wPx-pad, yPx+headerH/2);
+    ctx.fillText(truncateText(ctx, legendOverride || layout.phoneRowLegend, halfW-pad), xPx+wPx-pad, yPx+headerH/2);
     ctx.restore();
   }
 
@@ -855,7 +859,7 @@ function renderCardsOntoCanvas(canvas, pageIndex){
     var yPx = mmToPx(startYmm + row*geo.cardDims.h, RENDER_DPI);
     var wPx = mmToPx(geo.cardDims.w, RENDER_DPI);
     var hPx = mmToPx(geo.cardDims.h, RENDER_DPI);
-    drawCard(ctx, xPx, yPx, wPx, hPx, pageState.contacts, RENDER_DPI, geo.layout, pageState.headerColor);
+    drawCard(ctx, xPx, yPx, wPx, hPx, pageState.contacts, RENDER_DPI, geo.layout, pageState.headerColor, pageState.headerLegend);
   }
   drawCropMarks(ctx, canvas.width, canvas.height, mmToPx(startXmm,RENDER_DPI), mmToPx(startYmm,RENDER_DPI), mmToPx(blockWmm,RENDER_DPI), mmToPx(blockHmm,RENDER_DPI), RENDER_DPI);
 }
@@ -932,6 +936,18 @@ function buildPageControls(index){
   if(!pageState) return box; /* no data yet -- nothing to configure */
 
   box.appendChild(pageLayoutOptionsSelect(pageState.layout, function(newKey){
+    var oldLayout = pageState.layout;
+    /* "empty" just hides this page's contacts rather than cascading them
+       away like a real capacity shrink would -- they're remembered on the
+       page itself (savedContacts) and restored if you switch back to a
+       content layout, until a fresh import replaces state.pages outright */
+    if(newKey === "empty" && oldLayout !== "empty"){
+      pageState.savedContacts = pageState.contacts;
+      pageState.contacts = [];
+    } else if(newKey !== "empty" && oldLayout === "empty"){
+      pageState.contacts = pageState.savedContacts || [];
+      pageState.savedContacts = null;
+    }
     pageState.layout = newKey;
     if(newKey === "empty" && !pageState.emptyMode) pageState.emptyMode = "blank";
     reflowFromPage(index);
@@ -981,6 +997,10 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout){
   var headerH = hPx * 0.1;
   var bodyY = headerH, bodyH = hPx - headerH;
   var capacity = layoutRows(layout.key);
+  if(layout.phoneRowLegend){
+    /* page-level field (contactIndex:-1), not tied to any one contact */
+    regions.push({ contactIndex:-1, field:"headerLegend", x:wPx*0.5, y:0, w:wPx*0.5, h:headerH });
+  }
   if(layout.doubleRow){
     var subRowH = bodyH / (capacity*2);
     var colSet = layoutDoubleRowColumns(ctx, wPx, dpi);
@@ -1002,13 +1022,13 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout){
   return regions;
 }
 
-function openEditOverlay(pageEl, contact, field, left, top, width, height){
+function openEditOverlay(pageEl, target, field, left, top, width, height, initialValue){
   var existing = pageEl.querySelector(".editOverlayInput");
   if(existing) existing.remove();
   var input = document.createElement("input");
   input.className = "editOverlayInput";
   input.type = "text";
-  input.value = contact[field] || "";
+  input.value = initialValue != null ? initialValue : (target[field] || "");
   input.style.position = "absolute";
   input.style.left = left + "px";
   input.style.top = top + "px";
@@ -1023,7 +1043,7 @@ function openEditOverlay(pageEl, contact, field, left, top, width, height){
   function commit(){
     if(committed) return;
     committed = true;
-    contact[field] = input.value.trim();
+    target[field] = input.value.trim();
     input.remove();
     renderViewer();
   }
@@ -1061,14 +1081,23 @@ function onCanvasClick(e, canvas, pageIndex){
   var regions = getEditableRegions(ctx, cardWpx, cardHpx, RENDER_DPI, geo.layout);
   var hit = regions.find(function(r){ return xInCard>=r.x && xInCard<r.x+r.w && yInCard>=r.y && yInCard<r.y+r.h; });
   if(!hit) return;
-  var contact = pageState.contacts[hit.contactIndex];
-  if(!contact) return;
+
+  var target, initialValue;
+  if(hit.contactIndex === -1){
+    /* page-level field (e.g. the header legend), not tied to a contact */
+    target = pageState;
+    initialValue = pageState.headerLegend != null ? pageState.headerLegend : (geo.layout.phoneRowLegend || "");
+  } else {
+    target = pageState.contacts[hit.contactIndex];
+    if(!target) return;
+    initialValue = null;
+  }
 
   var absXpx = blockXpx + cardCol*cardWpx + hit.x;
   var absYpx = blockYpx + cardRow*cardHpx + hit.y;
   var cssScale = rect.width / canvas.width;
-  openEditOverlay(canvas.parentElement, contact, hit.field,
-    absXpx*cssScale, absYpx*cssScale, hit.w*cssScale, hit.h*cssScale);
+  openEditOverlay(canvas.parentElement, target, hit.field,
+    absXpx*cssScale, absYpx*cssScale, hit.w*cssScale, hit.h*cssScale, initialValue);
 }
 
 function buildPageEl(index){
