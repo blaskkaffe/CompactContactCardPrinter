@@ -365,6 +365,10 @@ function pageGeometryForIndex(index){
 /* ---------------- contact sorting (alphabetical, chief dept first) ---------------- */
 function isChiefDept(dept){ return /^c\.?\s+/i.test((dept||"").trim()); }
 function deptGroupKey(dept){ return (dept||"").trim().replace(/^c\.?\s+/i,"").toLowerCase(); }
+/* the chief-prefix-stripped department name, for anywhere a department is
+   shown without wanting the "C " marker (the card header's dept summary,
+   the group panel) -- distinct from deptGroupKey, which lowercases too */
+function deptDisplayLabel(dept){ return (dept||"").trim().replace(/^c\.?\s+/i, "") || "(no department)"; }
 function sortContacts(list){
   return list.slice().sort(function(a,b){
     var gk = deptGroupKey(a.department).localeCompare(deptGroupKey(b.department));
@@ -866,30 +870,47 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
   ctx.font = ptToPx(HEADER_FONT_PT, dpi) + "px " + FONT_FAMILY;
   ctx.textBaseline = "middle";
   var pad = mmToPx(CELL_PADDING_MM, dpi);
-  var halfW = wPx*0.5;
+  var dateStr = new Date().toISOString().slice(0,10);
+  /* the date never changes length, so it only gets as much of the header
+     as it actually needs -- the rest goes to the department list/title,
+     which usually needs much more than half */
+  var leftW = ctx.measureText(dateStr).width + pad*2;
+  var rightW = wPx - leftW;
 
   ctx.save();
-  ctx.beginPath(); ctx.rect(xPx, yPx, halfW, headerH); ctx.clip();
+  ctx.beginPath(); ctx.rect(xPx, yPx, leftW, headerH); ctx.clip();
   ctx.fillStyle = "#fff";
   ctx.textAlign = "left";
-  ctx.fillText(truncateText(ctx, new Date().toISOString().slice(0,10), halfW-pad), xPx+pad, yPx+headerH/2);
+  ctx.fillText(dateStr, xPx+pad, yPx+headerH/2);
   ctx.restore();
 
   if(layout.showDept){
+    /* chief rows ("C IT") and their non-chief colleagues ("IT") collapse
+       into one entry -- the "C " marker is row-level detail, not something
+       the summary needs to repeat -- and each name is truncated the same
+       way a department is truncated on its own row, so several short
+       abbreviations can fit instead of one long truncated blob */
+    var seenDepts = {};
     var depts = [];
-    contacts.forEach(function(c){ if(c && c.department && depts.indexOf(c.department)===-1) depts.push(c.department); });
+    contacts.forEach(function(c){
+      if(!c || !c.department) return;
+      var key = deptGroupKey(c.department);
+      if(seenDepts[key]) return;
+      seenDepts[key] = true;
+      depts.push(formatDeptForRow(deptDisplayLabel(c.department)));
+    });
     ctx.save();
-    ctx.beginPath(); ctx.rect(xPx+halfW, yPx, wPx-halfW, headerH); ctx.clip();
+    ctx.beginPath(); ctx.rect(xPx+leftW, yPx, rightW, headerH); ctx.clip();
     ctx.fillStyle = "#fff";
     ctx.textAlign = "right";
-    ctx.fillText(truncateText(ctx, depts.join(", "), halfW-pad), xPx+wPx-pad, yPx+headerH/2);
+    ctx.fillText(truncateText(ctx, depts.join(", "), rightW-pad), xPx+wPx-pad, yPx+headerH/2);
     ctx.restore();
   } else if(legendOverride || layout.phoneRowLegend){
     ctx.save();
-    ctx.beginPath(); ctx.rect(xPx+halfW, yPx, wPx-halfW, headerH); ctx.clip();
+    ctx.beginPath(); ctx.rect(xPx+leftW, yPx, rightW, headerH); ctx.clip();
     ctx.fillStyle = "#fff";
     ctx.textAlign = "right";
-    ctx.fillText(truncateText(ctx, legendOverride || layout.phoneRowLegend, halfW-pad), xPx+wPx-pad, yPx+headerH/2);
+    ctx.fillText(truncateText(ctx, legendOverride || layout.phoneRowLegend, rightW-pad), xPx+wPx-pad, yPx+headerH/2);
     ctx.restore();
   }
 
@@ -1048,12 +1069,15 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts){
   var bodyY = headerH, bodyH = hPx - headerH;
   var capacity = layoutRows(layout.key);
   if(!layout.showDept){
-    /* the right half of the header is free text on any layout that isn't
+    /* the right side of the header is free text on any layout that isn't
        showing a department summary there -- v10 defaults it to a legend
        (phoneRowLegend), h2 has no default and starts blank, but both are
        editable the same way. Page-level field (contactIndex:-1), not tied
-       to any one contact. */
-    regions.push({ contactIndex:-1, field:"headerLegend", x:wPx*0.5, y:0, w:wPx*0.5, h:headerH });
+       to any one contact. Matches drawCard's leftW/rightW split exactly
+       (the date only claims as much width as it needs). */
+    ctx.font = ptToPx(HEADER_FONT_PT, dpi) + "px " + FONT_FAMILY;
+    var dateW = ctx.measureText(new Date().toISOString().slice(0,10)).width + mmToPx(CELL_PADDING_MM, dpi)*2;
+    regions.push({ contactIndex:-1, field:"headerLegend", x:dateW, y:0, w:wPx-dateW, h:headerH });
   }
   if(layout.doubleRow){
     var subRowH = bodyH / (capacity*2);
@@ -1503,7 +1527,6 @@ function initEvents(){
 }
 
 /* ---------------- department grouping sidebar ---------------- */
-function deptDisplayLabel(dept){ return (dept||"").trim().replace(/^c\.?\s+/i, "") || "(no department)"; }
 /* buckets any contact list by department -- used both for the full roster
    (state.contacts) and for a single page's own contacts, which aren't
    guaranteed to stay contiguous by department once groups are moved
