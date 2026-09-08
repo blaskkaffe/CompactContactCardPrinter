@@ -62,6 +62,9 @@ main#viewerWrap.mode-all{overflow-y:auto; padding:24px 0;}
 #groupPanel h2{font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#555; margin:0 0 8px;}
 #groupPanel .groupRow{background:#fff; border:1px solid #ccc; border-radius:4px; padding:6px 8px; margin-bottom:6px;}
 #groupPanel .groupTitle{display:flex; justify-content:space-between; font-weight:bold; margin-bottom:4px;}
+#groupPanel .groupPlacement{font-size:11px; margin-bottom:4px;}
+#groupPanel .groupPlacement.empty{color:#777; font-style:italic;}
+#groupPanel .groupPlacement.placed{color:#a60; font-weight:bold;}
 #groupPanel .groupAdd{display:flex; gap:4px; align-items:center;}
 #groupPanel .groupAdd input{width:40px; font-size:11px; padding:2px 3px;}
 #groupPanel .groupAdd button{font-size:11px; padding:2px 6px; cursor:pointer;}
@@ -1470,6 +1473,22 @@ function computeDepartmentGroups(){
   return groups;
 }
 
+/* which 1-indexed page(s) currently show at least one of this group's
+   contacts -- contact objects are shared by reference all the way from
+   state.contacts through to each page's contacts array (nothing clones
+   them), so a plain reference check is enough. A page whose contacts are
+   hidden in savedContacts (because it's currently set to "empty") doesn't
+   count -- those contacts aren't actually on that page right now. Lets the
+   sidebar warn against adding a group somewhere it (partly) already is. */
+function pageNumbersForGroup(group){
+  var contactSet = new Set(group.contacts);
+  var nums = [];
+  state.pages.forEach(function(p, i){
+    if(p.contacts.some(function(c){ return contactSet.has(c); })) nums.push(i+1);
+  });
+  return nums;
+}
+
 /* appends a whole department group onto the given 1-indexed page, creating
    pages up to that index if needed, then reuses the existing overflow
    cascade (reflowFromPage) so nothing is ever dropped if it doesn't fit --
@@ -1512,6 +1531,17 @@ function renderGroupPanel(){
   computeDepartmentGroups().forEach(function(g){
     var row = el("div", { class:"groupRow" });
     row.appendChild(el("div", { class:"groupTitle", text:g.label + " (" + g.contacts.length + ")" }));
+
+    var pageNums = pageNumbersForGroup(g);
+    var placement;
+    if(!pageNums.length){
+      placement = el("div", { class:"groupPlacement empty", text:"Not placed yet" });
+    } else {
+      var word = pageNums.length > 1 ? "pages" : "page";
+      placement = el("div", { class:"groupPlacement placed", text:"Already on " + word + " " + pageNums.join(", ") });
+    }
+    row.appendChild(placement);
+
     var addRow = el("div", { class:"groupAdd" });
     addRow.appendChild(el("span", { text:"Page" }));
     var pageInput = document.createElement("input");
