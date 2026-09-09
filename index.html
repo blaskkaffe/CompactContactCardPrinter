@@ -11,7 +11,7 @@ body{margin:0; font:14px/1.4 Arial, sans-serif; background:#e6e6e6; color:#111; 
 
 header.toolbar{flex:0 0 auto; background:#1c1c1c; color:#fff; padding:8px 12px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
 header.toolbar h1{font-size:15px; margin:0 14px 0 0;}
-#pageIndicator{font-size:12px; min-width:90px; text-align:center;}
+#pageIndicator{font-size:16px; font-weight:bold; min-width:90px; text-align:center;}
 .spacer{flex:1 1 auto;}
 label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
 #dataStatus, #gridInfo{font-size:12px; color:#ccc;}
@@ -21,11 +21,12 @@ label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
 #mainRow{flex:1 1 auto; display:flex; overflow:hidden;}
 
 /* viewerWrap itself never scrolls and never has its children wiped directly
-   -- #viewerNav (prev/next/print) is a permanent overlay pinned to its
-   top-left corner (kept off to the side so it never sits on top of a
-   card's own header/click area), and #viewerContent (the actual
-   scrollable/centered area renderViewer() rebuilds) fills the rest, so
-   the nav stays in place through any scrolling in "View: All" mode. */
+   -- #viewerNav (prev/next/print) is a permanent overlay pinned to the
+   top-center of the viewer (centered over the same area the cards are
+   centered in, clear of the card itself thanks to #viewerContent's
+   padding-top below), and #viewerContent (the actual scrollable/centered
+   area renderViewer() rebuilds) fills the rest, so the nav stays in place
+   through any scrolling in "View: All" mode. */
 main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; background:#e6e6e6;}
 #viewerContent{position:absolute; inset:0;}
 /* padding-top reserves the same clearance as "View: All" below (see its
@@ -38,7 +39,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    would otherwise sit on top of (and block) that page's own controls */
 #viewerWrap.mode-all #viewerContent{overflow-y:auto; padding:72px 24px 24px;}
 
-#viewerNav{position:absolute; top:12px; left:12px; z-index:10; display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.94); padding:6px 8px; border-radius:6px; box-shadow:0 1px 5px rgba(0,0,0,.3);}
+#viewerNav{position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:10; display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.94); padding:6px 8px; border-radius:6px; box-shadow:0 1px 5px rgba(0,0,0,.3);}
 #viewerNav button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
 #viewerNav button:hover{background:#eee;}
 
@@ -173,7 +174,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
     </div>
     <div id="groupPanelBody"></div>
   </aside>
-  <!-- #viewerNav (prev/next/print) floats over the top-left corner of the
+  <!-- #viewerNav (prev/next/print) floats over the top-center of the
        viewer and is never wiped by renderViewer(), which only touches
        #viewerContent -- see the CSS block above for how it stays pinned
        there through scrolling in "View: All" mode. -->
@@ -258,6 +259,13 @@ const DIVIDER_WIDTH_MM = 0.1;  /* row divider line weight */
 const CARD_W_MM = 53.98; /* ISO/IEC 7810 ID-1 credit card -- always the VERTICAL shape */
 const CARD_H_MM = 85.60;
 const MARGIN_MM = 10;    /* printer-unsafe border kept clear on every edge */
+/* the tiled card block is otherwise centered exactly (equal leftover space
+   on every side, split evenly) -- this shifts that block up by half this
+   amount, handing the same amount back to the bottom margin instead of the
+   top, per request. Only ever borrows from the top's own leftover space
+   (see blockOriginMm), so it can't push cards past the printer-safe
+   MARGIN_MM. */
+const EXTRA_BOTTOM_MARGIN_MM = 6;
 
 const PAPER_SIZES = {
   A3: { label:"A3", wMM:297, hMM:420 },
@@ -393,6 +401,21 @@ function gridForDims(pageDims, cardDims){
   var cols = Math.max(0, Math.floor(usableW / cardDims.w));
   var rows = Math.max(0, Math.floor(usableH / cardDims.h));
   return { cols:cols, rows:rows, count:cols*rows };
+}
+
+/* top-left corner (mm, relative to the page) of the tiled card block --
+   horizontally centered exactly, vertically centered but nudged up by
+   half of EXTRA_BOTTOM_MARGIN_MM so the bottom margin ends up that much
+   bigger than the top one instead of the two being equal. Never borrows
+   more than the top's own leftover space has to give, so cards can never
+   cross the printer-safe MARGIN_MM. Shared by every place that tiles
+   cards onto a page (the real print grid and the "empty rutnät" outline
+   grid), so both stay visually consistent. */
+function blockOriginMm(pageDims, blockWmm, blockHmm){
+  var xmm = (pageDims.w - blockWmm) / 2;
+  var symmetricYmm = (pageDims.h - blockHmm) / 2;
+  var ymm = Math.max(MARGIN_MM, symmetricYmm - EXTRA_BOTTOM_MARGIN_MM/2);
+  return { x:xmm, y:ymm };
 }
 
 /* the card orientation is chosen per-page (via that page's layout); the
@@ -1246,7 +1269,8 @@ function drawEmptyPageContent(ctx, wPx, hPx, geo, pageState, preview){
     var grid = geo.grid;
     if(grid.count <= 0) return;
     var blockWmm = grid.cols*geo.cardDims.w, blockHmm = grid.rows*geo.cardDims.h;
-    var startXmm = (geo.pageDims.w-blockWmm)/2, startYmm = (geo.pageDims.h-blockHmm)/2;
+    var origin = blockOriginMm(geo.pageDims, blockWmm, blockHmm);
+    var startXmm = origin.x, startYmm = origin.y;
     for(var i=0;i<grid.count;i++){
       var col = i%grid.cols, row = Math.floor(i/grid.cols);
       var xPx = mmToPx(startXmm+col*geo.cardDims.w, RENDER_DPI);
@@ -1299,8 +1323,8 @@ function renderCardsOntoCanvas(canvas, pageIndex, preview){
 
   var blockWmm = geo.grid.cols * geo.cardDims.w;
   var blockHmm = geo.grid.rows * geo.cardDims.h;
-  var startXmm = (dims.w - blockWmm) / 2;
-  var startYmm = (dims.h - blockHmm) / 2;
+  var origin = blockOriginMm(dims, blockWmm, blockHmm);
+  var startXmm = origin.x, startYmm = origin.y;
 
   for(var i=0;i<geo.grid.count;i++){
     var col = i % geo.grid.cols, row = Math.floor(i / geo.grid.cols);
@@ -1661,13 +1685,15 @@ function buildPageControls(index){
 
 /* one card's worth of preview -- the on-screen unit shown by both single
    and "all" view. Pages are printed in front/back pairs (see
-   partnerPageIndex), so every two page indices are one physical sheet:
-   "Kort" numbers the sheet, "Sida" is 1 (front, even index) or 2 (back,
-   odd index) within it. */
+   partnerPageIndex): "Sida" is 1 (front, even index) or 2 (back, odd
+   index) within its sheet. Which SHEET ("Kort") this pair belongs to is
+   already shown once, above, by #pageIndicator -- repeating it on every
+   individual card would be redundant, so the per-card label stays to
+   just the side. */
 function buildPageEl(index){
   var page = el("div", { class:"page", "data-index":String(index) });
-  var kortNum = Math.floor(index/2) + 1, sidaNum = index%2===0 ? 1 : 2;
-  page.appendChild(el("span", { class:"pageLabel", text: "Kort " + kortNum + " Sida " + sidaNum }));
+  var sidaNum = index%2===0 ? 1 : 2;
+  page.appendChild(el("span", { class:"pageLabel", text: "Sida " + sidaNum }));
   var canvas = document.createElement("canvas");
   canvas.addEventListener("click", function(e){ onCanvasClick(e, canvas, index); });
   page.appendChild(canvas);
@@ -1784,7 +1810,7 @@ function updateGridInfo(){
 }
 
 function renderToolbar(){
-  $("#viewModeBtn").textContent = state.viewMode === "single" ? "Vy: Enkel" : "Vy: Alla";
+  $("#viewModeBtn").textContent = state.viewMode === "single" ? "Vy: Ett kort" : "Vy: Alla";
 }
 
 /* idx names the front of the pair to jump to -- always even */
