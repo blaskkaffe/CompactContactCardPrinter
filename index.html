@@ -279,6 +279,13 @@ const BORDER_WIDTH_MM = 0.3;   /* card border, crop marks, empty-card outline */
 const DIVIDER_INSET_MM = 2;    /* how far a row divider stays clear of the card's left/right edges */
 const DIVIDER_ALPHA = 0.5;     /* row divider opacity */
 const DIVIDER_WIDTH_MM = 0.1;  /* row divider line weight */
+/* "Tomt rutnät" (blank empty-page mode): an actual graph-paper grid
+   inside each blank card outline, so the option visibly does something
+   distinct from "Tom" (a truly blank card) -- squares GRID_SPACING_MM
+   apart, inset GRID_INSET_MM from the card's own border on every side. */
+const GRID_SPACING_MM = 5;
+const GRID_INSET_MM = 2;
+const GRID_ALPHA = 0.3;
 
 /* -- card / paper geometry -- */
 const CARD_W_MM = 53.98; /* ISO/IEC 7810 ID-1 credit card -- always the VERTICAL shape */
@@ -1270,9 +1277,26 @@ function drawCenteredMessage(ctx, w, h, text){
   ctx.restore();
 }
 
+/* faint graph-paper grid filling a blank card's interior, GRID_SPACING_MM
+   apart in both directions -- without this, "Tomt rutnät" ("empty grid")
+   was just a bordered blank rectangle, indistinguishable in kind from
+   "Tom" (truly blank) and not actually a grid at all. */
+function drawEmptyGrid(ctx, xPx, yPx, wPx, hPx, dpi){
+  var inset = mmToPx(GRID_INSET_MM, dpi);
+  var step = mmToPx(GRID_SPACING_MM, dpi);
+  ctx.save();
+  ctx.strokeStyle = "rgba(0,0,0," + GRID_ALPHA + ")";
+  ctx.lineWidth = Math.max(1, mmToPx(DIVIDER_WIDTH_MM, dpi));
+  var left = xPx+inset, right = xPx+wPx-inset, top = yPx+inset, bottom = yPx+hPx-inset;
+  for(var x=left+step; x<right; x+=step) strokeLine(ctx, x, top, x, bottom);
+  for(var y=top+step; y<bottom; y+=step) strokeLine(ctx, left, y, right, y);
+  ctx.restore();
+}
+
 function drawEmptyCardOutline(ctx, xPx, yPx, wPx, hPx, dpi){
   ctx.save();
   fillCardBase(ctx, xPx, yPx, wPx, hPx, dpi);
+  drawEmptyGrid(ctx, xPx, yPx, wPx, hPx, dpi);
   ctx.restore();
 }
 
@@ -1297,12 +1321,42 @@ function drawCropMarks(ctx, pageWpx, pageHpx, blockX, blockY, blockW, blockH, dp
    `preview` (the on-screen viewer, as opposed to print) shows just one
    blank card outline in "rows" mode instead of the whole tiled sheet --
    every card slot looks identical, so one is all there is to see. */
+/* draws pageState.image into a wPx x hPx box, honoring two independent
+   per-page choices:
+     imageFit      -- "contain" (default): scaled uniformly to fit inside
+                       the box, keeping proportions, same as before this
+                       was made a choice at all. "stretch": scaled to
+                       exactly fill the box on both axes, proportions not
+                       kept.
+                     -- imageRotation -- 0/90/180/270 (degrees, clockwise).
+   Rotating swaps which of the image's own width/height fits against the
+   box's width vs height (a 90/270 turn makes a landscape photo fit a
+   portrait card the way you'd expect) -- see fitW/fitH below. The image
+   is always drawn using its own natural pixel size scaled to drawW/drawH
+   in a frame rotated around the box's center, so the math is identical
+   for every rotation, 0 included. */
+function drawEmptyImage(ctx, wPx, hPx, pageState){
+  var img = pageState.image;
+  var rotation = ((pageState.imageRotation||0) % 360 + 360) % 360;
+  var swapped = rotation === 90 || rotation === 270;
+  var fitW = swapped ? hPx : wPx, fitH = swapped ? wPx : hPx;
+  var drawW, drawH;
+  if(pageState.imageFit === "stretch"){
+    drawW = fitW; drawH = fitH;
+  } else {
+    var scale = Math.min(fitW/img.width, fitH/img.height);
+    drawW = img.width*scale; drawH = img.height*scale;
+  }
+  ctx.save();
+  ctx.translate(wPx/2, hPx/2);
+  ctx.rotate(rotation * Math.PI/180);
+  ctx.drawImage(img, -drawW/2, -drawH/2, drawW, drawH);
+  ctx.restore();
+}
+
 function drawEmptyPageContent(ctx, wPx, hPx, geo, pageState, preview){
   if(pageState.emptyMode === "image" && pageState.image){
-    var img = pageState.image;
-    var scale = Math.min(wPx/img.width, hPx/img.height);
-    var dw = img.width*scale, dh = img.height*scale;
-    ctx.drawImage(img, (wPx-dw)/2, (hPx-dh)/2, dw, dh);
+    drawEmptyImage(ctx, wPx, hPx, pageState);
     return;
   }
   if(pageState.emptyMode === "rows"){
@@ -1786,6 +1840,18 @@ function buildPageControls(index){
         reader.readAsDataURL(f);
       });
       box.appendChild(fileInput);
+
+      if(pageState.image){
+        var fitOptions = [["contain","Behåll proportioner"],["stretch","Sträck ut"]];
+        box.appendChild(buildSelect(fitOptions, pageState.imageFit || "contain", function(v){ pageState.imageFit = v; renderViewer(); }, "Bildanpassning"));
+
+        var rotateBtn = el("button", { type:"button", text:"↻ Rotera", title:"Rotera bilden 90°" });
+        rotateBtn.addEventListener("click", function(){
+          pageState.imageRotation = ((pageState.imageRotation || 0) + 90) % 360;
+          renderViewer();
+        });
+        box.appendChild(rotateBtn);
+      }
     }
   }
   return box;
@@ -1794,14 +1860,17 @@ function buildPageControls(index){
 /* one card's worth of preview -- the on-screen unit shown by both single
    and "all" view. Pages are printed in front/back pairs (see
    partnerPageIndex): "Sida" is 1 (front, even index) or 2 (back, odd
-   index) within its sheet. Which SHEET ("Kort") this pair belongs to is
-   already shown once, above, by #pageIndicator -- repeating it on every
-   individual card would be redundant, so the per-card label stays to
-   just the side. */
+   index) within its sheet. Which SHEET ("Kort") a pair belongs to is
+   also shown by #pageIndicator, but that only names the ONE pair
+   currently in view -- in "Vy: Alla" many pairs are all on screen at
+   once, so the indicator alone can't tell them apart. The per-card label
+   includes "Kort N" there for that reason; single view still drops it
+   since the indicator unambiguously refers to the one pair shown. */
 function buildPageEl(index){
   var page = el("div", { class:"page", "data-index":String(index) });
   var sidaNum = index%2===0 ? 1 : 2;
-  page.appendChild(el("span", { class:"pageLabel", text: "Sida " + sidaNum }));
+  var labelText = state.viewMode === "all" ? ("Kort " + (Math.floor(index/2)+1) + " Sida " + sidaNum) : ("Sida " + sidaNum);
+  page.appendChild(el("span", { class:"pageLabel", text: labelText }));
   var canvas = document.createElement("canvas");
   canvas.addEventListener("click", function(e){ onCanvasClick(e, canvas, index); });
   page.appendChild(canvas);
