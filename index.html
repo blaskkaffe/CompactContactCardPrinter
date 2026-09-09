@@ -108,6 +108,8 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .contactList{grid-column:1 / -1; display:flex; flex-direction:column; gap:3px; padding:2px 0 4px 6px; margin-top:-2px; border-left:2px solid #eee; flex-basis:100%;}
 #groupPanel .contactChip{display:flex; justify-content:space-between; align-items:center; gap:4px; background:#fff; border:1px solid #ddd; border-radius:3px; padding:2px 6px; font-size:10.5px; cursor:grab; min-width:0;}
 #groupPanel .contactChip:active{cursor:grabbing;}
+/* dragging a v10 list row over another one to reorder -- see wireReorderTarget */
+#groupPanel .contactChip.dragOver{background:#dff0ff; border-color:#0080ff;}
 #groupPanel .contactChipName{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;}
 #groupPanel .contactChipPage{color:#a60; font-size:9.5px; flex:none;}
 #groupPanel .pageCard{background:#fff; border:1px solid #ccc; border-radius:4px; padding:6px 8px; margin-bottom:6px; transition:background-color .1s;}
@@ -486,15 +488,64 @@ function contactsForChain(chainName){
     .filter(function(c){ return (c.lists||[]).some(function(name){ return listKey(name) === key; }); })
     .sort(function(a,b){ return a.id - b.id; });
 }
+/* orders `contacts` by pageState.chainOrder (an array of contact ids,
+   manually set by dragging within a chain page's list -- see
+   reorderWithinPage) when present; a member not yet in that list keeps
+   its place relative to the other not-yet-ordered members (stable sort),
+   so a newly tagged member just appears in its natural chain-file-order
+   slot until the page's own order is touched. */
+function applyCustomOrder(contacts, orderIds){
+  if(!orderIds) return contacts;
+  return contacts.slice().sort(function(a, b){
+    var ia = orderIds.indexOf(a.id), ib = orderIds.indexOf(b.id);
+    if(ia === -1) ia = Infinity;
+    if(ib === -1) ib = Infinity;
+    return ia - ib;
+  });
+}
 /* what a v10 page with an active chain actually shows: chain membership
-   truncated to the layout's own row capacity. Never touches pageState.
-   contacts -- it's a computed view, so clearing the chain back to "None"
-   leaves whatever was manually placed there untouched. */
+   truncated to the layout's own row capacity, then reordered per
+   pageState.chainOrder if set. Never touches pageState.contacts -- it's
+   a computed view, so clearing the chain back to "None" leaves whatever
+   was manually placed there untouched. */
 function contactsForPage(pageState){
   if(pageState.layout === "v10" && pageState.chain){
-    return contactsForChain(pageState.chain).slice(0, layoutRows("v10"));
+    var members = contactsForChain(pageState.chain).slice(0, layoutRows("v10"));
+    return applyCustomOrder(members, pageState.chainOrder);
   }
   return pageState.contacts;
+}
+/* moves one contact to sit just before (or, insertAfter, just after)
+   another within the same v10 page's own displayed order -- used by
+   dragging a name onto a sibling name in the page's contact list.
+   Manual pages reorder pageState.contacts directly; a chain page has no
+   contacts array of its own to reorder (it's computed from the chain
+   every render -- see contactsForPage), so it keeps a standalone
+   chainOrder id list instead, seeded from the current display order the
+   first time a drag actually reorders anything. */
+function reorderWithinPage(pageIndex, contactId, targetId, insertAfter){
+  var pageState = state.pages[pageIndex];
+  if(!pageState || contactId === targetId) return;
+
+  if(pageState.layout === "v10" && pageState.chain){
+    var ids = (pageState.chainOrder || contactsForPage(pageState).map(function(c){ return c.id; }))
+      .filter(function(id){ return id !== contactId; });
+    var chainIdx = ids.indexOf(targetId);
+    if(chainIdx === -1) return;
+    ids.splice(insertAfter ? chainIdx+1 : chainIdx, 0, contactId);
+    pageState.chainOrder = ids;
+    renderViewer();
+    return;
+  }
+
+  var byId = {};
+  pageState.contacts.forEach(function(c){ byId[c.id] = c; });
+  var remaining = pageState.contacts.filter(function(c){ return c.id !== contactId; });
+  var targetIdx = remaining.findIndex(function(c){ return c.id === targetId; });
+  if(targetIdx === -1) return;
+  remaining.splice(insertAfter ? targetIdx+1 : targetIdx, 0, byId[contactId]);
+  pageState.contacts = remaining;
+  renderViewer();
 }
 
 /* ---------------- CSV parsing ---------------- */
@@ -1965,6 +2016,42 @@ function wireDragStart(node, payload){
   });
 }
 
+/* wires `row` (one name in a v10 page's own ordered contact list) as a
+   drop target for reordering that list -- dropping on the row's top
+   half inserts the dragged contact before it, the bottom half after.
+   `matches(data)` decides whether an incoming drag is actually a same-
+   list reorder; anything else falls to `fallback` (if given) instead,
+   so a normal pool/cross-page drop landing on a row still behaves
+   exactly like dropping anywhere else on the page card. Handles the
+   full drop itself (stopPropagation) rather than relying on it
+   bubbling to the card's own drop target, since dataTransfer.getData()
+   -- needed to tell reorder from everything else -- only works inside
+   "drop", not "dragover", so the decision can't be made early enough
+   to conditionally skip preventDefault on the row in the first place. */
+function wireReorderTarget(row, matches, onReorder, fallback){
+  row.addEventListener("dragover", function(e){
+    if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
+    e.preventDefault();
+    e.stopPropagation();
+    row.classList.add("dragOver");
+  });
+  row.addEventListener("dragleave", function(){ row.classList.remove("dragOver"); });
+  row.addEventListener("drop", function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    row.classList.remove("dragOver");
+    var raw = e.dataTransfer.getData(PANEL_DRAG_MIME);
+    if(!raw) return;
+    var data = JSON.parse(raw);
+    if(matches(data)){
+      var insertAfter = (e.clientY - row.getBoundingClientRect().top) > row.getBoundingClientRect().height/2;
+      onReorder(data.contactId, insertAfter);
+    } else if(fallback){
+      fallback(data);
+    }
+  });
+}
+
 /* every 1-indexed page currently showing this exact contact -- normally at
    most one v20 page, but the same contact can legitimately sit on several
    v10 pages (and a v20 page) at once, since v10 never consolidates. A
@@ -2003,6 +2090,31 @@ function buildContactList(contacts, fromPage){
     if(placed) chip.appendChild(el("span", { class:"contactChipPage", text:"s"+pageNums.join(",") }));
     wireDragStart(chip, { type:"contact", fromPage:fromPage, contactId:c.id });
     list.appendChild(chip);
+  });
+  return list;
+}
+
+/* v10's own flat, numbered, drag-to-reorder contact list -- the actual
+   printed order on the card, unlike buildContactList's department-tile
+   rows (a pool/placement view where order doesn't matter). A manual
+   page's rows are also still draggable out to another page or the
+   delete zone (payloadType "contact", reusing the normal contact drag
+   machinery -- onPageDrop is the same fallback the page card itself
+   drops onto); a chain page's rows only ever reorder within their own
+   list (payloadType "chainReorder", no fallback -- see
+   reorderWithinPage for why chain membership isn't "moved" this way). */
+function buildOrderedContactList(pageIndex, contacts, payloadType, onPageDrop){
+  var list = el("div", { class:"contactList" });
+  contacts.forEach(function(c, idx){
+    var title = "Dra för att ändra ordning" + (onPageDrop ? ", eller till en annan sida eller \"✕ Ta bort från sida\"" : "");
+    var row = el("div", { class:"contactChip", draggable:"true", title:title });
+    row.appendChild(el("span", { class:"contactChipName", text:(idx+1) + ". " + c.name }));
+    wireDragStart(row, { type:payloadType, fromPage:pageIndex, contactId:c.id });
+    wireReorderTarget(row,
+      function(data){ return data.type === payloadType && data.fromPage === pageIndex; },
+      function(draggedId, insertAfter){ reorderWithinPage(pageIndex, draggedId, c.id, insertAfter); },
+      onPageDrop);
+    list.appendChild(row);
   });
   return list;
 }
@@ -2089,18 +2201,39 @@ function renderGroupPanel(){
 
     card.appendChild(buildPageControls(i));
 
+    /* shared by the card's own drop target and, for a manual v10 page,
+       every row's reorder-target fallback (a normal pool/cross-page drop
+       landing on a row should behave exactly like dropping anywhere else
+       on the card) */
+    function onPageDrop(data){
+      handlePanelDrop(data,
+        function(fromPage, groupKey){ moveGroupBetweenPages(fromPage, i, groupKey); },
+        function(fromPage, contactId){ moveContactBetweenPages(fromPage, i, contactId); });
+    }
+
     var chipList = el("div", { class:"pageGroupList" });
     if(p.layout === "v10" && p.chain){
       /* a chained page's contacts are computed from the chain, not the
-         normal drag-and-drop group system -- show what it resolved to
-         instead of draggable department chips, which wouldn't reflect or
-         control this page's actual content */
+         normal drag-and-drop group system, so the note explains what it
+         resolved to; the list below is still manually reorderable
+         (dragging within it), just not movable elsewhere -- see
+         reorderWithinPage */
       var chainTotal = contactsForChain(p.chain).length;
       var chainNote = "Kedja \"" + p.chain + "\": " + Math.min(chainTotal, cap) + " av " + chainTotal + " visas";
       if(chainTotal > cap){
         chainNote += " -- " + (chainTotal - cap) + " till taggade \"" + p.chain + "\" får inte plats på ett kort";
       }
       chipList.appendChild(el("div", { class: chainTotal > cap ? "emptyNote full" : "emptyNote", text:chainNote }));
+      var chainMembers = contactsForPage(p);
+      if(chainMembers.length) chipList.appendChild(buildOrderedContactList(i, chainMembers, "chainReorder", null));
+    } else if(p.layout === "v10"){
+      /* a manual v10 page: order is what actually prints, so it's shown
+         (and reordered) as a flat numbered list, not department chips */
+      if(p.contacts.length){
+        chipList.appendChild(buildOrderedContactList(i, p.contacts, "contact", onPageDrop));
+      } else {
+        chipList.appendChild(el("div", { class:"emptyNote", text:"Inga kontakter än" }));
+      }
     } else {
       groupContactsByDepartment(p.contacts).forEach(function(g){
         var pgKey = i + ":" + g.key;
@@ -2124,11 +2257,7 @@ function renderGroupPanel(){
     /* the whole card is a drop target -- dragging a group or contact from
        any page (including this one, a no-op) onto it moves it from the
        source page here, cascading overflow like every other placement */
-    wireDropTarget(card, function(data){
-      handlePanelDrop(data,
-        function(fromPage, groupKey){ moveGroupBetweenPages(fromPage, i, groupKey); },
-        function(fromPage, contactId){ moveContactBetweenPages(fromPage, i, contactId); });
-    });
+    wireDropTarget(card, onPageDrop);
 
     panel.appendChild(card);
   });
