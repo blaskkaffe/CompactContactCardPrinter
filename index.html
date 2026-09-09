@@ -37,16 +37,26 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #viewerNav button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
 #viewerNav button:hover{background:#eee;}
 
-/* always exactly two pages per row -- they're printed front/back in pairs
-   (page 0+1, 2+3, ...), so showing them side by side mirrors that pairing.
-   Each column still stretches evenly to fill the available width. */
-.pagesAll{display:grid; grid-template-columns:repeat(2, 1fr); gap:24px;}
+/* always shown as a front+back pair -- pages are printed in pairs (see
+   partnerPageIndex), so there's never a reason to view one side alone */
+.pagePair{display:flex; gap:12px;}
+/* responsive: as many pairs fit per row as the window allows, but each
+   pair is a fixed-width 2-card block that always stays together --
+   never splits its front/back across a row wrap */
+.pagesAll{display:grid; grid-template-columns:repeat(auto-fill, 252px); justify-content:center; gap:24px;}
 
 .page{background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.4); position:relative; flex:0 0 auto;}
-.mode-all .page{width:100%; aspect-ratio:var(--ratio);}
+/* every card shares one physical size (CARD_W_MM/CARD_H_MM are global
+   constants, and the only remaining orientation is vertical), so this is
+   one fixed ratio rather than something computed per page */
+.mode-all .page{width:120px; aspect-ratio:53.98/85.6;}
 .page canvas{display:block; width:100%; height:100%;}
 
-.pageLabel{position:absolute; top:6px; left:50%; transform:translateX(-50%); font-size:11px; color:#999; pointer-events:none; z-index:1;}
+/* sits just above the card, not on top of it -- the canvas now fills the
+   whole .page box edge to edge (it's one card, not a page with margins
+   around a smaller tiled grid), so there's no blank space inside it for
+   a label to share with the card's own header */
+.pageLabel{position:absolute; top:-16px; left:50%; transform:translateX(-50%); font-size:11px; color:#999; pointer-events:none; z-index:1;}
 
 #dropOverlay{position:fixed; inset:0; background:rgba(20,20,20,.75); color:#fff; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:bold; z-index:1000; pointer-events:none;}
 #dropOverlay[hidden]{display:none;}
@@ -1073,6 +1083,9 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
   ctx.restore();
 }
 
+/* word-wraps onto as many lines as needed -- on a full print-sized canvas
+   this text always fit on one line, but the same message now also has to
+   fit a single small card-sized preview canvas */
 function drawCenteredMessage(ctx, w, h, text){
   ctx.save();
   ctx.fillStyle = "#fff"; ctx.fillRect(0,0,w,h);
@@ -1080,7 +1093,17 @@ function drawCenteredMessage(ctx, w, h, text){
   ctx.fillStyle = "#999";
   ctx.font = Math.max(12, Math.round(w*0.045)) + "px " + FONT_FAMILY;
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(text, w/2, h/2);
+  var maxW = w * 0.88;
+  var lines = [], line = "";
+  text.split(" ").forEach(function(word){
+    var attempt = line ? line + " " + word : word;
+    if(line && ctx.measureText(attempt).width > maxW){ lines.push(line); line = word; }
+    else line = attempt;
+  });
+  lines.push(line);
+  var lineH = parseInt(ctx.font, 10) * 1.3;
+  var startY = h/2 - (lines.length-1)*lineH/2;
+  lines.forEach(function(l, i){ ctx.fillText(l, w/2, startY + i*lineH); });
   ctx.restore();
 }
 
@@ -1107,8 +1130,11 @@ function drawCropMarks(ctx, pageWpx, pageHpx, blockX, blockY, blockW, blockH, dp
   ctx.restore();
 }
 
-/* fully empty / bordered-grid / custom-image variants of the filler page */
-function drawEmptyPageContent(ctx, wPx, hPx, geo, pageState){
+/* fully empty / bordered-grid / custom-image variants of the filler page.
+   `preview` (the on-screen viewer, as opposed to print) shows just one
+   blank card outline in "rows" mode instead of the whole tiled sheet --
+   every card slot looks identical, so one is all there is to see. */
+function drawEmptyPageContent(ctx, wPx, hPx, geo, pageState, preview){
   if(pageState.emptyMode === "image" && pageState.image){
     var img = pageState.image;
     var scale = Math.min(wPx/img.width, hPx/img.height);
@@ -1117,6 +1143,10 @@ function drawEmptyPageContent(ctx, wPx, hPx, geo, pageState){
     return;
   }
   if(pageState.emptyMode === "rows"){
+    if(preview){
+      drawEmptyCardOutline(ctx, 0, 0, wPx, hPx, RENDER_DPI);
+      return;
+    }
     var grid = geo.grid;
     if(grid.count <= 0) return;
     var blockWmm = grid.cols*geo.cardDims.w, blockHmm = grid.rows*geo.cardDims.h;
@@ -1136,11 +1166,16 @@ function drawEmptyPageContent(ctx, wPx, hPx, geo, pageState){
 
 function totalPagesCount(){ return state.pages.length || 1; }
 
-function renderCardsOntoCanvas(canvas, pageIndex){
+/* `preview` (the on-screen viewer) draws exactly one copy of the card at
+   its own size -- every copy on a printed sheet is identical (see
+   contactsForPage), so one is all there is to see while editing. Print
+   (preview omitted) still renders the full sheet tiled with grid.count
+   copies, unchanged. */
+function renderCardsOntoCanvas(canvas, pageIndex, preview){
   var pageState = state.pages[pageIndex];
   var layoutKey = pageState ? pageState.layout : "v20";
   var geo = pageGeometryForIndex(pageIndex);
-  var dims = geo.pageDims;
+  var dims = preview ? geo.cardDims : geo.pageDims;
   canvas.width = Math.round(mmToPx(dims.w, RENDER_DPI));
   canvas.height = Math.round(mmToPx(dims.h, RENDER_DPI));
   var ctx = canvas.getContext("2d");
@@ -1152,7 +1187,13 @@ function renderCardsOntoCanvas(canvas, pageIndex){
     return;
   }
   if(layoutKey === "empty"){
-    drawEmptyPageContent(ctx, canvas.width, canvas.height, geo, pageState);
+    drawEmptyPageContent(ctx, canvas.width, canvas.height, geo, pageState, preview);
+    return;
+  }
+  var cardContacts = contactsForPage(pageState);
+
+  if(preview){
+    drawCard(ctx, 0, 0, canvas.width, canvas.height, cardContacts, RENDER_DPI, geo.layout, pageState.headerColor, pageState.headerLegend, pageState.line2Mode);
     return;
   }
   if(geo.grid.count <= 0){
@@ -1164,7 +1205,6 @@ function renderCardsOntoCanvas(canvas, pageIndex){
   var blockHmm = geo.grid.rows * geo.cardDims.h;
   var startXmm = (dims.w - blockWmm) / 2;
   var startYmm = (dims.h - blockHmm) / 2;
-  var cardContacts = contactsForPage(pageState);
 
   for(var i=0;i<geo.grid.count;i++){
     var col = i % geo.grid.cols, row = Math.floor(i / geo.grid.cols);
@@ -1259,25 +1299,19 @@ function openEditOverlay(pageEl, target, field, left, top, width, height, initia
   input.select();
 }
 
+/* the viewer canvas always shows exactly one card now (see
+   renderCardsOntoCanvas's preview mode), so a click maps straight into
+   card-relative coordinates -- no grid/block math needed to figure out
+   which of several tiled copies was clicked. */
 function onCanvasClick(e, canvas, pageIndex){
   var pageState = state.pages[pageIndex];
   if(!pageState || pageState.layout === "empty") return;
   var geo = pageGeometryForIndex(pageIndex);
-  if(geo.grid.count <= 0) return;
 
   var rect = canvas.getBoundingClientRect();
   var scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
-  var pxX = (e.clientX - rect.left) * scaleX, pxY = (e.clientY - rect.top) * scaleY;
-
-  var blockWmm = geo.grid.cols * geo.cardDims.w, blockHmm = geo.grid.rows * geo.cardDims.h;
-  var startXmm = (geo.pageDims.w - blockWmm) / 2, startYmm = (geo.pageDims.h - blockHmm) / 2;
-  var blockXpx = mmToPx(startXmm, RENDER_DPI), blockYpx = mmToPx(startYmm, RENDER_DPI);
-  var cardWpx = mmToPx(geo.cardDims.w, RENDER_DPI), cardHpx = mmToPx(geo.cardDims.h, RENDER_DPI);
-
-  var xInBlock = pxX - blockXpx, yInBlock = pxY - blockYpx;
-  var cardCol = Math.floor(xInBlock / cardWpx), cardRow = Math.floor(yInBlock / cardHpx);
-  if(xInBlock < 0 || yInBlock < 0 || cardCol >= geo.grid.cols || cardRow >= geo.grid.rows) return;
-  var xInCard = xInBlock - cardCol*cardWpx, yInCard = yInBlock - cardRow*cardHpx;
+  var xInCard = (e.clientX - rect.left) * scaleX, yInCard = (e.clientY - rect.top) * scaleY;
+  var cardWpx = canvas.width, cardHpx = canvas.height;
 
   var ctx = canvas.getContext("2d");
   var cardContacts = contactsForPage(pageState);
@@ -1301,11 +1335,9 @@ function onCanvasClick(e, canvas, pageIndex){
     initialValue = null;
   }
 
-  var absXpx = blockXpx + cardCol*cardWpx + hit.x;
-  var absYpx = blockYpx + cardRow*cardHpx + hit.y;
   var cssScale = rect.width / canvas.width;
   openEditOverlay(canvas.parentElement, target, hit.field,
-    absXpx*cssScale, absYpx*cssScale, hit.w*cssScale, hit.h*cssScale, initialValue);
+    hit.x*cssScale, hit.y*cssScale, hit.w*cssScale, hit.h*cssScale, initialValue);
 }
 
 /* ---------------- print ---------------- */
@@ -1516,28 +1548,47 @@ function buildPageControls(index){
   return box;
 }
 
+/* one card's worth of preview -- the on-screen unit shown by both single
+   and "all" view. index%2 tells front (even) from back (odd), matching
+   partnerPageIndex's own convention, purely for the label. */
 function buildPageEl(index){
   var page = el("div", { class:"page", "data-index":String(index) });
-  page.appendChild(el("span", { class:"pageLabel", text:"Sida " + (index+1) + " / " + totalPagesCount() }));
+  page.appendChild(el("span", { class:"pageLabel", text: index%2===0 ? "Fram" : "Bak" }));
   var canvas = document.createElement("canvas");
   canvas.addEventListener("click", function(e){ onCanvasClick(e, canvas, index); });
   page.appendChild(canvas);
-  renderCardsOntoCanvas(canvas, index);
+  renderCardsOntoCanvas(canvas, index, true);
   return page;
+}
+
+/* one printed sheet's worth of preview: front + back side by side, since
+   that's the actual physical unit -- pages are always printed in pairs
+   (see partnerPageIndex). frontIndex is always even. */
+function buildPagePairEl(frontIndex){
+  var pair = el("div", { class:"pagePair", "data-index":String(frontIndex) });
+  pair.appendChild(buildPageEl(frontIndex));
+  pair.appendChild(buildPageEl(partnerPageIndex(frontIndex)));
+  return pair;
 }
 
 function currentPageDims(index){
   return pageGeometryForIndex(index).pageDims;
 }
 
-function fitSinglePage(pageEl, index){
+/* sizes a front+back pair to fit the viewport side by side -- both cards
+   share one physical size (CARD_W_MM/CARD_H_MM are global), so a single
+   scale computed from the pair's combined width covers both. */
+function fitPagePair(pairEl, frontIndex){
   var wrap = $("#viewerContent");
-  var dims = currentPageDims(index);
-  var cw = wrap.clientWidth * 0.92;
+  var dims = pageGeometryForIndex(frontIndex).cardDims;
+  var gapPx = 24;
+  var cw = (wrap.clientWidth * 0.92 - gapPx) / 2;
   var ch = wrap.clientHeight * 0.92;
   var scale = Math.min(cw/dims.w, ch/dims.h);
-  pageEl.style.width = (dims.w*scale) + "px";
-  pageEl.style.height = (dims.h*scale) + "px";
+  pairEl.querySelectorAll(".page").forEach(function(p){
+    p.style.width = (dims.w*scale) + "px";
+    p.style.height = (dims.h*scale) + "px";
+  });
 }
 
 var observer = null;
@@ -1564,26 +1615,25 @@ function renderViewer(){
   wrap.innerHTML = "";
 
   var total = totalPagesCount();
-  if(state.currentPage > total-1) state.currentPage = total-1;
+  /* currentPage always names the FRONT of the pair being shown -- pages
+     are always printed in pairs (see partnerPageIndex), so the viewer
+     only ever shows/steps through whole pairs, never a lone half */
+  if(state.currentPage % 2 !== 0) state.currentPage -= 1;
+  if(state.currentPage > total-2) state.currentPage = Math.max(0, total-2);
   if(state.currentPage < 0) state.currentPage = 0;
 
   if(state.viewMode === "single"){
-    var page = buildPageEl(state.currentPage);
-    var dims = currentPageDims(state.currentPage);
-    page.style.setProperty("--ratio", dims.w + " / " + dims.h);
-    wrap.appendChild(page);
-    fitSinglePage(page, state.currentPage);
+    var pair = buildPagePairEl(state.currentPage);
+    wrap.appendChild(pair);
+    fitPagePair(pair, state.currentPage);
   } else {
     var container = el("div", { class:"pagesAll" });
-    for(var i=0;i<total;i++){
-      var p = buildPageEl(i);
-      var d = currentPageDims(i);
-      p.style.setProperty("--ratio", d.w + " / " + d.h);
-      container.appendChild(p);
+    for(var i=0;i<total;i+=2){
+      container.appendChild(buildPagePairEl(i));
     }
     wrap.appendChild(container);
     setupObserver();
-    container.querySelectorAll(".page").forEach(function(p){ observer.observe(p); });
+    container.querySelectorAll(".pagePair").forEach(function(p){ observer.observe(p); });
   }
   updateIndicator();
   updateGridInfo();
@@ -1591,7 +1641,8 @@ function renderViewer(){
 }
 
 function updateIndicator(){
-  $("#pageIndicator").textContent = "Sida " + (state.currentPage+1) + " / " + totalPagesCount();
+  var total = totalPagesCount();
+  $("#pageIndicator").textContent = "Uppslag " + (state.currentPage/2+1) + " / " + Math.ceil(total/2);
 }
 function updateGridInfo(){
   var geo = pageGeometryForIndex(state.currentPage);
@@ -1606,21 +1657,22 @@ function renderToolbar(){
   $("#viewModeBtn").textContent = state.viewMode === "single" ? "Vy: Enkel" : "Vy: Alla";
 }
 
+/* idx names the front of the pair to jump to -- always even */
 function scrollToPage(idx){
   var total = totalPagesCount();
-  idx = Math.max(0, Math.min(total-1, idx));
+  idx = Math.max(0, Math.min(total-2, idx));
   if(state.viewMode === "single"){
     state.currentPage = idx;
     renderViewer();
   } else {
     state.currentPage = idx;
-    var target = $("#viewerWrap").querySelector('.page[data-index="'+idx+'"]');
+    var target = $("#viewerWrap").querySelector('.pagePair[data-index="'+idx+'"]');
     if(target) target.scrollIntoView({ behavior:"smooth", block:"start" });
     updateIndicator();
   }
 }
-function goPrev(){ scrollToPage(state.currentPage - 1); }
-function goNext(){ scrollToPage(state.currentPage + 1); }
+function goPrev(){ scrollToPage(state.currentPage - 2); }
+function goNext(){ scrollToPage(state.currentPage + 2); }
 
 var wheelCooldown = false;
 function onWheel(e){
@@ -1654,8 +1706,8 @@ function initEvents(){
   $("#viewerWrap").addEventListener("wheel", onWheel, { passive:false });
   window.addEventListener("resize", function(){
     if(state.viewMode === "single"){
-      var page = $("#viewerWrap .page");
-      if(page) fitSinglePage(page, state.currentPage);
+      var pair = $("#viewerWrap .pagePair");
+      if(pair) fitPagePair(pair, state.currentPage);
     }
   });
   setupDropZone();
