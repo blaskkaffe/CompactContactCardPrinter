@@ -22,18 +22,23 @@ label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
 
 /* viewerWrap itself never scrolls and never has its children wiped directly
    -- #viewerNav (prev/next/print) is a permanent overlay pinned to its
-   top-right corner, and #viewerContent (the actual scrollable/centered
-   area renderViewer() rebuilds) fills the rest, so the nav stays in place
-   through any scrolling in "View: All" mode. */
+   top-left corner (kept off to the side so it never sits on top of a
+   card's own header/click area), and #viewerContent (the actual
+   scrollable/centered area renderViewer() rebuilds) fills the rest, so
+   the nav stays in place through any scrolling in "View: All" mode. */
 main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; background:#e6e6e6;}
 #viewerContent{position:absolute; inset:0;}
-#viewerWrap.mode-single #viewerContent{display:flex; align-items:center; justify-content:center;}
+/* padding-top reserves the same clearance as "View: All" below (see its
+   own comment) -- without it, a short viewport centers the card pair high
+   enough for its own "Kort N Sida M" label (which sits just above the
+   card) to end up directly under #viewerNav, hidden behind its buttons */
+#viewerWrap.mode-single #viewerContent{display:flex; align-items:center; justify-content:center; padding-top:72px;}
 /* top padding is wider than the rest so scrolled-up page content never
    passes underneath #viewerNav -- it's pinned to this same corner and
    would otherwise sit on top of (and block) that page's own controls */
 #viewerWrap.mode-all #viewerContent{overflow-y:auto; padding:72px 24px 24px;}
 
-#viewerNav{position:absolute; top:12px; right:12px; z-index:10; display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.94); padding:6px 8px; border-radius:6px; box-shadow:0 1px 5px rgba(0,0,0,.3);}
+#viewerNav{position:absolute; top:12px; left:12px; z-index:10; display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.94); padding:6px 8px; border-radius:6px; box-shadow:0 1px 5px rgba(0,0,0,.3);}
 #viewerNav button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
 #viewerNav button:hover{background:#eee;}
 
@@ -69,7 +74,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    whole .page box edge to edge (it's one card, not a page with margins
    around a smaller tiled grid), so there's no blank space inside it for
    a label to share with the card's own header */
-.pageLabel{position:absolute; top:-16px; left:50%; transform:translateX(-50%); font-size:11px; color:#999; pointer-events:none; z-index:1;}
+.pageLabel{position:absolute; top:-16px; left:50%; transform:translateX(-50%); font-size:11px; font-weight:bold; color:#000; pointer-events:none; z-index:1;}
 
 #dropOverlay{position:fixed; inset:0; background:rgba(20,20,20,.75); color:#fff; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:bold; z-index:1000; pointer-events:none;}
 #dropOverlay[hidden]{display:none;}
@@ -168,7 +173,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
     </div>
     <div id="groupPanelBody"></div>
   </aside>
-  <!-- #viewerNav (prev/next/print) floats over the top-right corner of the
+  <!-- #viewerNav (prev/next/print) floats over the top-left corner of the
        viewer and is never wiped by renderViewer(), which only touches
        #viewerContent -- see the CSS block above for how it stays pinned
        there through scrolling in "View: All" mode. -->
@@ -1614,11 +1619,14 @@ function buildPageControls(index){
 }
 
 /* one card's worth of preview -- the on-screen unit shown by both single
-   and "all" view. index%2 tells front (even) from back (odd), matching
-   partnerPageIndex's own convention, purely for the label. */
+   and "all" view. Pages are printed in front/back pairs (see
+   partnerPageIndex), so every two page indices are one physical sheet:
+   "Kort" numbers the sheet, "Sida" is 1 (front, even index) or 2 (back,
+   odd index) within it. */
 function buildPageEl(index){
   var page = el("div", { class:"page", "data-index":String(index) });
-  page.appendChild(el("span", { class:"pageLabel", text: index%2===0 ? "Fram" : "Bak" }));
+  var kortNum = Math.floor(index/2) + 1, sidaNum = index%2===0 ? 1 : 2;
+  page.appendChild(el("span", { class:"pageLabel", text: "Kort " + kortNum + " Sida " + sidaNum }));
   var canvas = document.createElement("canvas");
   canvas.addEventListener("click", function(e){ onCanvasClick(e, canvas, index); });
   page.appendChild(canvas);
@@ -1723,7 +1731,7 @@ function renderViewer(){
 
 function updateIndicator(){
   var total = totalPagesCount();
-  $("#pageIndicator").textContent = "Uppslag " + (state.currentPage/2+1) + " / " + Math.ceil(total/2);
+  $("#pageIndicator").textContent = "Kort " + (state.currentPage/2+1) + " / " + Math.ceil(total/2);
 }
 function updateGridInfo(){
   var geo = pageGeometryForIndex(state.currentPage);
@@ -1784,6 +1792,16 @@ function initEvents(){
   $("#prevBtn").addEventListener("click", goPrev);
   $("#nextBtn").addEventListener("click", goNext);
   $("#printBtn").addEventListener("click", doPrint);
+  /* Ctrl+P (Cmd+P on Mac) must go through doPrint() too, not the browser's
+     own print of whatever's on screen -- the visible viewer is a live
+     editor (one card at a time, edit overlays, etc), not the print layout;
+     only #printArea (built by doPrint) is meant to ever hit the printer. */
+  document.addEventListener("keydown", function(e){
+    if((e.ctrlKey || e.metaKey) && (e.key === "p" || e.key === "P")){
+      e.preventDefault();
+      doPrint();
+    }
+  });
   $("#viewerWrap").addEventListener("wheel", onWheel, { passive:false });
   window.addEventListener("resize", function(){
     if(state.viewMode === "single"){
