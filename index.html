@@ -2024,28 +2024,28 @@ function buildPagePairEl(frontIndex){
    (used to decide insertAfter for a reorder landing on an occupied row,
    the same "top half/bottom half" convention wireReorderTarget already
    uses for v10's own sidebar reorder list). */
+/* built on rowFractionsForLayout's own fraction math (below) rather than
+   recomputing headerH/rowH in pixels itself -- computeHeaderH is a pure
+   ratio of hPx, so the fractions it derives at an arbitrary unit apply
+   just as well against the real clientY/rect.height fraction here. */
 function cardRowGeometry(canvas, index, clientY){
   var pageState = state.pages[index];
   if(!pageState || pageState.layout === "empty") return null;
   var layout = pageGeometryForIndex(index).layout;
-  var capacity = layoutRows(layout.key);
-  var hPx = canvas.height;
-  var headerH = computeHeaderH(hPx, layout);
-  var bodyY = headerH, bodyH = hPx - headerH;
-  var rowH = bodyH / capacity;
+  var geo = rowFractionsForLayout(layout);
+  if(geo.capacity <= 0) return null;
   var rect = canvas.getBoundingClientRect();
   if(rect.height <= 0) return null;
-  var yPx = ((clientY - rect.top) / rect.height) * hPx;
-  var idx = Math.max(0, Math.min(capacity - 1, Math.floor((yPx - bodyY) / rowH)));
-  var rowTopPx = bodyY + idx*rowH;
-  return { idx: idx, topFrac: rowTopPx / hPx, hFrac: rowH / hPx, belowMidpoint: (yPx - rowTopPx) > rowH/2 };
+  var yFrac = (clientY - rect.top) / rect.height;
+  var idx = Math.max(0, Math.min(geo.capacity - 1, Math.floor((yFrac - geo.headerFrac) / geo.rowFrac)));
+  var rowTopFrac = geo.headerFrac + idx*geo.rowFrac;
+  return { idx: idx, topFrac: rowTopFrac, hFrac: geo.rowFrac, belowMidpoint: (yFrac - rowTopFrac) > geo.rowFrac/2 };
 }
 
 /* same header/row-height math as cardRowGeometry and getEditableRegions,
-   but expressed as plain fractions (0..1) of the card's own height,
-   independent of any actual pixel size -- used to position the edge
-   handles (see buildCardEdgeHandles), which are sized by CSS/flex
-   stretch rather than a canvas pixel height. */
+   expressed as plain fractions (0..1) of the card's own height,
+   independent of any actual pixel size -- shared by cardRowGeometry
+   above and buildCardEdgeHandles' own strip positioning. */
 function rowFractionsForLayout(layout){
   var capacity = layoutRows(layout.key);
   if(capacity <= 0) return { headerFrac:0, rowFrac:0, capacity:0 };
@@ -2249,21 +2249,14 @@ function buildCardEdgeHandles(pageIndex, side){
    too (same handlePanelDrop/removeGroupFromPage/removeContactFromPage),
    this just saves the trip back to it while dragging a contact/segment
    straight off the card. Bottom-left of the viewer, per request. */
+/* CSS already hides this zone outright in "Alla" view (#viewerWrap.mode-all
+   #cardRemoveZone{display:none}), so a hidden/non-hit-testable element
+   never receives these events there -- no separate view-mode check
+   needed here, unlike wireCardDropTarget's canvas (which stays visible,
+   just without edge handles, in "Alla"). Reuses wireDropTarget's own
+   dragover/dragleave/drop wiring instead of repeating it. */
 function wireCardRemoveZone(zone){
-  zone.addEventListener("dragover", function(e){
-    if(state.viewMode !== "single") return;
-    if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
-    e.preventDefault();
-    zone.classList.add("dragOver");
-  });
-  zone.addEventListener("dragleave", function(){ zone.classList.remove("dragOver"); });
-  zone.addEventListener("drop", function(e){
-    zone.classList.remove("dragOver");
-    if(state.viewMode !== "single") return;
-    e.preventDefault();
-    var raw = e.dataTransfer.getData(PANEL_DRAG_MIME);
-    if(!raw) return;
-    var data = JSON.parse(raw);
+  wireDropTarget(zone, function(data){
     if(data.type === "segment"){ removeSegmentFromPage(data.fromPage, data.startIdx, data.length); return; }
     handlePanelDrop(data, removeGroupFromPage, removeContactFromPage);
   });
