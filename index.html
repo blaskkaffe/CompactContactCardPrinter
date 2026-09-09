@@ -37,13 +37,19 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #viewerNav button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
 #viewerNav button:hover{background:#eee;}
 
+/* shown instead of any page content while there's nothing to display yet
+   (no pages exist) -- one message covering the whole viewer, not one
+   repeated on every card that would otherwise render */
+#emptyViewerOverlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:40px; font-size:18px; color:#999;}
+#emptyViewerOverlay[hidden]{display:none;}
+
 /* always shown as a front+back pair -- pages are printed in pairs (see
    partnerPageIndex), so there's never a reason to view one side alone */
 .pagePair{display:flex; gap:12px;}
-/* responsive: as many pairs fit per row as the window allows, but each
-   pair is a fixed-width 2-card block that always stays together --
-   never splits its front/back across a row wrap */
-.pagesAll{display:grid; grid-template-columns:repeat(auto-fill, 252px); justify-content:center; gap:24px;}
+/* responsive: as many pairs fit per row as the window allows, up to 3 --
+   each pair is a fixed-width 2-card block that always stays together,
+   never splitting its front/back across a row wrap */
+.pagesAll{display:grid; grid-template-columns:repeat(auto-fill, 252px); justify-content:center; gap:24px; max-width:804px; margin:0 auto;}
 
 .page{background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.4); position:relative; flex:0 0 auto;}
 /* every card shares one physical size (CARD_W_MM/CARD_H_MM are global
@@ -165,6 +171,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
       <button id="printBtn">Skriv ut</button>
     </div>
     <div id="viewerContent"></div>
+    <div id="emptyViewerOverlay" hidden></div>
   </main>
 </div>
 
@@ -1613,6 +1620,22 @@ function renderViewer(){
   $("#viewerWrap").className = state.viewMode === "single" ? "mode-single" : "mode-all";
   var wrap = $("#viewerContent");
   wrap.innerHTML = "";
+
+  /* nothing to show a card for yet -- one overlay message covering the
+     whole viewer, instead of the same text repeated on an empty front
+     and an empty back card */
+  var overlay = $("#emptyViewerOverlay");
+  if(!state.pages.length){
+    overlay.textContent = state.contacts.length
+      ? "Dra en avdelningsgrupp eller kontakt från panelen till vänster för att skapa en sida"
+      : "Släpp en CSV- eller XLSX-fil för att börja";
+    overlay.hidden = false;
+    updateIndicator();
+    updateGridInfo();
+    renderGroupPanel();
+    return;
+  }
+  overlay.hidden = true;
 
   var total = totalPagesCount();
   /* currentPage always names the FRONT of the pair being shown -- pages
