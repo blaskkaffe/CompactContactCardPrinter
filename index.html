@@ -51,7 +51,10 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 
 /* always shown as a front+back pair -- pages are printed in pairs (see
    partnerPageIndex), so there's never a reason to view one side alone */
-.pagePair{display:flex; gap:12px;}
+/* justify-content:center matters once .mode-all .page's max-width caps a
+   card below its grid column's own width (see --maxCardW below) -- the
+   pair centers in the leftover space instead of hugging the left edge */
+.pagePair{display:flex; gap:12px; justify-content:center;}
 /* responsive, capped at 3 per row -- each column's minimum is whichever
    is larger: a fixed readability floor, or exactly a third of the
    available width. The 1/3 minimum is what actually enforces the cap
@@ -67,8 +70,13 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 .page{background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.4); position:relative; flex:0 0 auto;}
 /* every card shares one physical size (CARD_W_MM/CARD_H_MM are global
    constants, and the only remaining orientation is vertical), so this is
-   one fixed ratio rather than something computed per page */
-.mode-all .page{flex:1 1 0; min-width:0; aspect-ratio:53.98/85.6;}
+   one fixed ratio rather than something computed per page. max-width is
+   set from JS (refreshAllViewCap) to the same pixel size a card would be
+   in "Ett kort" view at the current viewport -- without it, a grid column
+   can grow well past that (e.g. with only one or two pairs on the page)
+   and a card would render bigger in "Alla" than it ever does alone.
+   aspect-ratio means capping width alone also caps height to match. */
+.mode-all .page{flex:1 1 0; min-width:0; max-width:var(--maxCardW, none); aspect-ratio:53.98/85.6;}
 .page canvas{display:block; width:100%; height:100%;}
 
 /* sits just above the card, not on top of it -- the canvas now fills the
@@ -134,9 +142,20 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .pageControls{display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-bottom:6px;}
 #groupPanel .pageControls select, #groupPanel .pageControls button, #groupPanel .pageControls input{font-size:10px; padding:2px 3px; border-radius:3px; border:1px solid #bbb; background:#fff; cursor:pointer;}
 #groupPanel .pageControls > select{width:76px; min-width:0; text-overflow:ellipsis; overflow:hidden;}
+#groupPanel .pageControls label.tool{display:flex; align-items:center; gap:3px; font-size:10px; cursor:pointer; white-space:nowrap;}
 #groupPanel .colorControls{display:flex; gap:3px; align-items:center; min-width:0;}
-#groupPanel .colorControls select{width:76px; min-width:0; text-overflow:ellipsis; overflow:hidden;}
 #groupPanel .colorControls button{padding:2px 6px;}
+/* custom dropdown standing in for a native <select> for the header color
+   picker -- see buildSwatchSelect for why (a plain <option> can't carry
+   a color swatch next to its label) */
+#groupPanel .swatchSelect{position:relative; min-width:0;}
+#groupPanel .swatchSelect .swatchBtn{display:flex; align-items:center; gap:5px; width:76px; min-width:0; font-size:10px; padding:2px 5px; border-radius:3px; border:1px solid #bbb; background:#fff; cursor:pointer;}
+#groupPanel .swatchSelect .swatchBtn span:last-child{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+#groupPanel .swatchSelect .swatchBox{width:11px; height:11px; border-radius:2px; border:1px solid rgba(0,0,0,.3); flex:none;}
+#groupPanel .swatchSelect .swatchList{position:absolute; top:100%; left:0; z-index:20; margin-top:2px; background:#fff; border:1px solid #999; border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.3); max-height:220px; overflow-y:auto; min-width:130px;}
+#groupPanel .swatchSelect .swatchList[hidden]{display:none;}
+#groupPanel .swatchSelect .swatchItem{display:flex; align-items:center; gap:6px; padding:4px 8px; font-size:11px; cursor:pointer; white-space:nowrap; color:#111;}
+#groupPanel .swatchSelect .swatchItem:hover, #groupPanel .swatchSelect .swatchItem.active{background:#eef3fb;}
 #groupPanel .rgbBox{display:flex; gap:3px; flex-basis:100%; margin-top:2px;}
 #groupPanel .rgbBox input{width:34px;}
 #groupPanel .pageControls input[type="file"]{width:100%;}
@@ -957,23 +976,32 @@ function formatPhoneNumber(raw){
 }
 
 /* v10 line 2's wide column is a per-page choice (pageState.line2Mode), not
-   auto-detected -- see the "Line 2" select in buildPageControls:
-     "email"    -- always the email field (blank if there isn't one)
-     "empty"    -- always blank, and not editable (no field backs it)
-     "username" -- always label2, repurposed here as a free-text handle/
-                   username rather than a phone-type tag; independent of
-                   label1, which still tags phone1 on line 1 as always.
-                   This mode also draws a small contact.phone2Label
-                   column right before phone2 (see layoutDoubleRowColumns),
-                   so line 2 gets the same kind of phone-type tag line 1
-                   always has, without losing the username text -- the
-                   two fields are independently editable.
+   auto-detected -- see the Line 2 select in buildPageControls (its options
+   show these labels directly, with no "Rad 2:" prefix -- the select's
+   title attribute carries that context instead):
+     "email"      -- always the email field (blank if there isn't one)
+     "empty"      -- always blank, and not editable (no field backs it)
+     "username"   -- always label2, repurposed here as a free-text handle/
+                     username rather than a phone-type tag; independent of
+                     label1, which still tags phone1 on line 1 as always.
+                     This mode also draws a small contact.phone2Label
+                     column right before phone2 (see layoutDoubleRowColumns),
+                     so line 2 gets the same kind of phone-type tag line 1
+                     always has, without losing the username text -- the
+                     two fields are independently editable.
+     "department" -- the contact's department/group, same field v20 shows
+                     (v10 otherwise never shows department -- showDept is
+                     false for its LAYOUTS entry -- so this is the only way
+                     to surface it on a v10 card). Shown in full (v10's wide
+                     column has much more room than v20's dedicated,
+                     character-capped department column), not truncated.
    Shared by drawCard and getEditableRegions so a click always edits
    whichever field is actually on screen. */
-var LINE2_MODES = { email:"E-post", empty:"Tom", username:"Användarnamn" };
+var LINE2_MODES = { email:"E-post", empty:"Tom", username:"Användarnamn", department:"Grupp" };
 function pickLine2Field(contact, mode){
   if(mode === "empty") return { key:null, value:"" };
   if(mode === "username") return { key:"label2", value:(contact.label2 || "").trim() };
+  if(mode === "department") return { key:"department", value:(contact.department || "").trim() };
   return { key:"email", value:(contact.email || "").trim() };
 }
 
@@ -1040,36 +1068,46 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
    pickLine2Field) adds a matching small label column before phone2 too,
    sized and positioned exactly like line 1's, so "Rad 2: Användarnamn"
    can tag phone2 (via contact.phone2Label) the same way label1 tags
-   phone1, independently editable, without losing the username text. */
-function layoutDoubleRowColumns(ctx, wPx, dpi, showLine2Label){
+   phone1, independently editable, without losing the username text.
+
+   showNumbers (pageState.showNumbers -- an optional per-page toggle)
+   reserves a small gutter at the very left, ahead of every other column
+   on both lines, for an optional running contact number (see drawCard) --
+   it isn't a column here since it's drawn once per CONTACT (vertically
+   centered across both its lines), not once per line, but every other
+   column still needs to shift right to make room for it, on both lines. */
+function layoutDoubleRowColumns(ctx, wPx, dpi, showLine2Label, showNumbers){
   var pad = mmToPx(CELL_PADDING_MM, dpi);
   var gap = pad/2;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
   var middleW = measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, LABEL_MAX_CHARS, false) + pad*0.5;
+  /* "10." is the widest a v10 row number ever gets (capacity is fixed at
+     ROWS_V10) */
+  var numberW = showNumbers ? measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, 2, false) + pad*0.5 : 0;
 
-  var nameW = Math.max(0, wPx - pad*2 - phoneW - middleW - gap*2);
-  var x1 = pad;
+  var nameW = Math.max(0, wPx - numberW - pad*2 - phoneW - middleW - gap*2);
+  var x1 = numberW + pad;
   var name = { x:x1, w:nameW, pt:NAME_FONT_PT }; x1 += nameW + gap;
   var mid = { x:x1, w:middleW, pt:DEPT_FONT_PT }; x1 += middleW + gap;
   var phone1 = { x:x1, w:phoneW, pt:PHONE_FONT_PT };
 
   var line2;
   if(showLine2Label){
-    var wideW2 = Math.max(0, wPx - pad*2 - phoneW - middleW - gap*2);
-    var x2 = pad;
+    var wideW2 = Math.max(0, wPx - numberW - pad*2 - phoneW - middleW - gap*2);
+    var x2 = numberW + pad;
     var wide2 = { x:x2, w:wideW2, pt:EMAIL_FONT_PT }; x2 += wideW2 + gap;
     var mid2 = { x:x2, w:middleW, pt:DEPT_FONT_PT }; x2 += middleW + gap;
     var phone2 = { x:x2, w:phoneW, pt:PHONE_FONT_PT };
     line2 = [wide2, mid2, phone2];
   } else {
-    var emailW = Math.max(0, wPx - pad*2 - phoneW - gap);
-    var x2b = pad;
+    var emailW = Math.max(0, wPx - numberW - pad*2 - phoneW - gap);
+    var x2b = numberW + pad;
     var email = { x:x2b, w:emailW, pt:EMAIL_FONT_PT }; x2b += emailW + gap;
     var phone2b = { x:x2b, w:phoneW, pt:PHONE_FONT_PT };
     line2 = [email, phone2b];
   }
 
-  return { line1:[name, mid, phone1], line2:line2 };
+  return { line1:[name, mid, phone1], line2:line2, numberW:numberW };
 }
 
 /* ---------------- card drawing ---------------- */
@@ -1123,7 +1161,7 @@ function drawRowFields(ctx, xPx, rowTop, wPx, rowH, dpi, contact, layout){
   drawGenericRow(ctx, xPx, rowTop, wPx, rowH, dpi, cols, values);
 }
 
-function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, legendOverride, line2Mode){
+function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, legendOverride, line2Mode, showNumbers){
   ctx.save();
   fillCardBase(ctx, xPx, yPx, wPx, hPx, dpi);
 
@@ -1176,13 +1214,25 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
   if(layout.doubleRow){
     var subRowH = bodyH / (capacity*2);
     var showLine2Label = line2Mode === "username";
-    var colSet = layoutDoubleRowColumns(ctx, wPx, dpi, showLine2Label);
+    var colSet = layoutDoubleRowColumns(ctx, wPx, dpi, showLine2Label, showNumbers);
     for(var i=0;i<capacity;i++){
       var top1 = bodyY + subRowH*2*i;
       var top2 = top1 + subRowH;
       if(i>0) divider(top1);
       var c = contacts[i];
       if(!c) continue;
+      if(showNumbers){
+        /* one number per CONTACT, not per line -- vertically centered
+           across both of its lines, i.e. exactly on the boundary between
+           them (top1 + subRowH), not tied to either line's own baseline */
+        ctx.save();
+        ctx.font = ptToPx(DEPT_FONT_PT, dpi) + "px " + FONT_FAMILY;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#000";
+        ctx.fillText((i+1) + ".", xPx + colSet.numberW/2, top1 + subRowH);
+        ctx.restore();
+      }
       drawGenericRow(ctx, xPx, top1, wPx, subRowH, dpi, colSet.line1, [c.name, formatLabelForRow(c.label1), formatPhoneNumber(c.phone)]);
       var line2Values = showLine2Label
         ? [pickLine2Field(c, line2Mode).value, formatLabelForRow(c.phone2Label), formatPhoneNumber(c.phone2)]
@@ -1313,7 +1363,7 @@ function renderCardsOntoCanvas(canvas, pageIndex, preview){
   var cardContacts = contactsForPage(pageState);
 
   if(preview){
-    drawCard(ctx, 0, 0, canvas.width, canvas.height, cardContacts, RENDER_DPI, geo.layout, pageState.headerColor, pageState.headerLegend, pageState.line2Mode);
+    drawCard(ctx, 0, 0, canvas.width, canvas.height, cardContacts, RENDER_DPI, geo.layout, pageState.headerColor, pageState.headerLegend, pageState.line2Mode, pageState.showNumbers);
     return;
   }
   if(geo.grid.count <= 0){
@@ -1332,7 +1382,7 @@ function renderCardsOntoCanvas(canvas, pageIndex, preview){
     var yPx = mmToPx(startYmm + row*geo.cardDims.h, RENDER_DPI);
     var wPx = mmToPx(geo.cardDims.w, RENDER_DPI);
     var hPx = mmToPx(geo.cardDims.h, RENDER_DPI);
-    drawCard(ctx, xPx, yPx, wPx, hPx, cardContacts, RENDER_DPI, geo.layout, pageState.headerColor, pageState.headerLegend, pageState.line2Mode);
+    drawCard(ctx, xPx, yPx, wPx, hPx, cardContacts, RENDER_DPI, geo.layout, pageState.headerColor, pageState.headerLegend, pageState.line2Mode, pageState.showNumbers);
   }
   drawCropMarks(ctx, canvas.width, canvas.height, mmToPx(startXmm,RENDER_DPI), mmToPx(startYmm,RENDER_DPI), mmToPx(blockWmm,RENDER_DPI), mmToPx(blockHmm,RENDER_DPI), RENDER_DPI);
 }
@@ -1341,7 +1391,7 @@ function renderCardsOntoCanvas(canvas, pageIndex, preview){
 /* every editable field's box within ONE card, relative to that card's own
    top-left corner -- shared by both drawing (implicitly, via the same
    column-layout functions) and click hit-testing */
-function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts, line2Mode){
+function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts, line2Mode, showNumbers){
   var regions = [];
   var headerH = computeHeaderH(hPx, layout);
   var bodyY = headerH, bodyH = hPx - headerH;
@@ -1358,7 +1408,7 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts, line2Mode){
   if(layout.doubleRow){
     var subRowH = bodyH / (capacity*2);
     var showLine2Label = line2Mode === "username";
-    var colSet = layoutDoubleRowColumns(ctx, wPx, dpi, showLine2Label);
+    var colSet = layoutDoubleRowColumns(ctx, wPx, dpi, showLine2Label, showNumbers);
     var fieldsLine1 = ["name","label1","phone"];
     for(var i=0;i<capacity;i++){
       var top1 = bodyY + subRowH*2*i, top2 = top1 + subRowH;
@@ -1439,7 +1489,7 @@ function onCanvasClick(e, canvas, pageIndex){
 
   var ctx = canvas.getContext("2d");
   var cardContacts = contactsForPage(pageState);
-  var regions = getEditableRegions(ctx, cardWpx, cardHpx, RENDER_DPI, geo.layout, cardContacts, pageState.line2Mode);
+  var regions = getEditableRegions(ctx, cardWpx, cardHpx, RENDER_DPI, geo.layout, cardContacts, pageState.line2Mode, pageState.showNumbers);
   var hit = regions.find(function(r){ return xInCard>=r.x && xInCard<r.x+r.w && yInCard>=r.y && yInCard<r.y+r.h; });
   if(!hit) return;
 
@@ -1556,6 +1606,56 @@ function buildSelect(options, value, onChange, title){
   return sel;
 }
 
+/* like buildSelect, but for [hexColor,text] pairs where the value itself
+   IS the color to preview -- a plain <option> can't carry a color swatch
+   next to its label (no nested markup inside option text, and per-option
+   background styling isn't reliably honored across browsers), so this
+   builds the popup out of real DOM rows instead: a button showing the
+   current swatch+name, and a list of the same shown/hidden on click.
+   Closing on an outside click is handled by ONE listener registered once
+   in initEvents (see closeOpenSwatchLists) rather than one per instance
+   here, since this can be rebuilt many times across re-renders and a
+   per-instance document listener would leak. */
+function buildSwatchSelect(options, value, onChange, title){
+  var wrap = el("div", { class:"swatchSelect" });
+  var current = options.find(function(o){ return o[0].toLowerCase() === (value||"").toLowerCase(); }) || options[0];
+
+  var btn = el("button", { type:"button", class:"swatchBtn" });
+  if(title) btn.title = title;
+  var btnSwatch = el("span", { class:"swatchBox" });
+  btnSwatch.style.background = current ? current[0] : "#000";
+  btn.appendChild(btnSwatch);
+  btn.appendChild(el("span", { text: current ? current[1] : "" }));
+  wrap.appendChild(btn);
+
+  var list = el("div", { class:"swatchList" });
+  list.hidden = true;
+  options.forEach(function(o){
+    var item = el("div", { class:"swatchItem" + (current && o[0] === current[0] ? " active" : "") });
+    var sw = el("span", { class:"swatchBox" });
+    sw.style.background = o[0];
+    item.appendChild(sw);
+    item.appendChild(el("span", { text:o[1] }));
+    item.addEventListener("click", function(){
+      list.hidden = true;
+      onChange(o[0]);
+    });
+    list.appendChild(item);
+  });
+  wrap.appendChild(list);
+
+  btn.addEventListener("click", function(e){
+    e.stopPropagation();
+    closeOpenSwatchLists();
+    list.hidden = !list.hidden;
+  });
+
+  return wrap;
+}
+function closeOpenSwatchLists(){
+  document.querySelectorAll("#groupPanel .swatchList").forEach(function(l){ l.hidden = true; });
+}
+
 function pageLayoutOptionsSelect(currentKey, onChange){
   var options = ["v20","v10","empty"].map(function(key){ return [key, LAYOUTS[key].shortLabel]; });
   return buildSelect(options, currentKey, onChange, "Layout");
@@ -1576,7 +1676,7 @@ function buildHeaderColorControls(pageState){
   var options = COLOR_PRESETS.map(function(c){ return [c.hex, c.name]; });
   var isPreset = COLOR_PRESETS.some(function(c){ return c.hex.toLowerCase() === (pageState.headerColor||"").toLowerCase(); });
   if(!isPreset) options.push([pageState.headerColor, "Anpassad"]);
-  var sel = buildSelect(options, pageState.headerColor, function(v){ pageState.headerColor = v; renderViewer(); }, "Rubrikfärg");
+  var sel = buildSwatchSelect(options, pageState.headerColor, function(v){ pageState.headerColor = v; renderViewer(); }, "Rubrikfärg");
   wrap.appendChild(sel);
 
   var customBtn = el("button", { type:"button", text:"RGB", title:"Anpassad RGB-färg" });
@@ -1653,9 +1753,23 @@ function buildPageControls(index){
       "Kedja (en namngiven V10-lista från den importerade filen)"));
 
     /* line 2's wide field (name row's second line) -- a per-page choice
-       instead of auto-detected, see pickLine2Field() */
-    var line2Options = Object.keys(LINE2_MODES).map(function(key){ return [key, "Rad 2: " + LINE2_MODES[key]]; });
-    box.appendChild(buildSelect(line2Options, pageState.line2Mode || "email", function(v){ pageState.line2Mode = v; renderViewer(); }));
+       instead of auto-detected, see pickLine2Field(). Options show just
+       the mode name (no "Rad 2:" prefix); the select's title carries
+       that context on hover instead. */
+    var line2Options = Object.keys(LINE2_MODES).map(function(key){ return [key, LINE2_MODES[key]]; });
+    box.appendChild(buildSelect(line2Options, pageState.line2Mode || "email", function(v){ pageState.line2Mode = v; renderViewer(); }, "Rad 2"));
+
+    /* optional running number to the left of each contact, centered
+       across its two lines (see drawCard/layoutDoubleRowColumns) -- off
+       by default, a per-page toggle since not everyone wants it */
+    var numLabel = el("label", { class:"tool", title:"Visa löpnummer till vänster om varje kontakt" });
+    var numCheckbox = document.createElement("input");
+    numCheckbox.type = "checkbox";
+    numCheckbox.checked = !!pageState.showNumbers;
+    numCheckbox.addEventListener("change", function(){ pageState.showNumbers = numCheckbox.checked; renderViewer(); });
+    numLabel.appendChild(numCheckbox);
+    numLabel.appendChild(document.createTextNode("Nr"));
+    box.appendChild(numLabel);
   }
 
   if(pageState.layout === "empty"){
@@ -1715,20 +1829,43 @@ function currentPageDims(index){
   return pageGeometryForIndex(index).pageDims;
 }
 
-/* sizes a front+back pair to fit the viewport side by side -- both cards
-   share one physical size (CARD_W_MM/CARD_H_MM are global), so a single
-   scale computed from the pair's combined width covers both. */
-function fitPagePair(pairEl, frontIndex){
+/* one card's pixel size when fit to the current viewport in "Ett kort"
+   (single) view: scaled so a front+back pair sits side by side within
+   92% of #viewerContent's box, on whichever axis (width or height) is
+   tighter. Shared by fitPagePair (applies it directly) and "Vy: Alla"
+   (uses it as a hard cap -- see renderViewer/refreshAllViewCap -- so a
+   card in the grid can never render bigger than it would alone). */
+function singleCardFitPx(pageIndex){
   var wrap = $("#viewerContent");
-  var dims = pageGeometryForIndex(frontIndex).cardDims;
+  var dims = pageGeometryForIndex(pageIndex).cardDims;
   var gapPx = 24;
   var cw = (wrap.clientWidth * 0.92 - gapPx) / 2;
   var ch = wrap.clientHeight * 0.92;
   var scale = Math.min(cw/dims.w, ch/dims.h);
+  return { w: dims.w*scale, h: dims.h*scale };
+}
+
+/* sizes a front+back pair to fit the viewport side by side -- both cards
+   share one physical size (CARD_W_MM/CARD_H_MM are global), so a single
+   scale computed from the pair's combined width covers both. */
+function fitPagePair(pairEl, frontIndex){
+  var fit = singleCardFitPx(frontIndex);
   pairEl.querySelectorAll(".page").forEach(function(p){
-    p.style.width = (dims.w*scale) + "px";
-    p.style.height = (dims.h*scale) + "px";
+    p.style.width = fit.w + "px";
+    p.style.height = fit.h + "px";
   });
+}
+
+/* "Vy: Alla" otherwise lets its grid columns grow as wide as 1/3 of the
+   row (see .pagesAll in the CSS) -- with only one or two pairs on the
+   page that can make a card render bigger than it would in "Ett kort".
+   Capping --maxCardW at the single-card fit size (consumed by
+   .mode-all .page's own max-width) keeps a card in "Alla" from ever
+   exceeding what it looks like alone, on any viewport. */
+function refreshAllViewCap(){
+  if(state.viewMode !== "all" || !state.pages.length) return;
+  var fit = singleCardFitPx(state.currentPage);
+  $("#viewerContent").style.setProperty("--maxCardW", fit.w + "px");
 }
 
 var observer = null;
@@ -1788,6 +1925,7 @@ function renderViewer(){
       container.appendChild(buildPagePairEl(i));
     }
     wrap.appendChild(container);
+    refreshAllViewCap();
     setupObserver();
     container.querySelectorAll(".pagePair").forEach(function(p){ observer.observe(p); });
   }
@@ -1869,11 +2007,18 @@ function initEvents(){
       doPrint();
     }
   });
+  /* closes any open header-color swatch dropdown (see buildSwatchSelect)
+     when the click landed anywhere outside it -- registered once here
+     rather than per dropdown instance, since those get rebuilt on every
+     render */
+  document.addEventListener("click", closeOpenSwatchLists);
   $("#viewerWrap").addEventListener("wheel", onWheel, { passive:false });
   window.addEventListener("resize", function(){
     if(state.viewMode === "single"){
       var pair = $("#viewerWrap .pagePair");
       if(pair) fitPagePair(pair, state.currentPage);
+    } else {
+      refreshAllViewCap();
     }
   });
   setupDropZone();
