@@ -93,19 +93,20 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
 .cardEdgeHandles.side-left .segmentCapsule{right:0; border-radius:6px 0 0 6px;}
 .cardEdgeHandles.side-right .segmentCapsule{left:0; border-radius:0 6px 6px 0;}
-/* the per-contact drag handle -- styled after the plain gray reorder
-   glyph macOS/iOS list rows use (three short bars, no circle/background
-   of its own), not a button. Built from one small bar plus two more via
-   box-shadow rather than an actual "≡" glyph, so the three lines come
-   out crisp and evenly spaced regardless of font/rendering. Centered on
-   its row's vertical midpoint the same way as before (top set in JS to
-   that midpoint, translateY(-50%) here), just sitting at the strip's
-   outer edge now instead of overlapping the card. */
-.cardEdgeHandles .rowGrip{position:absolute; width:14px; height:2px; transform:translateY(-50%); background:#999; border-radius:1px; box-shadow:0 -4px 0 #999, 0 4px 0 #999; cursor:grab; user-select:none;}
-.cardEdgeHandles .rowGrip:hover{background:#0080ff; box-shadow:0 -4px 0 #0080ff, 0 4px 0 #0080ff;}
+/* the per-contact drag handle -- a round dot, centered ON the strip's
+   own outer border line (half hanging past it into the open background,
+   half over the strip) rather than sitting flush inside it, the same
+   straddle-the-line trick the previous card-edge design used against the
+   card's own border. Sized generously (26px) since a small hitbox was
+   the whole complaint -- easier to land the cursor on than the row's
+   actual pixel height would otherwise allow. Centered on its row's
+   vertical midpoint (top set in JS to that midpoint, translateY(-50%)
+   here). */
+.cardEdgeHandles .rowGrip{position:absolute; width:26px; height:26px; transform:translateY(-50%); border-radius:50%; background:#fff; border:1.5px solid #999; box-shadow:0 1px 3px rgba(0,0,0,.25); cursor:grab; user-select:none;}
+.cardEdgeHandles .rowGrip:hover{border-color:#0080ff; box-shadow:0 1px 4px rgba(0,128,255,.4);}
 .cardEdgeHandles .rowGrip:active{cursor:grabbing;}
-.cardEdgeHandles.side-left .rowGrip{left:0;}
-.cardEdgeHandles.side-right .rowGrip{right:0;}
+.cardEdgeHandles.side-left .rowGrip{left:-13px;}
+.cardEdgeHandles.side-right .rowGrip{right:-13px;}
 
 /* a second "ta bort" drop target beside the card (see wireCardRemoveZone)
    -- only meaningful in single view, where the edge handles are; "Alla"
@@ -2151,8 +2152,18 @@ function wireCardDropTarget(canvas, highlight, index){
     var targetContact = contactsForPage(state.pages[index])[geom.idx] || null;
 
     if(data.type === "segment"){
-      if(data.fromPage !== index) return; /* segments only ever move within their own page */
-      reorderSegmentOnCard(index, data.startIdx, data.length, targetContact, geom.belowMidpoint);
+      if(data.fromPage === index){
+        reorderSegmentOnCard(index, data.startIdx, data.length, targetContact, geom.belowMidpoint);
+        return;
+      }
+      /* cross-page: move this exact contiguous run (by id, not by
+         department) to the target page -- matching by department alone
+         would also sweep up a second, non-contiguous run of the same
+         dept still left behind on the source page, if there is one. */
+      var fromPageState = state.pages[data.fromPage];
+      var segIds = fromPageState ? contactsForPage(fromPageState).slice(data.startIdx, data.startIdx + data.length).map(function(c){ return c.id; }) : [];
+      if(!segIds.length) return;
+      moveMatchingBetweenPagesAt(data.fromPage, index, idsMatcher(segIds), geom.idx);
       return;
     }
     if(data.type === "contact" && data.fromPage === index){
@@ -2172,8 +2183,9 @@ function wireCardDropTarget(canvas, highlight, index){
 
 /* the two-level edge handles standing directly against the card in
    single view: a small grip per contact (drag to move it within this
-   page) and a colored capsule per contiguous same-department run (drag
-   to move that whole block within this page) -- see
+   page, or onto another page/card) and a colored capsule per contiguous
+   same-department run (drag to move that whole block, same as the grip
+   but for the whole run at once) -- see
    contiguousDeptSegments/reorderContactOnCard/reorderSegmentOnCard.
    `side` ("left"/"right") only changes which edge of the strip the
    capsule vs. the grip sit against (see the CSS) -- the strip itself
@@ -2201,7 +2213,7 @@ function buildCardEdgeHandles(pageIndex, side){
 
   contiguousDeptSegments(contacts).forEach(function(seg){
     var capsule = el("div", { class:"segmentCapsule", draggable:"true", text:seg.label,
-      title:seg.label + " -- dra för att flytta hela gruppen inom sidan" });
+      title:seg.label + " -- dra för att flytta hela gruppen (inom sidan eller till en annan sida)" });
     capsule.style.background = colorForKey(seg.key);
     capsule.style.top = ((geo.headerFrac + seg.startIdx*geo.rowFrac) * 100) + "%";
     capsule.style.height = ((seg.length*geo.rowFrac) * 100) + "%";
@@ -2211,7 +2223,7 @@ function buildCardEdgeHandles(pageIndex, side){
 
   contacts.forEach(function(c, i){
     var grip = el("div", { class:"rowGrip", draggable:"true",
-      title:c.name + " -- dra för att flytta inom sidan" });
+      title:c.name + " -- dra för att flytta (inom sidan eller till en annan sida)" });
     /* the row's own vertical CENTER, not its top -- the circle is a
        fixed size now (see CSS), not stretched to the row's height, so
        centering it on the row's midpoint (CSS translateY(-50%) does the
@@ -2636,6 +2648,7 @@ function removeMatchingFromPage(fromPage, matches){
 
 function groupMatcher(groupKey){ return function(c){ return deptGroupKey(c.department) === groupKey; }; }
 function contactMatcher(contactId){ return function(c){ return c.id === contactId; }; }
+function idsMatcher(ids){ var set = new Set(ids); return function(c){ return set.has(c.id); }; }
 
 function moveGroupBetweenPages(fromPage, toIndex, groupKey){ moveMatchingBetweenPages(fromPage, toIndex, groupMatcher(groupKey)); }
 function moveGroupToNewPage(fromPage, groupKey){ moveMatchingToNewPage(fromPage, groupMatcher(groupKey)); }
