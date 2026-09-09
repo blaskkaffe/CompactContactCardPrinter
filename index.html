@@ -2080,34 +2080,6 @@ function reorderSegmentOnCard(pageIndex, startIdx, length, targetContact, insert
   renderViewer();
 }
 
-/* a NEW contact/group landing on a card (as opposed to a same-page
-   reorder, see reorderContactOnCard/reorderSegmentOnCard) is only
-   accepted if it actually fits -- unlike every other drop target in this
-   app, which cascades overflow onto the following pages (see
-   reflowFromPage), dropping onto the card itself refuses outright once
-   it's full, per request: pull something off first (see
-   wireCardRemoveZone) rather than silently bumping it onto another page. */
-function dropContactOntoCard(fromPage, toIndex, contactId, atRow){
-  var toPage = state.pages[toIndex];
-  if(!toPage) return;
-  if(toPage.contacts.length >= layoutRows(toPage.layout)){
-    setStatus("Sidan är full -- dra bort en kontakt (nedre vänstra hörnet) innan du lägger till fler.");
-    return;
-  }
-  moveMatchingBetweenPagesAt(fromPage, toIndex, contactMatcher(contactId), atRow);
-}
-function dropGroupOntoCard(fromPage, toIndex, groupKey, atRow){
-  var toPage = state.pages[toIndex];
-  if(!toPage) return;
-  var alreadyHere = toPage.contacts.filter(groupMatcher(groupKey)).length;
-  var groupSize = state.contacts.filter(groupMatcher(groupKey)).length;
-  if(toPage.contacts.length - alreadyHere + groupSize > layoutRows(toPage.layout)){
-    setStatus("Gruppen får inte plats på den här sidan -- dra bort någon (nedre vänstra hörnet) innan du lägger till fler.");
-    return;
-  }
-  moveMatchingBetweenPagesAt(fromPage, toIndex, groupMatcher(groupKey), atRow);
-}
-
 /* unassigns a whole dragged segment (see reorderSegmentOnCard) from its
    page in one go -- dropped onto #cardRemoveZone. Contacts are never
    deleted, only unplaced, same as every other removal in this app. */
@@ -2159,9 +2131,14 @@ function wireCardDropTarget(canvas, highlight, index){
       reorderContactOnCard(index, data.contactId, targetContact, geom.belowMidpoint);
       return;
     }
+    /* a genuinely new placement (from the pool, or a different page) --
+       same as dropping onto this page's own card in the sidebar list:
+       overflow cascades onto the next page (reflowFromPage, inside
+       moveMatchingBetweenPagesAt), opening a new one at DEFAULT_LAYOUT
+       ("v20") if it needs to, instead of being refused. */
     handlePanelDrop(data,
-      function(fromPage, groupKey){ dropGroupOntoCard(fromPage, index, groupKey, geom.idx); },
-      function(fromPage, contactId){ dropContactOntoCard(fromPage, index, contactId, geom.idx); });
+      function(fromPage, groupKey){ moveMatchingBetweenPagesAt(fromPage, index, groupMatcher(groupKey), geom.idx); },
+      function(fromPage, contactId){ moveMatchingBetweenPagesAt(fromPage, index, contactMatcher(contactId), geom.idx); });
   });
 }
 
