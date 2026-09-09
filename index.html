@@ -77,30 +77,34 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    (the default; .pagePair sets no align-items) makes it exactly as tall
    as the card next to it, with no explicit height needed, since .page's
    own height is set in JS (fitPagePair) and this is just another flex
-   child in the same row. side-left/side-right only swap which edge of
-   the strip the capsule vs. the grip sit against, so both strips keep
-   their capsule closest to the card they belong to and their grip
-   furthest out, regardless of which side of the pair they're on.
-   z-index keeps the grip circles (which deliberately overlap half onto
-   the card, see .rowGrip below) painted above the card's own canvas
-   instead of being covered by it. */
-.cardEdgeHandles{position:relative; width:26px; flex:0 0 auto; z-index:3;}
-.cardEdgeHandles .segmentCapsule{position:absolute; width:20px; border-radius:8px; color:#fff; font-size:9px; font-weight:bold; line-height:1.1; display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none;}
+   child in the same row. side-left/side-right swap which edge of the
+   strip each piece sits against: the capsule always sits flush against
+   the card itself (a tab extending from it -- see its own comment for
+   why the border-radius is asymmetric), the grip always sits at the
+   strip's OUTER edge -- the very left of the left card, the very right
+   of the right card -- away from the card, per request. */
+.cardEdgeHandles{position:relative; width:38px; flex:0 0 auto; z-index:3;}
+/* a tab extending from the card's own border, not a separate floating
+   pill: only the outer corners are rounded (border-radius is flipped
+   per side below), and the inner edge sits flat against the card with
+   no gap, so it reads as physically attached rather than adjacent. */
+.cardEdgeHandles .segmentCapsule{position:absolute; width:20px; color:#fff; font-size:9px; font-weight:bold; line-height:1.1; display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none;}
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
-.cardEdgeHandles.side-left .segmentCapsule{right:0;}
-.cardEdgeHandles.side-right .segmentCapsule{left:0;}
-/* a fixed-size circle (not stretched to the row's own height, which
-   made it an oval, not a circle), centered exactly on the vertical
-   midpoint of the row it grabs (top is set in JS to that row's center;
-   translateY(-50%) centers the circle itself on that point) -- reads as
-   "this handle picks up this one row". right/left:-9px (half its own
-   width) pulls it half onto the card itself, right at the card's own
-   edge, instead of floating in the strip with a gap. */
-.cardEdgeHandles .rowGrip{position:absolute; width:18px; height:18px; transform:translateY(-50%); display:flex; align-items:center; justify-content:center; border-radius:50%; background:#fff; border:1.5px solid #999; font-size:10px; line-height:1; color:#888; cursor:grab; user-select:none; box-shadow:0 1px 2px rgba(0,0,0,.3);}
-.cardEdgeHandles .rowGrip:hover{border-color:#0080ff; color:#0080ff;}
+.cardEdgeHandles.side-left .segmentCapsule{right:0; border-radius:6px 0 0 6px;}
+.cardEdgeHandles.side-right .segmentCapsule{left:0; border-radius:0 6px 6px 0;}
+/* the per-contact drag handle -- styled after the plain gray reorder
+   glyph macOS/iOS list rows use (three short bars, no circle/background
+   of its own), not a button. Built from one small bar plus two more via
+   box-shadow rather than an actual "≡" glyph, so the three lines come
+   out crisp and evenly spaced regardless of font/rendering. Centered on
+   its row's vertical midpoint the same way as before (top set in JS to
+   that midpoint, translateY(-50%) here), just sitting at the strip's
+   outer edge now instead of overlapping the card. */
+.cardEdgeHandles .rowGrip{position:absolute; width:14px; height:2px; transform:translateY(-50%); background:#999; border-radius:1px; box-shadow:0 -4px 0 #999, 0 4px 0 #999; cursor:grab; user-select:none;}
+.cardEdgeHandles .rowGrip:hover{background:#0080ff; box-shadow:0 -4px 0 #0080ff, 0 4px 0 #0080ff;}
 .cardEdgeHandles .rowGrip:active{cursor:grabbing;}
-.cardEdgeHandles.side-left .rowGrip{right:-9px;}
-.cardEdgeHandles.side-right .rowGrip{left:-9px;}
+.cardEdgeHandles.side-left .rowGrip{left:0;}
+.cardEdgeHandles.side-right .rowGrip{right:0;}
 
 /* a second "ta bort" drop target beside the card (see wireCardRemoveZone)
    -- only meaningful in single view, where the edge handles are; "Alla"
@@ -2209,7 +2213,7 @@ function buildCardEdgeHandles(pageIndex, side){
   });
 
   contacts.forEach(function(c, i){
-    var grip = el("div", { class:"rowGrip", draggable:"true", text:"≡",
+    var grip = el("div", { class:"rowGrip", draggable:"true",
       title:c.name + " -- dra för att flytta inom sidan" });
     /* the row's own vertical CENTER, not its top -- the circle is a
        fixed size now (see CSS), not stretched to the row's height, so
