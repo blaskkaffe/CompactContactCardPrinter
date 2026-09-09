@@ -110,7 +110,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 /* a second "ta bort" drop target beside the card (see wireCardRemoveZone)
    -- only meaningful in single view, where the edge handles are; "Alla"
    still relies on the sidebar's own delete zone only. */
-#cardRemoveZone{position:absolute; left:12px; bottom:12px; z-index:10; padding:8px 12px; font-size:12px; text-align:center; border:2px dashed #aaa; border-radius:6px; color:#666; background:rgba(255,255,255,.94); transition:background-color .1s, border-color .1s;}
+#cardRemoveZone{position:absolute; left:12px; bottom:12px; z-index:10; padding:8px 12px; font-size:12px; text-align:center; border:2px dashed #c00; border-radius:6px; color:#c00; background:rgba(255,255,255,.94); transition:background-color .1s, border-color .1s;}
 #cardRemoveZone.dragOver{background:#fde4e4; border-color:#c00; color:#c00;}
 #viewerWrap.mode-all #cardRemoveZone{display:none;}
 
@@ -198,6 +198,9 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .contactChipPage{color:#a60; font-size:9.5px; flex:none;}
 #groupPanel .pageCard{background:#fff; border:1px solid #ccc; border-radius:4px; padding:6px 8px; margin-bottom:6px; transition:background-color .1s;}
 #groupPanel .pageCard.dragOver{background:#dff0ff; border-color:#0080ff;}
+/* the pair currently shown in single view, so "Visa" (see buildPageEl's
+   caller) has a visible "you are here" to jump away from */
+#groupPanel .pageCard.activePage{border-color:#0080ff; box-shadow:0 0 0 1px #0080ff;}
 #groupPanel .pageCardHeader{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;}
 #groupPanel .full{color:#a00;}
 /* always exactly one row: the usage text truncates with an ellipsis
@@ -205,6 +208,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    out of alignment */
 #groupPanel .pageCardHeader span{font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1 1 auto;}
 #groupPanel .pageCardHeader button{font-size:10px; padding:1px 5px; cursor:pointer; flex:0 0 auto;}
+#groupPanel .pageCardHeader button.removeBtn{color:#c00; border-color:#c00;}
 /* one compact row: layout select + color controls (+ Line 2/empty-mode
    select, when shown) all fit together instead of each wrapping onto its
    own line -- a fixed, small width with ellipsis keeps a long option name
@@ -238,6 +242,10 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .pageActionZone{display:flex; gap:6px; margin-bottom:8px;}
 #groupPanel .dropZone{flex:1 1 0; text-align:center; font-size:11px; padding:8px 4px; border:2px dashed #aaa; border-radius:4px; color:#666; transition:background-color .1s, border-color .1s;}
 #groupPanel .dropZone.dragOver{background:#dff0ff; border-color:#0080ff; color:#0060c0;}
+/* a delete target reads as red at rest, not just once something is
+   actually being dragged over it -- it's a destructive action, so it
+   should look like one before you commit to the drop. */
+#groupPanel .deleteZone{border-color:#c00; color:#c00;}
 #groupPanel .deleteZone.dragOver{background:#fde4e4; border-color:#c00; color:#c00;}
 #groupPanel .emptyNote{color:#777; font-style:italic;}
 /* ===================== END GROUP PANEL ===================== */
@@ -2885,7 +2893,12 @@ function renderGroupPanel(){
   }
 
   state.pages.forEach(function(p, i){
-    var card = el("div", { class:"pageCard" });
+    /* highlights which page's PAIR is the one currently shown in single
+       view, so "Visa" (below) has something to jump away from -- with
+       every pair on screen at once in "Alla", there's nothing to
+       highlight there. */
+    var isShown = state.viewMode === "single" && (i === state.currentPage || i === state.currentPage + 1);
+    var card = el("div", { class:"pageCard" + (isShown ? " activePage" : "") });
 
     var headerRow = el("div", { class:"pageCardHeader" });
     var cap = layoutRows(p.layout), used = contactsForPage(p).length, free = Math.max(0, cap-used);
@@ -2897,7 +2910,15 @@ function renderGroupPanel(){
       ? "Sida " + (i+1) + ": tom"
       : "Sida " + (i+1) + ": " + used + "/" + cap + " använda, " + free + " lediga";
     headerRow.appendChild(el("span", { class: free === 0 && p.layout !== "empty" ? "full" : "", text:headerText, title:headerText }));
-    var removeBtn = el("button", { type:"button", text:"Ta bort" });
+    /* jumps the viewer straight to this page's pair -- otherwise the only
+       way to reach a card several pairs away is stepping through every
+       one in between with Föreg./Nästa. Works from either view mode:
+       scrollToPage jumps directly in single view, or smooth-scrolls to
+       the pair in "Alla". */
+    var viewBtn = el("button", { type:"button", text:"Visa", title:"Hoppa till detta kort i visaren" });
+    viewBtn.addEventListener("click", function(){ scrollToPage(i - (i % 2)); });
+    headerRow.appendChild(viewBtn);
+    var removeBtn = el("button", { type:"button", class:"removeBtn", text:"Ta bort" });
     removeBtn.addEventListener("click", function(){ removePage(i); });
     headerRow.appendChild(removeBtn);
     card.appendChild(headerRow);
