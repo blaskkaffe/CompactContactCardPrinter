@@ -795,24 +795,57 @@ function rowsToContacts(rows){
 }
 
 /* ---------------- page generation ---------------- */
-/* auto-chunks contacts sequentially into pages using DEFAULT_LAYOUT, padded
-   to an even count with a blank page. Each page keeps its own contacts
-   snapshot, so changing one page's layout later doesn't reshuffle any
-   other page. */
+/* auto-chunks contacts into pages using DEFAULT_LAYOUT, padded to an even
+   count with a blank page. Each page keeps its own contacts snapshot, so
+   changing one page's layout later doesn't reshuffle any other page. */
 function blankPage(layout, contacts){
   return { layout:layout, contacts:contacts||[], emptyMode:"blank", image:null, headerColor:"#000000" };
 }
 function emptyFillerPage(){
   return { layout:"empty", contacts:[], emptyMode:"rows", image:null, headerColor:"#000000" };
 }
+
+/* packs contacts into as few `capacity`-sized bins as possible WITHOUT
+   splitting a department across two, unless the department itself is
+   bigger than one page (then it's chunked into capacity-sized pieces --
+   there's no way around that). This is First Fit Decreasing, a standard
+   bin-packing heuristic: sort the items (each a whole department, or one
+   chunk of an oversized one) largest-first, and place each into the
+   first bin it still fits in, opening a new bin only when none do.
+   FFD is not always mathematically optimal, but it's simple, it never
+   pointlessly splits a group that fits somewhere whole, and it matches
+   what was actually asked for: prefer leaving empty rows on a page over
+   splitting a department across two, and use as few pages as it can
+   while keeping that rule. Plain sequential/list-order chunking (the
+   previous behavior) ignored department boundaries entirely. */
+function packContactsIntoPages(contacts, capacity){
+  if(capacity <= 0) return [];
+  var items = [];
+  groupContactsByDepartment(contacts).forEach(function(g){
+    if(g.contacts.length <= capacity){
+      items.push(g.contacts.slice());
+    } else {
+      for(var i=0;i<g.contacts.length;i+=capacity){
+        items.push(g.contacts.slice(i, i+capacity));
+      }
+    }
+  });
+  /* largest first; a stable sort keeps same-size items in their original
+     (first-appearance) order instead of shuffling ties arbitrarily */
+  items.sort(function(a,b){ return b.length - a.length; });
+  var bins = [];
+  items.forEach(function(item){
+    var bin = bins.find(function(b){ return b.used + item.length <= capacity; });
+    if(!bin){ bin = { used:0, contacts:[] }; bins.push(bin); }
+    bin.contacts = bin.contacts.concat(item);
+    bin.used += item.length;
+  });
+  return bins.map(function(b){ return b.contacts; });
+}
+
 function regeneratePages(){
   var capacity = layoutRows(DEFAULT_LAYOUT);
-  var pages = [];
-  if(capacity > 0){
-    for(var i=0;i<state.contacts.length;i+=capacity){
-      pages.push(blankPage(DEFAULT_LAYOUT, state.contacts.slice(i,i+capacity)));
-    }
-  }
+  var pages = packContactsIntoPages(state.contacts, capacity).map(function(c){ return blankPage(DEFAULT_LAYOUT, c); });
   if(pages.length && pages.length % 2 !== 0){
     pages.push(emptyFillerPage());
   }
