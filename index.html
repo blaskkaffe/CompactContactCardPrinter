@@ -59,6 +59,36 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #emptyViewerOverlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:40px; font-size:18px; color:#999;}
 #emptyViewerOverlay[hidden]{display:none;}
 
+/* single view's own row: #cardDragPanel beside the front+back pair,
+   centered together by #viewerContent's own flex centering (see
+   mode-single above) -- one child instead of the pair alone. */
+.singleViewRow{display:flex; gap:16px; align-items:center;}
+
+/* the row a drag is currently over, highlighted directly on the card --
+   see cardRowGeometry/wireCardDropTarget. Sized/positioned in JS as a
+   fraction of the card's own box (top/height in %), so it tracks
+   whatever size the card is currently rendered at. */
+.cardRowHighlight{position:absolute; left:0; right:0; background:rgba(0,128,255,.22); border-top:2px solid #0080ff; border-bottom:2px solid #0080ff; pointer-events:none; z-index:5;}
+.cardRowHighlight[hidden]{display:none;}
+
+/* two-level drag source (department groups, each expandable to its own
+   contacts) standing next to the card in single view -- see
+   buildCardDragPanel. Same drag payload as the sidebar's own pool, just
+   addressed at the card (see wireCardDropTarget) instead of a page-card
+   drop zone in a list. */
+#cardDragPanel{width:190px; flex:0 0 auto; max-height:calc(100vh - 220px); overflow-y:auto; background:#f0f0f0; border:1px solid #bbb; border-radius:6px; padding:8px; font-size:11px;}
+#cardDragPanel .cdpHeading{font-size:11px; font-weight:bold; text-transform:uppercase; letter-spacing:.03em; color:#666; margin-bottom:6px;}
+#cardDragPanel .cdpGroupTile{background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 6px; margin-bottom:4px; cursor:grab;}
+#cardDragPanel .cdpGroupTile:active{cursor:grabbing;}
+#cardDragPanel .cdpGroupTileNameRow{display:flex; align-items:center; gap:4px; min-width:0;}
+#cardDragPanel .cdpToggle{cursor:pointer; color:#888; font-size:9px; user-select:none; flex:none;}
+#cardDragPanel .cdpToggle:hover{color:#333;}
+#cardDragPanel .cdpGroupTileName{font-weight:bold; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+#cardDragPanel .cdpGroupTileCount{color:#777; font-size:10px; flex:none;}
+#cardDragPanel .cdpContactList{display:flex; flex-direction:column; gap:3px; padding:2px 0 6px 10px; margin:-2px 0 4px; border-left:2px solid #e2e2e2;}
+#cardDragPanel .cdpContactChip{background:#fff; border:1px solid #ddd; border-radius:3px; padding:2px 6px; font-size:10.5px; cursor:grab; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+#cardDragPanel .cdpContactChip:active{cursor:grabbing;}
+
 /* always shown as a front+back pair -- pages are printed in pairs (see
    partnerPageIndex), so there's never a reason to view one side alone */
 /* justify-content:center matters once .mode-all .page's max-width caps a
@@ -1887,6 +1917,15 @@ function buildPageEl(index){
   canvas.addEventListener("click", function(e){ onCanvasClick(e, canvas, index); });
   page.appendChild(canvas);
   renderCardsOntoCanvas(canvas, index, true);
+
+  /* the row you're dragging over, highlighted -- see wireCardDropTarget.
+     A plain DOM overlay rather than redrawing the canvas: much simpler,
+     and it's purely visual (never part of what actually gets printed). */
+  var highlight = el("div", { class:"cardRowHighlight" });
+  highlight.hidden = true;
+  page.appendChild(highlight);
+  wireCardDropTarget(canvas, highlight, index);
+
   return page;
 }
 
@@ -1898,6 +1937,100 @@ function buildPagePairEl(frontIndex){
   pair.appendChild(buildPageEl(frontIndex));
   pair.appendChild(buildPageEl(partnerPageIndex(frontIndex)));
   return pair;
+}
+
+/* which row (0-indexed, capacity-based -- one v10 contact block counts as
+   a single row even though it's two printed lines) a client Y coordinate
+   falls on for a given canvas -- shared by the dragover highlight and the
+   drop handler so they always agree on the same row. Returns null for a
+   page with nothing to drop onto (no data yet, or "empty" layout). */
+function cardRowGeometry(canvas, index, clientY){
+  var pageState = state.pages[index];
+  if(!pageState || pageState.layout === "empty") return null;
+  var layout = pageGeometryForIndex(index).layout;
+  var capacity = layoutRows(layout.key);
+  var hPx = canvas.height;
+  var headerH = computeHeaderH(hPx, layout);
+  var bodyY = headerH, bodyH = hPx - headerH;
+  var rowH = bodyH / capacity;
+  var rect = canvas.getBoundingClientRect();
+  if(rect.height <= 0) return null;
+  var yPx = ((clientY - rect.top) / rect.height) * hPx;
+  var idx = Math.max(0, Math.min(capacity - 1, Math.floor((yPx - bodyY) / rowH)));
+  return { idx: idx, topFrac: (bodyY + idx*rowH) / hPx, hFrac: rowH / hPx };
+}
+
+/* lets a group/contact from #cardDragPanel (or the sidebar's own pool --
+   the same drag payload works everywhere) be dropped directly onto a row
+   of the card itself, landing exactly there via moveMatchingBetweenPagesAt
+   instead of always appending. Only active in "Ett kort" view -- in
+   "Alla" the cards are thumbnails, too small to target a row on. */
+function wireCardDropTarget(canvas, highlight, index){
+  canvas.addEventListener("dragover", function(e){
+    if(state.viewMode !== "single") return;
+    if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
+    var geom = cardRowGeometry(canvas, index, e.clientY);
+    if(!geom) return;
+    e.preventDefault();
+    highlight.style.top = (geom.topFrac*100) + "%";
+    highlight.style.height = (geom.hFrac*100) + "%";
+    highlight.hidden = false;
+  });
+  canvas.addEventListener("dragleave", function(){ highlight.hidden = true; });
+  canvas.addEventListener("drop", function(e){
+    highlight.hidden = true;
+    if(state.viewMode !== "single") return;
+    var geom = cardRowGeometry(canvas, index, e.clientY);
+    if(!geom) return;
+    e.preventDefault();
+    var raw = e.dataTransfer.getData(PANEL_DRAG_MIME);
+    if(!raw) return;
+    var data = JSON.parse(raw);
+    handlePanelDrop(data,
+      function(fromPage, groupKey){ moveMatchingBetweenPagesAt(fromPage, index, groupMatcher(groupKey), geom.idx); },
+      function(fromPage, contactId){ moveMatchingBetweenPagesAt(fromPage, index, contactMatcher(contactId), geom.idx); });
+  });
+}
+
+/* the two-level drag source next to the card in single view: department
+   groups (collapsible) over the individual contacts in each -- the same
+   drag payload the sidebar's own pool tiles/chips use (wireDragStart,
+   PANEL_DRAG_MIME), just addressed at the card instead of a page-card
+   drop zone in the list. Shares state.expandedGroups with the sidebar,
+   so a department expanded here is also expanded there and vice versa
+   -- one set of "what's open" state, not two that could disagree. */
+function buildCardDragPanel(){
+  var panel = el("div", { id:"cardDragPanel" });
+  panel.appendChild(el("div", { class:"cdpHeading", text:"Dra till kortet" }));
+  var groups = computeDepartmentGroups();
+  groups.forEach(function(g){
+    var tile = el("div", { class:"cdpGroupTile", draggable:"true" });
+    var nameRow = el("div", { class:"cdpGroupTileNameRow" });
+    var expanded = !!state.expandedGroups[g.key];
+    var toggle = el("span", { class:"cdpToggle", text: expanded ? "▾" : "▸" });
+    toggle.addEventListener("click", function(e){
+      e.stopPropagation();
+      state.expandedGroups[g.key] = !state.expandedGroups[g.key];
+      renderViewer();
+    });
+    nameRow.appendChild(toggle);
+    nameRow.appendChild(el("span", { class:"cdpGroupTileName", text:g.label }));
+    nameRow.appendChild(el("span", { class:"cdpGroupTileCount", text:String(g.contacts.length) }));
+    tile.appendChild(nameRow);
+    wireDragStart(tile, { type:"group", fromPage:null, groupKey:g.key });
+    panel.appendChild(tile);
+
+    if(expanded){
+      var list = el("div", { class:"cdpContactList" });
+      g.contacts.forEach(function(c){
+        var chip = el("div", { class:"cdpContactChip", draggable:"true", text:c.name });
+        wireDragStart(chip, { type:"contact", fromPage:null, contactId:c.id });
+        list.appendChild(chip);
+      });
+      panel.appendChild(list);
+    }
+  });
+  return panel;
 }
 
 function currentPageDims(index){
@@ -1921,11 +2054,16 @@ function currentPageDims(index){
    real, visible gap. */
 var VIEWER_NAV_CLEARANCE_PX = 72;
 var VIEWER_BOTTOM_MARGIN_PX = 32;
+/* must match #cardDragPanel's own width plus .singleViewRow's gap in the
+   CSS -- the panel sits beside the pair now (see renderViewer), so its
+   width has to come out of the same budget the pair's own fit is
+   computed from, or the row would overflow past the viewport. */
+var CARD_DRAG_PANEL_PX = 190 + 16;
 function singleCardFitPx(pageIndex){
   var wrap = $("#viewerContent");
   var dims = pageGeometryForIndex(pageIndex).cardDims;
   var gapPx = 24;
-  var cw = (wrap.clientWidth * 0.92 - gapPx) / 2;
+  var cw = ((wrap.clientWidth - CARD_DRAG_PANEL_PX) * 0.92 - gapPx) / 2;
   var ch = wrap.clientHeight - VIEWER_NAV_CLEARANCE_PX - VIEWER_BOTTOM_MARGIN_PX;
   var scale = Math.min(cw/dims.w, ch/dims.h);
   return { w: dims.w*scale, h: dims.h*scale };
@@ -2002,8 +2140,11 @@ function renderViewer(){
   if(state.currentPage < 0) state.currentPage = 0;
 
   if(state.viewMode === "single"){
+    var row = el("div", { class:"singleViewRow" });
+    row.appendChild(buildCardDragPanel());
     var pair = buildPagePairEl(state.currentPage);
-    wrap.appendChild(pair);
+    row.appendChild(pair);
+    wrap.appendChild(row);
     fitPagePair(pair, state.currentPage);
   } else {
     var container = el("div", { class:"pagesAll" });
@@ -2232,6 +2373,25 @@ function moveMatchingBetweenPages(fromPage, toIndex, matches){
   var moving = takeMatching(fromPage, matches, toPage.layout);
   if(!moving.length) return;
   toPage.contacts = toPage.contacts.concat(moving);
+  reflowFromPage(toIndex);
+  renderViewer();
+}
+/* same as moveMatchingBetweenPages, but inserts starting at a specific
+   row instead of always appending to the end -- used when dropping
+   directly onto a row of the card in the viewer itself (see
+   wireCardDropTarget), where the row you're over is the whole point.
+   Pool drags (fromPage:null) onto a v20 page they're already on still
+   work out as an in-place reorder for free: takeMatching's v20
+   consolidation removes the contact from every v20 page it's on
+   (including this one, if it's here) before this re-inserts it at the
+   dropped position. */
+function moveMatchingBetweenPagesAt(fromPage, toIndex, matches, atRow){
+  if(fromPage != null && fromPage === toIndex) return;
+  var toPage = activateContentPage(toIndex);
+  var moving = takeMatching(fromPage, matches, toPage.layout);
+  if(!moving.length) return;
+  var insertAt = Math.max(0, Math.min(atRow, toPage.contacts.length));
+  toPage.contacts = toPage.contacts.slice(0, insertAt).concat(moving, toPage.contacts.slice(insertAt));
   reflowFromPage(toIndex);
   renderViewer();
 }
