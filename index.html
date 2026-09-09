@@ -61,18 +61,6 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
   #printArea canvas:not(:last-child){page-break-after:always;}
 }
 
-/* ===================== CONFIG (OVERRIDE) PANEL -- was "debug panel", see
-   initDebugPanel(). Floats independently of #mainRow (fixed, bottom-right)
-   so toggling it never changes the viewer's available width. ===================== */
-#configToggleBtn{position:fixed; bottom:16px; right:16px; z-index:20; font-size:12px; padding:8px 14px; border-radius:20px; border:1px solid #444; background:#222; color:#eee; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.4);}
-#configToggleBtn:hover{background:#333;}
-#debugPanel{position:fixed; bottom:60px; right:16px; z-index:20; width:260px; max-height:75vh; background:#222; color:#eee; overflow-y:auto; padding:10px; font-size:12px; border:1px solid #000; border-radius:8px; box-shadow:0 4px 18px rgba(0,0,0,.45);}
-#debugPanel[hidden]{display:none;}
-#debugPanel h2{font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#f90; margin:0 0 8px;}
-#debugPanel .row{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:6px;}
-#debugPanel input{width:70px; font-size:12px; padding:2px 4px;}
-/* ===================== END CONFIG PANEL ===================== */
-
 /* ===================== GROUP PANEL (department grouping helper) ===================== */
 #groupPanel{flex:0 0 260px; background:#f0f0f0; color:#111; display:flex; flex-direction:column; border-right:1px solid #bbb;}
 #viewControls{flex:0 0 auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding:10px; border-bottom:1px solid #ccc; background:#e8e8e8;}
@@ -152,9 +140,6 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
         <select id="paperSize"></select>
       </label>
       <button id="viewModeBtn"></button>
-      <label class="tool" title="När aktiverat kopieras en grupp eller kontakt till sidan när den dras dit från poolen, istället för att tas bort från alla sidor den redan finns på">
-        <input type="checkbox" id="allowDuplicatesToggle">Tillåt dubbletter
-      </label>
     </div>
     <div id="groupPanelBody"></div>
   </aside>
@@ -173,13 +158,6 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
   </main>
 </div>
 
-<!-- CONFIG (OVERRIDE) PANEL: card/margin geometry + the debug tuning knobs,
-     hidden by default and toggled by #configToggleBtn -- see initDebugPanel().
-     Both float above everything else, independent of #mainRow's layout, so
-     hiding the panel never changes how much width the viewer gets. -->
-<button id="configToggleBtn" type="button">&#9881; Inställningar</button>
-<aside id="debugPanel" hidden></aside>
-
 <div id="dropOverlay" hidden>Släpp en CSV- eller XLSX-fil för att importera kontakter</div>
 <div id="printArea"></div>
 
@@ -189,15 +167,12 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 
 /* ============================================================
    CONFIG -- every tunable constant lives here: font sizes, the
-   spacing "distances" used throughout the card layout, default
-   card/paper geometry, and the column header names recognized
-   when importing a CSV/XLSX. Edit values here instead of
-   hunting for a magic number elsewhere in the file.
-
-   Font sizes, text-length caps, row capacities, and the header
-   height factor are also live-editable from the debug panel
-   near the bottom of this file (see initDebugPanel) -- it reads
-   and writes these exact same vars, so the two never drift.
+   spacing "distances" used throughout the card layout, card/paper
+   geometry, and the column header names recognized when importing
+   a CSV/XLSX. Edit values here instead of hunting for a magic
+   number elsewhere in the file -- there's no in-app settings UI
+   (there used to be a debug panel exposing these as live inputs;
+   removed once the values stopped needing regular tuning).
    ============================================================ */
 
 /* -- rendering -- */
@@ -206,14 +181,14 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    and 4 of those in one job is a lot of raster data for a print driver/
    spooler to accept, especially over a network printer. 300dpi is the
    standard "high quality" print resolution and is plenty crisp for card
-   text at this physical size, at a quarter of the pixels. Live-tunable in
-   the debug panel if you want to push it back up and test on your printer. */
-var RENDER_DPI = 300;
-var FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
+   text at this physical size, at a quarter of the pixels. Raise it here and
+   test on your printer if you want to push it back up. */
+const RENDER_DPI = 300;
+const FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
 
 /* -- font sizes (pt) -- */
-var HEADER_FONT_PT = 9;
-var NAME_FONT_PT = 7;
+const HEADER_FONT_PT = 9;
+const NAME_FONT_PT = 7;
 /* v20's name column shares its row with a department column and only a
    single phone, so it's the tightest layout on a 54mm-wide card -- it gets
    its own (smaller) name font, independent of NAME_FONT_PT (used by v10,
@@ -221,46 +196,46 @@ var NAME_FONT_PT = 7;
    to). Small enough that a long name like "Roberto von Hemansson
    III" fits without truncation alongside a department and a full phone
    number. */
-var NAME_FONT_PT_TIGHT = 7;
-var EMAIL_FONT_PT = 7;   /* the 10-contact layout's email line only -- independent of NAME_FONT_PT */
-var PHONE_FONT_PT = 7;
-var DEPT_FONT_PT = 6;
+const NAME_FONT_PT_TIGHT = 7;
+const EMAIL_FONT_PT = 7;   /* the 10-contact layout's email line only -- independent of NAME_FONT_PT */
+const PHONE_FONT_PT = 7;
+const DEPT_FONT_PT = 6;
 
 /* -- text length caps -- */
-var DEPT_MAX_CHARS = 4;   /* plus the "C " chief prefix, kept separately -- department is the least important field, so it's kept small to give the name column room */
-var LABEL_MAX_CHARS = 6;  /* number-type tags on the 10-contact layout, e.g. "Work"/"Home" */
+const DEPT_MAX_CHARS = 4;   /* plus the "C " chief prefix, kept separately -- department is the least important field, so it's kept small to give the name column room */
+const LABEL_MAX_CHARS = 6;  /* number-type tags on the 10-contact layout, e.g. "Work"/"Home" */
 
 /* -- row capacity per layout (contacts per card) -- */
-var ROWS_V20 = 20;
-var ROWS_V10 = 10;
+const ROWS_V20 = 20;
+const ROWS_V10 = 10;
 
 /* -- header sizing --
    header height = HEADER_HEIGHT_FACTOR rows' worth of height (see
    computeHeaderH), rather than a fixed fraction of the card, so it shrinks
    along with the rows instead of eating a constant share regardless of
    row count. */
-var HEADER_HEIGHT_FACTOR = 1.3;
+const HEADER_HEIGHT_FACTOR = 1.3;
 
 /* -- spacing "distances" (mm) -- */
-var CELL_PADDING_MM = 1.5;   /* inner padding of every row/column */
-var BORDER_WIDTH_MM = 0.3;   /* card border, crop marks, empty-card outline */
-var DIVIDER_INSET_MM = 2;    /* how far a row divider stays clear of the card's left/right edges */
-var DIVIDER_ALPHA = 0.5;     /* row divider opacity */
-var DIVIDER_WIDTH_MM = 0.1;  /* row divider line weight */
+const CELL_PADDING_MM = 1.5;   /* inner padding of every row/column */
+const BORDER_WIDTH_MM = 0.3;   /* card border, crop marks, empty-card outline */
+const DIVIDER_INSET_MM = 2;    /* how far a row divider stays clear of the card's left/right edges */
+const DIVIDER_ALPHA = 0.5;     /* row divider opacity */
+const DIVIDER_WIDTH_MM = 0.1;  /* row divider line weight */
 
-/* -- default card / paper geometry -- */
-var DEFAULT_CARD_W_MM = 53.98; /* ISO/IEC 7810 ID-1 credit card -- always the VERTICAL shape */
-var DEFAULT_CARD_H_MM = 85.60;
-var DEFAULT_MARGIN_MM = 10;    /* printer-unsafe border kept clear on every edge */
+/* -- card / paper geometry -- */
+const CARD_W_MM = 53.98; /* ISO/IEC 7810 ID-1 credit card -- always the VERTICAL shape */
+const CARD_H_MM = 85.60;
+const MARGIN_MM = 10;    /* printer-unsafe border kept clear on every edge */
 
-var PAPER_SIZES = {
+const PAPER_SIZES = {
   A3: { label:"A3", wMM:297, hMM:420 },
   A4: { label:"A4", wMM:210, hMM:297 }, /* default -- see state.paperSize */
   A5: { label:"A5", wMM:148, hMM:210 }
 };
 
 /* -- CSV/XLSX column header names recognized on import (case-insensitive) -- */
-var IMPORT_HEADER_ALIASES = {
+const IMPORT_HEADER_ALIASES = {
   name:       ["name","full name","fullname"],
   firstName:  ["first name","firstname","first"],
   lastName:   ["last name","lastname","last","surname"],
@@ -289,16 +264,20 @@ var IMPORT_HEADER_ALIASES = {
 /* shortLabel is only for the compact per-page layout select (see
    pageLayoutOptionsSelect) -- label is the full descriptive name used
    everywhere else (page card headers, etc). */
-var LAYOUTS = {
+const LAYOUTS = {
   v20:   { key:"v20",   label:"20 rader vertikal",              shortLabel:"20 rader",   orientation:"vertical",   phones:1, showDept:true,  doubleRow:false },
   v10:   { key:"v10",   label:"10 kontakter vertikal (2 rader)", shortLabel:"10 (2 rad)", orientation:"vertical",   phones:2, showDept:false, doubleRow:true, phoneRowLegend:"Jobb / Hem" },
   empty: { key:"empty", label:"Tom sida",                        shortLabel:"Tom",        orientation:"vertical",   phones:0, showDept:false, doubleRow:false }
 };
+/* every freshly created page (auto-chunked on import, or dragged onto
+   "+ New page"/an activated "empty" slot) starts out as this layout --
+   its own dropdown is how you change it afterward, same as any page */
+const DEFAULT_LAYOUT = "v20";
 
 /* -- header background presets -- all verified >=8:1 WCAG contrast ratio
    against white text, so white header text always reads clearly against
    any of them -- */
-var COLOR_PRESETS = [
+const COLOR_PRESETS = [
   { name:"Svart",         hex:"#000000" },
   { name:"Antracit",      hex:"#2B2B2B" },
   { name:"Skiffergrå",    hex:"#37474F" },
@@ -334,11 +313,7 @@ function ptToPx(pt, dpi){ return pt * dpi / 72; }
 var state = {
   paperSize: "A4",
   viewMode: "single",          /* "single" | "all" */
-  allowDuplicates: false,      /* when true, dragging from the pool copies a group/contact onto a page instead of consolidating it there */
   currentPage: 0,              /* 0-indexed */
-  cardWmm: DEFAULT_CARD_W_MM,
-  cardHmm: DEFAULT_CARD_H_MM,
-  marginMm: DEFAULT_MARGIN_MM,
   contacts: [],
   pages: [], /* [{layout, contacts, emptyMode, image, headerColor, headerLegend, savedContacts}] -- one entry per generated page */
   expandedGroups: {},     /* group panel UI only: which pool department tiles are expanded to show individual contacts, keyed by group key */
@@ -375,15 +350,15 @@ function computeHeaderH(hPx, layout){
 
 function cardDimsForOrientation(orientation){
   return orientation === "horizontal"
-    ? { w: state.cardHmm, h: state.cardWmm }
-    : { w: state.cardWmm, h: state.cardHmm };
+    ? { w: CARD_H_MM, h: CARD_W_MM }
+    : { w: CARD_W_MM, h: CARD_H_MM };
 }
 
 /* how many cards fit edge-to-edge on a page of the given size, once the
    printer-safe margin is removed from every side */
 function gridForDims(pageDims, cardDims){
-  var usableW = pageDims.w - 2*state.marginMm;
-  var usableH = pageDims.h - 2*state.marginMm;
+  var usableW = pageDims.w - 2*MARGIN_MM;
+  var usableH = pageDims.h - 2*MARGIN_MM;
   var cols = Math.max(0, Math.floor(usableW / cardDims.w));
   var rows = Math.max(0, Math.floor(usableH / cardDims.h));
   return { cols:cols, rows:rows, count:cols*rows };
@@ -679,15 +654,10 @@ function rowsToContacts(rows){
 }
 
 /* ---------------- page generation ---------------- */
-/* auto-chunks contacts sequentially into pages using the default layout,
-   padded to an even count with a blank page. Each page keeps its own
-   contacts snapshot, so changing one page's layout later doesn't reshuffle
-   any other page. Every freshly created page starts as v20 -- its own
-   layout dropdown (in its page box in the left menu) is how you change it
-   afterward, same as any existing page. */
-function defaultLayoutForOrientation(){
-  return "v20";
-}
+/* auto-chunks contacts sequentially into pages using DEFAULT_LAYOUT, padded
+   to an even count with a blank page. Each page keeps its own contacts
+   snapshot, so changing one page's layout later doesn't reshuffle any
+   other page. */
 function blankPage(layout, contacts){
   return { layout:layout, contacts:contacts||[], emptyMode:"blank", image:null, headerColor:"#000000" };
 }
@@ -695,12 +665,11 @@ function emptyFillerPage(){
   return { layout:"empty", contacts:[], emptyMode:"rows", image:null, headerColor:"#000000" };
 }
 function regeneratePages(){
-  var defaultLayout = defaultLayoutForOrientation();
-  var capacity = layoutRows(defaultLayout);
+  var capacity = layoutRows(DEFAULT_LAYOUT);
   var pages = [];
   if(capacity > 0){
     for(var i=0;i<state.contacts.length;i+=capacity){
-      pages.push(blankPage(defaultLayout, state.contacts.slice(i,i+capacity)));
+      pages.push(blankPage(DEFAULT_LAYOUT, state.contacts.slice(i,i+capacity)));
     }
   }
   if(pages.length && pages.length % 2 !== 0){
@@ -729,9 +698,8 @@ function reflowFromPage(index){
          page, that would resolve right back to "empty" and re-lose the
          data it's supposed to rescue. Use the same default content layout
          regeneratePages() would pick for brand-new pages instead. */
-      var fallbackLayout = defaultLayoutForOrientation();
-      var newCap = layoutRows(fallbackLayout) || carry.length;
-      state.pages.push(blankPage(fallbackLayout, carry.splice(0, newCap)));
+      var newCap = layoutRows(DEFAULT_LAYOUT) || carry.length;
+      state.pages.push(blankPage(DEFAULT_LAYOUT, carry.splice(0, newCap)));
       continue;
     }
     var merged = carry.concat(next.contacts);
@@ -1680,16 +1648,10 @@ function initEvents(){
     state.viewMode = state.viewMode === "single" ? "all" : "single";
     renderToolbar(); renderViewer();
   });
-  $("#allowDuplicatesToggle").addEventListener("change", function(){
-    state.allowDuplicates = $("#allowDuplicatesToggle").checked;
-  });
   $("#prevBtn").addEventListener("click", goPrev);
   $("#nextBtn").addEventListener("click", goNext);
   $("#printBtn").addEventListener("click", doPrint);
   $("#viewerWrap").addEventListener("wheel", onWheel, { passive:false });
-  $("#configToggleBtn").addEventListener("click", function(){
-    $("#debugPanel").hidden = !$("#debugPanel").hidden;
-  });
   window.addEventListener("resize", function(){
     if(state.viewMode === "single"){
       var page = $("#viewerWrap .page");
@@ -1743,13 +1705,12 @@ function pageNumbersForGroup(group){
    blank pages up to it, and waking it up from "empty" if needed), ready to
    receive contacts. Shared by moveGroupBetweenPages and moveGroupToNewPage. */
 function activateContentPage(index){
-  var defaultLayout = defaultLayoutForOrientation();
   while(state.pages.length <= index){
-    state.pages.push(blankPage(defaultLayout));
+    state.pages.push(blankPage(DEFAULT_LAYOUT));
   }
   var target = state.pages[index];
   if(target.layout === "empty"){
-    target.layout = defaultLayout;
+    target.layout = DEFAULT_LAYOUT;
     target.savedContacts = null;
   }
   return target;
@@ -1770,36 +1731,41 @@ function takeMatchingOffPage(pageIndex, matches){
   if(taken.length) page.contacts = page.contacts.filter(function(c){ return !matches(c); });
   return taken;
 }
-/* same, but across every page -- used when a match is split across several
-   pages and needs to end up consolidated in exactly one place. */
-function takeMatchingOffAllPages(matches){
+/* same, but only across pages whose layout is `layoutKey` -- lets a
+   consolidation stay within one layout family without disturbing
+   placements on a different layout (see takeMatching). Omit layoutKey to
+   sweep every page regardless of layout (the delete-zone's "unplace this
+   from everywhere" case, in removeMatchingFromPage below). */
+function takeMatchingOffAllPages(matches, layoutKey){
   var taken = [];
-  state.pages.forEach(function(p, i){ taken = taken.concat(takeMatchingOffPage(i, matches)); });
+  state.pages.forEach(function(p, i){
+    if(layoutKey == null || p.layout === layoutKey) taken = taken.concat(takeMatchingOffPage(i, matches));
+  });
   return taken;
 }
 /* the unplaced pool (department tiles, expanded contact rows) is draggable
    too, and isn't tied to any one page -- its drags carry fromPage:null.
-   Dragging it onto a page consolidates every match there: whatever's
-   already on some page(s), AND whatever's still unplaced -- often a mix of
-   both (e.g. after one contact was already dragged there individually), so
-   neither source alone is enough. Dragging an actual page's chip (fromPage
-   a real index) still only ever touches that one page's portion, as before.
+   Dragging an actual page's chip (fromPage a real index) always just moves
+   that one page's portion, as before, regardless of layout.
 
-   With state.allowDuplicates on, every drag becomes a copy instead: nothing
-   is ever taken off any page, membership comes straight from the roster,
-   so the same group/contact can end up placed on several pages on purpose. */
-function takeMatching(fromPage, matches){
-  if(state.allowDuplicates){
-    return state.contacts.filter(matches);
-  }
+   Pool drags depend on the destination layout: v20 is the one general-
+   purpose directory, so it consolidates -- a contact never ends up on two
+   v20 pages at once, though placements on non-v20 pages are left alone.
+   v10 pages are each their own group-specific sheet (with info, like
+   private numbers, meant only for that group), so a v10 destination never
+   takes a contact off anywhere -- the same person can legitimately sit on
+   several different v10 sheets, and on a v20 page, at once. */
+function takeMatching(fromPage, matches, destLayoutKey){
   if(fromPage == null){
-    /* a contact placed on more than one page (via allowDuplicates) gets
-       extracted once per page it was on, so fromPages can contain the same
-       reference more than once -- the Set both tracks what's already
-       accounted for AND, converted back to an array, dedupes the final
-       result so consolidating never doubles someone up on the one
-       destination page */
-    var fromPages = takeMatchingOffAllPages(matches);
+    if(destLayoutKey !== "v20"){
+      return state.contacts.filter(matches);
+    }
+    /* a contact placed on more than one v20 page gets extracted once per
+       page it was on, so fromPages can contain the same reference more
+       than once -- the Set both tracks what's already accounted for AND,
+       converted back to an array, dedupes the final result so
+       consolidating never doubles someone up on the one destination page */
+    var fromPages = takeMatchingOffAllPages(matches, "v20");
     var alreadyTaken = new Set(fromPages);
     var stillUnplaced = state.contacts.filter(function(c){ return matches(c) && !alreadyTaken.has(c); });
     return Array.from(alreadyTaken).concat(stillUnplaced);
@@ -1813,20 +1779,22 @@ function takeMatching(fromPage, matches){
    placement path. */
 function moveMatchingBetweenPages(fromPage, toIndex, matches){
   if(fromPage != null && fromPage === toIndex) return;
-  var moving = takeMatching(fromPage, matches);
-  if(!moving.length) return;
   var toPage = activateContentPage(toIndex);
+  var moving = takeMatching(fromPage, matches, toPage.layout);
+  if(!moving.length) return;
   toPage.contacts = toPage.contacts.concat(moving);
   reflowFromPage(toIndex);
   renderViewer();
 }
 /* drop target: sends every matching contact to a freshly appended page of
-   its own, cascading overflow forward from there like any other placement. */
+   its own, cascading overflow forward from there like any other placement.
+   A brand-new page always starts as DEFAULT_LAYOUT, so that's the
+   consolidation scope regardless of what it might get switched to later. */
 function moveMatchingToNewPage(fromPage, matches){
-  var moving = takeMatching(fromPage, matches);
+  var moving = takeMatching(fromPage, matches, DEFAULT_LAYOUT);
   if(!moving.length) return;
   var newIndex = state.pages.length;
-  state.pages.push(blankPage(defaultLayoutForOrientation(), moving));
+  state.pages.push(blankPage(DEFAULT_LAYOUT, moving));
   reflowFromPage(newIndex);
   if(state.pages.length % 2 !== 0) state.pages.push(emptyFillerPage());
   renderViewer();
@@ -1916,9 +1884,10 @@ function wireDragStart(node, payload){
 }
 
 /* every 1-indexed page currently showing this exact contact -- normally at
-   most one, but with allowDuplicates on the same contact can legitimately
-   sit on several. A single contact is just a one-member group for this
-   purpose, so it reuses pageNumbersForGroup's own reference-matching logic. */
+   most one v20 page, but the same contact can legitimately sit on several
+   v10 pages (and a v20 page) at once, since v10 never consolidates. A
+   single contact is just a one-member group for this purpose, so it
+   reuses pageNumbersForGroup's own reference-matching logic. */
 function pageNumbersForContact(contact){
   return pageNumbersForGroup({ contacts:[contact] });
 }
@@ -2083,60 +2052,9 @@ function renderGroupPanel(){
   });
 }
 
-/* ===================== DEBUG PANEL (temporary) =====================
-   Exposes the CONFIG constants above as live inputs. Reads/writes the
-   same vars the renderer already uses, so deleting this whole function
-   (+ its call below, + the <aside id="debugPanel"> element and its CSS
-   block) fully removes the feature -- nothing else depends on it. */
-function initDebugPanel(){
-  var panel = $("#debugPanel");
-  if(!panel) return;
-  panel.innerHTML = "";
-  panel.appendChild(el("h2", { text:"Avancerade inställningar" }));
-
-  var settings = [
-    /* card/margin geometry -- moved here from the toolbar so it lives
-       alongside every other override in one hideable panel */
-    { label:"Kortbredd (mm)",  get:function(){ return state.cardWmm; },  set:function(v){ state.cardWmm=v; },  step:0.01 },
-    { label:"Korthöjd (mm)",   get:function(){ return state.cardHmm; },  set:function(v){ state.cardHmm=v; },  step:0.01 },
-    { label:"Marginal (mm)",   get:function(){ return state.marginMm; }, set:function(v){ state.marginMm=v; }, min:0, step:1 },
-    { label:"Rendering-DPI", get:function(){ return RENDER_DPI; }, set:function(v){ RENDER_DPI=v; } },
-    { label:"Rubriktypsnitt (pt)", get:function(){ return HEADER_FONT_PT; }, set:function(v){ HEADER_FONT_PT=v; } },
-    { label:"Rubrikhöjd (x rader)", get:function(){ return HEADER_HEIGHT_FACTOR; }, set:function(v){ HEADER_HEIGHT_FACTOR=v; } },
-    { label:"Namntypsnitt (pt)",   get:function(){ return NAME_FONT_PT; },   set:function(v){ NAME_FONT_PT=v; } },
-    { label:"Namntypsnitt, m/ avd (pt)", get:function(){ return NAME_FONT_PT_TIGHT; }, set:function(v){ NAME_FONT_PT_TIGHT=v; } },
-    { label:"E-posttypsnitt (pt)",  get:function(){ return EMAIL_FONT_PT; },  set:function(v){ EMAIL_FONT_PT=v; } },
-    { label:"Telefontypsnitt (pt)",  get:function(){ return PHONE_FONT_PT; },  set:function(v){ PHONE_FONT_PT=v; } },
-    { label:"Avdelningstypsnitt (pt)",   get:function(){ return DEPT_FONT_PT; },   set:function(v){ DEPT_FONT_PT=v; } },
-    { label:"Avd. max tecken",   get:function(){ return DEPT_MAX_CHARS; }, set:function(v){ DEPT_MAX_CHARS=v; } },
-    { label:"Etikett max tecken",  get:function(){ return LABEL_MAX_CHARS; }, set:function(v){ LABEL_MAX_CHARS=v; } },
-    { label:"Rader: 20-rad vert.", get:function(){ return ROWS_V20; }, set:function(v){ ROWS_V20=v; } },
-    { label:"Rader: 10-rad vert.", get:function(){ return ROWS_V10; }, set:function(v){ ROWS_V10=v; } }
-  ];
-
-  settings.forEach(function(s){
-    var row = el("div", { class:"row" });
-    row.appendChild(el("label", { text:s.label }));
-    var input = document.createElement("input");
-    input.type = "number";
-    input.step = String(s.step != null ? s.step : 0.5);
-    input.value = s.get();
-    input.addEventListener("change", function(){
-      var v = parseFloat(input.value);
-      /* every setting must stay positive except margin, which may be 0 */
-      var min = s.min != null ? s.min : Number.MIN_VALUE;
-      if(!isNaN(v) && v >= min){ s.set(v); renderViewer(); }
-    });
-    row.appendChild(input);
-    panel.appendChild(row);
-  });
-}
-/* ===================== END DEBUG PANEL ===================== */
-
 populatePaperSizes();
 renderToolbar();
 initEvents();
-initDebugPanel();
 renderViewer();
 
 })();
