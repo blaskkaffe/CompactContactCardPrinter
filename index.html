@@ -93,20 +93,19 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
 .cardEdgeHandles.side-left .segmentCapsule{right:0; border-radius:6px 0 0 6px;}
 .cardEdgeHandles.side-right .segmentCapsule{left:0; border-radius:0 6px 6px 0;}
-/* the per-contact drag handle -- a round dot, centered ON the strip's
-   own outer border line (half hanging past it into the open background,
-   half over the strip) rather than sitting flush inside it, the same
-   straddle-the-line trick the previous card-edge design used against the
-   card's own border. Sized generously (26px) since a small hitbox was
-   the whole complaint -- easier to land the cursor on than the row's
-   actual pixel height would otherwise allow. Centered on its row's
-   vertical midpoint (top set in JS to that midpoint, translateY(-50%)
-   here). */
+/* the per-contact drag handle -- a round dot, centered ON the card's OWN
+   border line (the seam where the colored segment capsule's outer edge
+   meets the card, not the strip's far outer edge) -- half over the
+   capsule/gray area, half over the card itself. Sized generously (26px)
+   since a small hitbox was the whole complaint -- easier to land the
+   cursor on than the row's actual pixel height would otherwise allow.
+   Centered on its row's vertical midpoint (top set in JS to that
+   midpoint, translateY(-50%) here). */
 .cardEdgeHandles .rowGrip{position:absolute; width:26px; height:26px; transform:translateY(-50%); border-radius:50%; background:#fff; border:1.5px solid #999; box-shadow:0 1px 3px rgba(0,0,0,.25); cursor:grab; user-select:none;}
 .cardEdgeHandles .rowGrip:hover{border-color:#0080ff; box-shadow:0 1px 4px rgba(0,128,255,.4);}
 .cardEdgeHandles .rowGrip:active{cursor:grabbing;}
-.cardEdgeHandles.side-left .rowGrip{left:-13px;}
-.cardEdgeHandles.side-right .rowGrip{right:-13px;}
+.cardEdgeHandles.side-left .rowGrip{right:-13px;}
+.cardEdgeHandles.side-right .rowGrip{left:-13px;}
 
 /* a second "ta bort" drop target beside the card (see wireCardRemoveZone)
    -- only meaningful in single view, where the edge handles are; "Alla"
