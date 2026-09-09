@@ -858,10 +858,6 @@ function rowsToContacts(rows){
 function blankPage(layout, contacts){
   return { layout:layout, contacts:contacts||[], emptyMode:"blank", image:null, headerColor:"#000000" };
 }
-function emptyFillerPage(){
-  return { layout:"empty", contacts:[], emptyMode:"rows", image:null, headerColor:"#000000" };
-}
-
 /* packs contacts into as few `capacity`-sized bins as possible WITHOUT
    splitting a department across two, unless the department itself is
    bigger than one page (then it's chunked into capacity-sized pieces --
@@ -904,7 +900,7 @@ function regeneratePages(){
   var capacity = layoutRows(DEFAULT_LAYOUT);
   var pages = packContactsIntoPages(state.contacts, capacity).map(function(c){ return blankPage(DEFAULT_LAYOUT, c); });
   if(pages.length && pages.length % 2 !== 0){
-    pages.push(emptyFillerPage());
+    pages.push(blankPage(DEFAULT_LAYOUT));
   }
   state.pages = pages;
 }
@@ -940,7 +936,7 @@ function reflowFromPage(index){
     idx++;
   }
   if(state.pages.length % 2 !== 0){
-    state.pages.push(emptyFillerPage());
+    state.pages.push(blankPage(DEFAULT_LAYOUT));
   }
 }
 
@@ -2624,7 +2620,7 @@ function moveMatchingToNewPage(fromPage, matches){
   var newIndex = state.pages.length;
   state.pages.push(blankPage(DEFAULT_LAYOUT, moving));
   reflowFromPage(newIndex);
-  if(state.pages.length % 2 !== 0) state.pages.push(emptyFillerPage());
+  if(state.pages.length % 2 !== 0) state.pages.push(blankPage(DEFAULT_LAYOUT));
   renderViewer();
 }
 /* drop target: takes every matching contact off the page it's on (or,
