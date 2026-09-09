@@ -29,15 +29,21 @@ label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
    through any scrolling in "View: All" mode. */
 main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; background:#e6e6e6;}
 #viewerContent{position:absolute; inset:0;}
-/* padding-top reserves the same clearance as "View: All" below (see its
-   own comment) -- without it, a short viewport centers the card pair high
-   enough for its own "Kort N Sida M" label (which sits just above the
-   card) to end up directly under #viewerNav, hidden behind its buttons */
-#viewerWrap.mode-single #viewerContent{display:flex; align-items:center; justify-content:center; padding-top:72px;}
+/* padding-top reserves clearance below #viewerNav (see "View: All" below
+   for why) -- without it, a short viewport centers the card pair high
+   enough for its own "Sida N" label (which sits just above the card) to
+   end up directly under #viewerNav, hidden behind its buttons.
+   padding-bottom gives the card some breathing room of its own at the
+   bottom of the viewer, in the on-screen card view specifically (this is
+   just layout padding around the preview -- it has nothing to do with
+   the print grid's own margins, which stay perfectly centered, see
+   blockOriginMm) -- otherwise the top padding alone leaves it sitting
+   with noticeably less room below than above. */
+#viewerWrap.mode-single #viewerContent{display:flex; align-items:center; justify-content:center; padding:72px 24px 32px;}
 /* top padding is wider than the rest so scrolled-up page content never
    passes underneath #viewerNav -- it's pinned to this same corner and
    would otherwise sit on top of (and block) that page's own controls */
-#viewerWrap.mode-all #viewerContent{overflow-y:auto; padding:72px 24px 24px;}
+#viewerWrap.mode-all #viewerContent{overflow-y:auto; padding:72px 24px 32px;}
 
 #viewerNav{position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:10; display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.94); padding:6px 8px; border-radius:6px; box-shadow:0 1px 5px rgba(0,0,0,.3);}
 #viewerNav button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
@@ -278,13 +284,6 @@ const DIVIDER_WIDTH_MM = 0.1;  /* row divider line weight */
 const CARD_W_MM = 53.98; /* ISO/IEC 7810 ID-1 credit card -- always the VERTICAL shape */
 const CARD_H_MM = 85.60;
 const MARGIN_MM = 10;    /* printer-unsafe border kept clear on every edge */
-/* the tiled card block is otherwise centered exactly (equal leftover space
-   on every side, split evenly) -- this shifts that block up by half this
-   amount, handing the same amount back to the bottom margin instead of the
-   top, per request. Only ever borrows from the top's own leftover space
-   (see blockOriginMm), so it can't push cards past the printer-safe
-   MARGIN_MM. */
-const EXTRA_BOTTOM_MARGIN_MM = 6;
 
 const PAPER_SIZES = {
   A3: { label:"A3", wMM:297, hMM:420 },
@@ -423,18 +422,13 @@ function gridForDims(pageDims, cardDims){
 }
 
 /* top-left corner (mm, relative to the page) of the tiled card block --
-   horizontally centered exactly, vertically centered but nudged up by
-   half of EXTRA_BOTTOM_MARGIN_MM so the bottom margin ends up that much
-   bigger than the top one instead of the two being equal. Never borrows
-   more than the top's own leftover space has to give, so cards can never
-   cross the printer-safe MARGIN_MM. Shared by every place that tiles
-   cards onto a page (the real print grid and the "empty rutnät" outline
-   grid), so both stay visually consistent. */
+   centered exactly: equal leftover space left/right, equal leftover space
+   top/bottom (the two axes need not match each other, just each side of
+   its own axis) -- printed output must stay perfectly centered. Shared by
+   every place that tiles cards onto a page (the real print grid and the
+   "empty rutnät" outline grid), so both stay visually consistent. */
 function blockOriginMm(pageDims, blockWmm, blockHmm){
-  var xmm = (pageDims.w - blockWmm) / 2;
-  var symmetricYmm = (pageDims.h - blockHmm) / 2;
-  var ymm = Math.max(MARGIN_MM, symmetricYmm - EXTRA_BOTTOM_MARGIN_MM/2);
-  return { x:xmm, y:ymm };
+  return { x:(pageDims.w - blockWmm) / 2, y:(pageDims.h - blockHmm) / 2 };
 }
 
 /* the card orientation is chosen per-page (via that page's layout); the
@@ -1835,12 +1829,23 @@ function currentPageDims(index){
    tighter. Shared by fitPagePair (applies it directly) and "Vy: Alla"
    (uses it as a hard cap -- see renderViewer/refreshAllViewCap -- so a
    card in the grid can never render bigger than it would alone). */
+/* must match #viewerContent's own padding-top/padding-bottom in the CSS
+   (mode-single and mode-all both use the same values) -- ch below
+   reserves exactly that much real vertical space instead of a blanket
+   percentage, so the fitted card actually fills the space between them
+   with no extra centering slack left over. Without that, flex centering
+   only ever reallocates slack between top/bottom in proportion to the
+   padding difference, which is too subtle to read as "the bottom has
+   more room" -- reserving the exact space makes each padding value the
+   real, visible gap. */
+var VIEWER_NAV_CLEARANCE_PX = 72;
+var VIEWER_BOTTOM_MARGIN_PX = 32;
 function singleCardFitPx(pageIndex){
   var wrap = $("#viewerContent");
   var dims = pageGeometryForIndex(pageIndex).cardDims;
   var gapPx = 24;
   var cw = (wrap.clientWidth * 0.92 - gapPx) / 2;
-  var ch = wrap.clientHeight * 0.92;
+  var ch = wrap.clientHeight - VIEWER_NAV_CLEARANCE_PX - VIEWER_BOTTOM_MARGIN_PX;
   var scale = Math.min(cw/dims.w, ch/dims.h);
   return { w: dims.w*scale, h: dims.h*scale };
 }
