@@ -66,6 +66,32 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 .cardRowHighlight{position:absolute; left:0; right:0; background:rgba(0,128,255,.22); border-top:2px solid #0080ff; border-bottom:2px solid #0080ff; pointer-events:none; z-index:5;}
 .cardRowHighlight[hidden]{display:none;}
 
+/* the edge handles strip (see buildCardEdgeHandles) -- align-self:stretch
+   (the default; .pagePair sets no align-items) makes it exactly as tall
+   as the card next to it, with no explicit height needed, since .page's
+   own height is set in JS (fitPagePair) and this is just another flex
+   child in the same row. side-left/side-right only swap which edge of
+   the strip the capsule vs. the grip sit against, so both strips keep
+   their capsule closest to the card they belong to and their grip
+   furthest out, regardless of which side of the pair they're on. */
+.cardEdgeHandles{position:relative; width:34px; flex:0 0 auto;}
+.cardEdgeHandles .segmentCapsule{position:absolute; width:22px; border-radius:8px; color:#fff; font-size:9px; font-weight:bold; line-height:1.1; display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none;}
+.cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
+.cardEdgeHandles.side-left .segmentCapsule{right:0;}
+.cardEdgeHandles.side-right .segmentCapsule{left:0;}
+.cardEdgeHandles .rowGrip{position:absolute; width:16px; display:flex; align-items:center; justify-content:center; border-radius:50%; background:#fff; border:1px solid #999; font-size:10px; line-height:1; color:#888; cursor:grab; user-select:none;}
+.cardEdgeHandles .rowGrip:hover{border-color:#0080ff; color:#0080ff;}
+.cardEdgeHandles .rowGrip:active{cursor:grabbing;}
+.cardEdgeHandles.side-left .rowGrip{left:0;}
+.cardEdgeHandles.side-right .rowGrip{right:0;}
+
+/* a second "ta bort" drop target beside the card (see wireCardRemoveZone)
+   -- only meaningful in single view, where the edge handles are; "Alla"
+   still relies on the sidebar's own delete zone only. */
+#cardRemoveZone{position:absolute; left:12px; bottom:12px; z-index:10; padding:8px 12px; font-size:12px; text-align:center; border:2px dashed #aaa; border-radius:6px; color:#666; background:rgba(255,255,255,.94); transition:background-color .1s, border-color .1s;}
+#cardRemoveZone.dragOver{background:#fde4e4; border-color:#c00; color:#c00;}
+#viewerWrap.mode-all #cardRemoveZone{display:none;}
+
 /* always shown as a front+back pair -- pages are printed in pairs (see
    partnerPageIndex), so there's never a reason to view one side alone */
 /* justify-content:center matters once .mode-all .page's max-width caps a
@@ -231,6 +257,10 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
     </div>
     <div id="viewerContent"></div>
     <div id="emptyViewerOverlay" hidden></div>
+    <!-- a second "remove from page" target, right by the card in single
+         view, for a contact/segment dragged off the card's own edge
+         handles (see wireCardRemoveZone) -- CSS hides it in "Alla". -->
+    <div id="cardRemoveZone" title="Dra hit för att ta bort från sidan">✕ Ta bort</div>
   </main>
 </div>
 
@@ -1943,9 +1973,14 @@ function buildPageEl(index){
    that's the actual physical unit -- pages are always printed in pairs
    (see partnerPageIndex). frontIndex is always even. */
 function buildPagePairEl(frontIndex){
+  var backIndex = partnerPageIndex(frontIndex);
   var pair = el("div", { class:"pagePair", "data-index":String(frontIndex) });
+  /* edge handles only in single view -- see buildCardEdgeHandles; "Alla"
+     shows every pair as a small thumbnail, no room to drag a handle on */
+  if(state.viewMode === "single") pair.appendChild(buildCardEdgeHandles(frontIndex, "left"));
   pair.appendChild(buildPageEl(frontIndex));
-  pair.appendChild(buildPageEl(partnerPageIndex(frontIndex)));
+  pair.appendChild(buildPageEl(backIndex));
+  if(state.viewMode === "single") pair.appendChild(buildCardEdgeHandles(backIndex, "right"));
   return pair;
 }
 
@@ -1953,7 +1988,11 @@ function buildPagePairEl(frontIndex){
    a single row even though it's two printed lines) a client Y coordinate
    falls on for a given canvas -- shared by the dragover highlight and the
    drop handler so they always agree on the same row. Returns null for a
-   page with nothing to drop onto (no data yet, or "empty" layout). */
+   page with nothing to drop onto (no data yet, or "empty" layout).
+   belowMidpoint says whether the point falls in the row's bottom half
+   (used to decide insertAfter for a reorder landing on an occupied row,
+   the same "top half/bottom half" convention wireReorderTarget already
+   uses for v10's own sidebar reorder list). */
 function cardRowGeometry(canvas, index, clientY){
   var pageState = state.pages[index];
   if(!pageState || pageState.layout === "empty") return null;
@@ -1967,14 +2006,127 @@ function cardRowGeometry(canvas, index, clientY){
   if(rect.height <= 0) return null;
   var yPx = ((clientY - rect.top) / rect.height) * hPx;
   var idx = Math.max(0, Math.min(capacity - 1, Math.floor((yPx - bodyY) / rowH)));
-  return { idx: idx, topFrac: (bodyY + idx*rowH) / hPx, hFrac: rowH / hPx };
+  var rowTopPx = bodyY + idx*rowH;
+  return { idx: idx, topFrac: rowTopPx / hPx, hFrac: rowH / hPx, belowMidpoint: (yPx - rowTopPx) > rowH/2 };
+}
+
+/* same header/row-height math as cardRowGeometry and getEditableRegions,
+   but expressed as plain fractions (0..1) of the card's own height,
+   independent of any actual pixel size -- used to position the edge
+   handles (see buildCardEdgeHandles), which are sized by CSS/flex
+   stretch rather than a canvas pixel height. */
+function rowFractionsForLayout(layout){
+  var capacity = layoutRows(layout.key);
+  if(capacity <= 0) return { headerFrac:0, rowFrac:0, capacity:0 };
+  var hUnit = 1000; /* computeHeaderH is a pure ratio of hPx, so any unit works */
+  var headerH = computeHeaderH(hUnit, layout);
+  return { headerFrac: headerH/hUnit, rowFrac: (hUnit-headerH)/hUnit/capacity, capacity: capacity };
+}
+
+/* one contiguous run of same-department rows within a page's own contact
+   order -- e.g. if Sales sits at rows 3-5 with IT at rows 0-2 and 6-8,
+   this returns three segments (IT, Sales, IT again), not two -- the
+   repeat is exactly the thing the segment capsules (see
+   buildCardEdgeHandles) are meant to make visible via a shared color. */
+function contiguousDeptSegments(contacts){
+  var segments = [];
+  contacts.forEach(function(c, i){
+    var key = deptGroupKey(c.department);
+    var last = segments[segments.length-1];
+    if(last && last.key === key) last.length++;
+    else segments.push({ key:key, label:deptDisplayLabel(c.department), startIdx:i, length:1 });
+  });
+  return segments;
+}
+
+/* moves one contact already on this page to sit right where a drag
+   landed -- reuses reorderWithinPage (the same function the v10 sidebar
+   list already reorders with), just computing its target/insertAfter
+   from a card row instead of a list row. targetContact is null when the
+   drop landed past the last real contact (an empty trailing row), which
+   reorderWithinPage has no target for -- treated as "move to the end". */
+function reorderContactOnCard(pageIndex, contactId, targetContact, insertAfter){
+  if(targetContact){ reorderWithinPage(pageIndex, contactId, targetContact.id, insertAfter); return; }
+  var contacts = contactsForPage(state.pages[pageIndex] || {});
+  var last = contacts[contacts.length-1];
+  if(!last || last.id === contactId) return;
+  reorderWithinPage(pageIndex, contactId, last.id, true);
+}
+
+/* same idea as reorderContactOnCard, but for a whole segment (a
+   contiguous block, see contiguousDeptSegments) dragged by its capsule
+   handle -- there's no existing shared helper for this (reorderWithinPage
+   only ever moves one contact), so this is its own splice-out/splice-in.
+   Segments are only ever dragged within their own page (see
+   wireCardDropTarget), so pageIndex always matches where startIdx/length
+   were computed from. */
+function reorderSegmentOnCard(pageIndex, startIdx, length, targetContact, insertAfter){
+  var pageState = state.pages[pageIndex];
+  if(!pageState) return;
+  var contacts = pageState.contacts;
+  if(startIdx < 0 || startIdx+length > contacts.length) return;
+  var block = contacts.slice(startIdx, startIdx+length);
+  if(targetContact && block.some(function(c){ return c.id === targetContact.id; })) return; /* dropped on itself */
+  var rest = contacts.slice(0, startIdx).concat(contacts.slice(startIdx+length));
+  var insertAt;
+  if(!targetContact){
+    insertAt = rest.length;
+  } else {
+    var targetIdx = rest.findIndex(function(c){ return c.id === targetContact.id; });
+    if(targetIdx === -1) return;
+    insertAt = insertAfter ? targetIdx+1 : targetIdx;
+  }
+  pageState.contacts = rest.slice(0, insertAt).concat(block, rest.slice(insertAt));
+  renderViewer();
+}
+
+/* a NEW contact/group landing on a card (as opposed to a same-page
+   reorder, see reorderContactOnCard/reorderSegmentOnCard) is only
+   accepted if it actually fits -- unlike every other drop target in this
+   app, which cascades overflow onto the following pages (see
+   reflowFromPage), dropping onto the card itself refuses outright once
+   it's full, per request: pull something off first (see
+   wireCardRemoveZone) rather than silently bumping it onto another page. */
+function dropContactOntoCard(fromPage, toIndex, contactId, atRow){
+  var toPage = state.pages[toIndex];
+  if(!toPage) return;
+  if(toPage.contacts.length >= layoutRows(toPage.layout)){
+    setStatus("Sidan är full -- dra bort en kontakt (nedre vänstra hörnet) innan du lägger till fler.");
+    return;
+  }
+  moveMatchingBetweenPagesAt(fromPage, toIndex, contactMatcher(contactId), atRow);
+}
+function dropGroupOntoCard(fromPage, toIndex, groupKey, atRow){
+  var toPage = state.pages[toIndex];
+  if(!toPage) return;
+  var alreadyHere = toPage.contacts.filter(groupMatcher(groupKey)).length;
+  var groupSize = state.contacts.filter(groupMatcher(groupKey)).length;
+  if(toPage.contacts.length - alreadyHere + groupSize > layoutRows(toPage.layout)){
+    setStatus("Gruppen får inte plats på den här sidan -- dra bort någon (nedre vänstra hörnet) innan du lägger till fler.");
+    return;
+  }
+  moveMatchingBetweenPagesAt(fromPage, toIndex, groupMatcher(groupKey), atRow);
+}
+
+/* unassigns a whole dragged segment (see reorderSegmentOnCard) from its
+   page in one go -- dropped onto #cardRemoveZone. Contacts are never
+   deleted, only unplaced, same as every other removal in this app. */
+function removeSegmentFromPage(pageIndex, startIdx, length){
+  var pageState = state.pages[pageIndex];
+  if(!pageState) return;
+  if(startIdx < 0 || startIdx+length > pageState.contacts.length) return;
+  pageState.contacts = pageState.contacts.slice(0, startIdx).concat(pageState.contacts.slice(startIdx+length));
+  renderViewer();
 }
 
 /* lets a group/contact tile dragged from the sidebar's "Dra till kortet"
    pool be dropped directly onto a row of the card itself, landing
    exactly there via moveMatchingBetweenPagesAt instead of always
-   appending. Only active in "Ett kort" view -- in "Alla" the cards are
-   thumbnails, too small to target a row on. */
+   appending. Also accepts a drag started on the card's OWN edge handles
+   (see buildCardEdgeHandles) -- same MIME, "contact"/"segment" payloads
+   carrying fromPage -- and reorders in place instead, when the drag and
+   drop are on the same page. Only active in "Ett kort" view -- in "Alla"
+   the cards are thumbnails, too small to target a row on. */
 function wireCardDropTarget(canvas, highlight, index){
   canvas.addEventListener("dragover", function(e){
     if(state.viewMode !== "single") return;
@@ -1996,9 +2148,96 @@ function wireCardDropTarget(canvas, highlight, index){
     var raw = e.dataTransfer.getData(PANEL_DRAG_MIME);
     if(!raw) return;
     var data = JSON.parse(raw);
+    var targetContact = contactsForPage(state.pages[index])[geom.idx] || null;
+
+    if(data.type === "segment"){
+      if(data.fromPage !== index) return; /* segments only ever move within their own page */
+      reorderSegmentOnCard(index, data.startIdx, data.length, targetContact, geom.belowMidpoint);
+      return;
+    }
+    if(data.type === "contact" && data.fromPage === index){
+      reorderContactOnCard(index, data.contactId, targetContact, geom.belowMidpoint);
+      return;
+    }
     handlePanelDrop(data,
-      function(fromPage, groupKey){ moveMatchingBetweenPagesAt(fromPage, index, groupMatcher(groupKey), geom.idx); },
-      function(fromPage, contactId){ moveMatchingBetweenPagesAt(fromPage, index, contactMatcher(contactId), geom.idx); });
+      function(fromPage, groupKey){ dropGroupOntoCard(fromPage, index, groupKey, geom.idx); },
+      function(fromPage, contactId){ dropContactOntoCard(fromPage, index, contactId, geom.idx); });
+  });
+}
+
+/* the two-level edge handles standing directly against the card in
+   single view: a small grip per contact (drag to move it within this
+   page) and a colored capsule per contiguous same-department run (drag
+   to move that whole block within this page) -- see
+   contiguousDeptSegments/reorderContactOnCard/reorderSegmentOnCard.
+   `side` ("left"/"right") only changes which edge of the strip the
+   capsule vs. the grip sit against (see the CSS) -- the strip itself
+   always sits OUTSIDE its own card (left of the front card, right of
+   the back one), never in the gap between the pair.
+   Not shown for a chain-driven v10 page: its order comes from the
+   chain/chainOrder, already reorderable from the sidebar's own numbered
+   list, not pageState.contacts -- a second, different-looking reorder
+   UI for the same list would just be confusing. */
+function buildCardEdgeHandles(pageIndex, side){
+  var strip = el("div", { class:"cardEdgeHandles side-" + side });
+  var pageState = state.pages[pageIndex];
+  if(!pageState || pageState.layout === "empty") return strip;
+  if(pageState.layout === "v10" && pageState.chain) return strip;
+  var layout = pageGeometryForIndex(pageIndex).layout;
+  var geo = rowFractionsForLayout(layout);
+  if(geo.capacity <= 0) return strip;
+  var contacts = contactsForPage(pageState);
+
+  var deptOrder = computeDepartmentGroups().map(function(g){ return g.key; });
+  function colorForKey(key){
+    var idx = deptOrder.indexOf(key);
+    return COLOR_PRESETS[(idx === -1 ? 0 : idx) % COLOR_PRESETS.length].hex;
+  }
+
+  contiguousDeptSegments(contacts).forEach(function(seg){
+    var capsule = el("div", { class:"segmentCapsule", draggable:"true", text:seg.label,
+      title:seg.label + " -- dra för att flytta hela gruppen inom sidan" });
+    capsule.style.background = colorForKey(seg.key);
+    capsule.style.top = ((geo.headerFrac + seg.startIdx*geo.rowFrac) * 100) + "%";
+    capsule.style.height = ((seg.length*geo.rowFrac) * 100) + "%";
+    wireDragStart(capsule, { type:"segment", fromPage:pageIndex, startIdx:seg.startIdx, length:seg.length });
+    strip.appendChild(capsule);
+  });
+
+  contacts.forEach(function(c, i){
+    var grip = el("div", { class:"rowGrip", draggable:"true", text:"≡",
+      title:c.name + " -- dra för att flytta inom sidan" });
+    grip.style.top = ((geo.headerFrac + i*geo.rowFrac) * 100) + "%";
+    grip.style.height = (geo.rowFrac * 100) + "%";
+    wireDragStart(grip, { type:"contact", fromPage:pageIndex, contactId:c.id });
+    strip.appendChild(grip);
+  });
+
+  return strip;
+}
+
+/* a second "remove from page" drop target, right next to the card in
+   single view -- the sidebar's own "Ta bort från sida" zone still works
+   too (same handlePanelDrop/removeGroupFromPage/removeContactFromPage),
+   this just saves the trip back to it while dragging a contact/segment
+   straight off the card. Bottom-left of the viewer, per request. */
+function wireCardRemoveZone(zone){
+  zone.addEventListener("dragover", function(e){
+    if(state.viewMode !== "single") return;
+    if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
+    e.preventDefault();
+    zone.classList.add("dragOver");
+  });
+  zone.addEventListener("dragleave", function(){ zone.classList.remove("dragOver"); });
+  zone.addEventListener("drop", function(e){
+    zone.classList.remove("dragOver");
+    if(state.viewMode !== "single") return;
+    e.preventDefault();
+    var raw = e.dataTransfer.getData(PANEL_DRAG_MIME);
+    if(!raw) return;
+    var data = JSON.parse(raw);
+    if(data.type === "segment"){ removeSegmentFromPage(data.fromPage, data.startIdx, data.length); return; }
+    handlePanelDrop(data, removeGroupFromPage, removeContactFromPage);
   });
 }
 
@@ -2186,6 +2425,7 @@ function initEvents(){
   $("#prevBtn").addEventListener("click", goPrev);
   $("#nextBtn").addEventListener("click", goNext);
   $("#printBtn").addEventListener("click", doPrint);
+  wireCardRemoveZone($("#cardRemoveZone"));
   /* Ctrl+P (Cmd+P on Mac) must go through doPrint() too, not the browser's
      own print of whatever's on screen -- the visible viewer is a live
      editor (one card at a time, edit overlays, etc), not the print layout;
