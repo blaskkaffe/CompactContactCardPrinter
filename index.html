@@ -46,16 +46,23 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 /* always shown as a front+back pair -- pages are printed in pairs (see
    partnerPageIndex), so there's never a reason to view one side alone */
 .pagePair{display:flex; gap:12px;}
-/* responsive: as many pairs fit per row as the window allows, up to 3 --
-   each pair is a fixed-width 2-card block that always stays together,
-   never splitting its front/back across a row wrap */
-.pagesAll{display:grid; grid-template-columns:repeat(auto-fill, 252px); justify-content:center; gap:24px; max-width:804px; margin:0 auto;}
+/* responsive, capped at 3 per row -- each column's minimum is whichever
+   is larger: a fixed readability floor, or exactly a third of the
+   available width. The 1/3 minimum is what actually enforces the cap
+   (a 4th column would need less than a third, which never satisfies
+   its own minimum), and holds regardless of viewport width, unlike a
+   fixed max-width, which a flexible (1fr) column size can cheat past
+   by simply shrinking. auto-fit (not auto-fill) collapses unused
+   tracks when there are fewer than 3 pairs, so existing ones grow via
+   their 1fr share to fill the freed-up space instead of staying small
+   next to empty leftover track space. */
+.pagesAll{display:grid; grid-template-columns:repeat(auto-fit, minmax(max(160px, calc((100% - 48px)/3)), 1fr)); justify-content:center; gap:24px;}
 
 .page{background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.4); position:relative; flex:0 0 auto;}
 /* every card shares one physical size (CARD_W_MM/CARD_H_MM are global
    constants, and the only remaining orientation is vertical), so this is
    one fixed ratio rather than something computed per page */
-.mode-all .page{width:120px; aspect-ratio:53.98/85.6;}
+.mode-all .page{flex:1 1 0; min-width:0; aspect-ratio:53.98/85.6;}
 .page canvas{display:block; width:100%; height:100%;}
 
 /* sits just above the card, not on top of it -- the canvas now fills the
