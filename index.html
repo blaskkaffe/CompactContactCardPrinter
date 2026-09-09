@@ -58,6 +58,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    repeated on every card that would otherwise render */
 #emptyViewerOverlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:40px; font-size:18px; color:#999;}
 #emptyViewerOverlay[hidden]{display:none;}
+#emptyViewerOverlay.dragOver{background:#dff0ff; color:#0060c0;}
 
 /* the row-boundary line a drag is currently over, showing exactly where
    the dragged contact would land -- see cardRowGeometry/wireCardDropTarget.
@@ -184,7 +185,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .groupTile.placed, #groupPanel .contactChip.placed{border-color:#c98a2e; background:#fff8ee;}
 #groupPanel .groupTileNameRow{display:flex; align-items:center; gap:3px; min-width:0;}
 #groupPanel .groupTileName{font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;}
-#groupPanel .groupTileCount{color:#777; margin-top:1px;}
+#groupPanel .groupTileCount{color:#777; flex:none; white-space:nowrap; font-size:10px;}
 #groupPanel .groupTile.placed .groupTileCount{color:#a60;}
 #groupPanel .groupTileToggle{cursor:pointer; color:#888; font-size:9px; flex:none; user-select:none; padding:0 1px;}
 #groupPanel .groupTileToggle:hover{color:#333;}
@@ -2438,6 +2439,10 @@ function initEvents(){
   $("#nextBtn").addEventListener("click", goNext);
   $("#printBtn").addEventListener("click", doPrint);
   wireCardRemoveZone($("#cardRemoveZone"));
+  /* dropping a group/contact on the empty-viewer overlay (shown only when
+     state.pages is empty) creates the first page, same as "+ Ny sida" --
+     otherwise there's nowhere on screen yet to drop onto. */
+  wireDropTarget($("#emptyViewerOverlay"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage); });
   /* Ctrl+P (Cmd+P on Mac) must go through doPrint() too, not the browser's
      own print of whatever's on screen -- the visible viewer is a live
      editor (one card at a time, edit overlays, etc), not the print layout;
@@ -2843,8 +2848,8 @@ function renderGroupPanel(){
       renderGroupPanel();
     }));
     nameRow.appendChild(el("span", { class:"groupTileName", text:g.label }));
+    nameRow.appendChild(el("span", { class:"groupTileCount", text:g.contacts.length + (placed ? " · s" + pageNums.join(",") : "") }));
     tile.appendChild(nameRow);
-    tile.appendChild(el("div", { class:"groupTileCount", text:g.contacts.length + (placed ? " · s" + pageNums.join(",") : "") }));
     /* fromPage:null marks this as a drag from the unplaced-pool grid
        (as opposed to a specific page's chip) -- see takeGroup() */
     wireDragStart(tile, { type:"group", fromPage:null, groupKey:g.key });
