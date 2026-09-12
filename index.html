@@ -704,118 +704,87 @@ function parseCSV(text){
   return rows.filter(function(r){ return r.length>1 || (r[0]||"").trim()!==""; });
 }
 
-/* ---------------- XLSX parsing (no libraries: native unzip + XML) ---------------- */
+/* ---------------- XLSX parsing (no libraries: minimal targeted unzip) ----------------
+   .xlsx is a zip of XML parts, but only two of them ever matter here: the
+   shared-strings table and the lowest-numbered worksheet. readXlsxParts
+   walks the zip's central directory ONCE and decompresses just those two
+   entries -- styles.xml, theme/*, docProps/*, calcChain.xml etc are real
+   parts of any Excel-written file but are never even looked at, let alone
+   unpacked, the way a generic unzip-everything approach would. */
 function colLetterToIndex(ref){
-  var m = /^([A-Z]+)/i.exec(ref);
-  if(!m) return 0;
-  var letters = m[1].toUpperCase(), idx = 0;
-  for(var i=0;i<letters.length;i++) idx = idx*26 + (letters.charCodeAt(i)-64);
+  var m = /^([A-Z]+)/i.exec(ref), idx = 0;
+  if(m) for(var i=0;i<m[1].length;i++) idx = idx*26 + (m[1].toUpperCase().charCodeAt(i)-64);
   return idx-1;
 }
-
 async function inflateRaw(bytes){
-  var ds = new DecompressionStream("deflate-raw");
-  var stream = new Blob([bytes]).stream().pipeThrough(ds);
+  var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
-
-async function readZipXmlEntries(buf){
-  var view = new DataView(buf);
-  var len = buf.byteLength;
-  var eocdOffset = -1;
-  var scanFrom = Math.max(0, len - 65557);
-  for(var i=len-22; i>=scanFrom; i--){
-    if(view.getUint32(i, true) === 0x06054b50){ eocdOffset = i; break; }
+async function readXlsxParts(buf){
+  var view = new DataView(buf), len = buf.byteLength, eocd = -1;
+  for(var i=len-22; i>=Math.max(0,len-65557); i--){
+    if(view.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
   }
-  if(eocdOffset === -1) throw new Error("Not a valid .xlsx (zip) file");
-  var totalEntries = view.getUint16(eocdOffset+10, true);
-  var offset = view.getUint32(eocdOffset+16, true);
-
-  var entries = [];
-  for(var e=0; e<totalEntries; e++){
+  if(eocd === -1) throw new Error("Not a valid .xlsx (zip) file");
+  var count = view.getUint16(eocd+10, true), offset = view.getUint32(eocd+16, true);
+  var parts = {}, sheetNum = Infinity;
+  for(var e=0; e<count; e++){
     if(view.getUint32(offset, true) !== 0x02014b50) break;
-    var compressionMethod = view.getUint16(offset+10, true);
-    var compressedSize = view.getUint32(offset+20, true);
-    var fileNameLen = view.getUint16(offset+28, true);
-    var extraLen = view.getUint16(offset+30, true);
-    var commentLen = view.getUint16(offset+32, true);
-    var localHeaderOffset = view.getUint32(offset+42, true);
-    var name = new TextDecoder("utf-8").decode(new Uint8Array(buf, offset+46, fileNameLen));
-    entries.push({ name:name, compressionMethod:compressionMethod, compressedSize:compressedSize, localHeaderOffset:localHeaderOffset });
-    offset += 46 + fileNameLen + extraLen + commentLen;
+    var method = view.getUint16(offset+10, true), size = view.getUint32(offset+20, true),
+        nameLen = view.getUint16(offset+28, true), extraLen = view.getUint16(offset+30, true),
+        commentLen = view.getUint16(offset+32, true), localOffset = view.getUint32(offset+42, true);
+    var name = new TextDecoder().decode(new Uint8Array(buf, offset+46, nameLen));
+    var sheetMatch = /^xl\/worksheets\/sheet(\d+)\.xml$/.exec(name);
+    /* numeric comparison, not the previous alphabetical Object.keys().sort()
+       -- "sheet10.xml" sorts before "sheet2.xml" as a STRING, which used to
+       pick the wrong sheet on any workbook with 10+ sheets */
+    var wanted = name === "xl/sharedStrings.xml" ? "sharedStrings" : (sheetMatch && +sheetMatch[1] < sheetNum) ? "sheet" : null;
+    if(wanted && view.getUint32(localOffset, true) === 0x04034b50){
+      var lhNameLen = view.getUint16(localOffset+26, true), lhExtraLen = view.getUint16(localOffset+28, true);
+      var compBytes = new Uint8Array(buf, localOffset+30+lhNameLen+lhExtraLen, size);
+      var raw = method === 0 ? compBytes : method === 8 ? await inflateRaw(compBytes) : null;
+      if(raw){
+        parts[wanted] = new TextDecoder().decode(raw);
+        if(wanted === "sheet") sheetNum = +sheetMatch[1];
+      }
+    }
+    offset += 46 + nameLen + extraLen + commentLen;
   }
-
-  var result = {};
-  for(var k=0;k<entries.length;k++){
-    var info = entries[k];
-    if(!/\.xml$/.test(info.name)) continue;
-    var lh = info.localHeaderOffset;
-    if(view.getUint32(lh, true) !== 0x04034b50) continue;
-    var lhNameLen = view.getUint16(lh+26, true);
-    var lhExtraLen = view.getUint16(lh+28, true);
-    var dataStart = lh + 30 + lhNameLen + lhExtraLen;
-    var compBytes = new Uint8Array(buf, dataStart, info.compressedSize);
-    var outBytes;
-    if(info.compressionMethod === 0) outBytes = compBytes;
-    else if(info.compressionMethod === 8) outBytes = await inflateRaw(compBytes);
-    else continue;
-    result[info.name] = new TextDecoder("utf-8").decode(outBytes);
-  }
-  return result;
+  return parts;
 }
-
 function parseSharedStrings(xmlText){
   if(!xmlText) return [];
-  var doc = new DOMParser().parseFromString(xmlText, "application/xml");
-  var siNodes = doc.getElementsByTagName("si");
-  var out = [];
-  for(var i=0;i<siNodes.length;i++){
-    var texts = siNodes[i].getElementsByTagName("t");
-    var s = "";
-    for(var j=0;j<texts.length;j++) s += texts[j].textContent;
-    out.push(s);
-  }
-  return out;
+  var siNodes = new DOMParser().parseFromString(xmlText, "application/xml").getElementsByTagName("si");
+  return Array.from(siNodes, function(si){
+    return Array.from(si.getElementsByTagName("t"), function(t){ return t.textContent; }).join("");
+  });
 }
-
 function parseSheetToRows(xmlText, sharedStrings){
-  var doc = new DOMParser().parseFromString(xmlText, "application/xml");
-  var rowNodes = doc.getElementsByTagName("row");
-  var rows = [];
-  for(var r=0;r<rowNodes.length;r++){
-    var cellNodes = rowNodes[r].getElementsByTagName("c");
-    var rowArr = [];
-    for(var c=0;c<cellNodes.length;c++){
-      var cell = cellNodes[c];
-      var ref = cell.getAttribute("r") || "";
+  var rowNodes = new DOMParser().parseFromString(xmlText, "application/xml").getElementsByTagName("row");
+  return Array.from(rowNodes, function(rowNode){
+    var row = [];
+    Array.from(rowNode.getElementsByTagName("c")).forEach(function(cell, c){
+      var ref = cell.getAttribute("r");
       var idx = ref ? colLetterToIndex(ref) : c;
-      var type = cell.getAttribute("t");
-      var value = "";
+      var type = cell.getAttribute("t"), value;
       if(type === "inlineStr"){
         var isNode = cell.getElementsByTagName("is")[0];
-        if(isNode){
-          var ts = isNode.getElementsByTagName("t");
-          for(var t=0;t<ts.length;t++) value += ts[t].textContent;
-        }
+        value = isNode ? Array.from(isNode.getElementsByTagName("t"), function(t){ return t.textContent; }).join("") : "";
       } else {
         var vNode = cell.getElementsByTagName("v")[0];
         var raw = vNode ? vNode.textContent : "";
-        value = (type === "s") ? (sharedStrings[parseInt(raw,10)] || "") : raw;
+        value = type === "s" ? (sharedStrings[+raw] || "") : raw;
       }
-      while(rowArr.length < idx) rowArr.push("");
-      rowArr[idx] = value;
-    }
-    rows.push(rowArr);
-  }
-  return rows;
+      while(row.length < idx) row.push("");
+      row[idx] = value;
+    });
+    return row;
+  });
 }
-
 async function parseXLSX(arrayBuffer){
-  var xmlByName = await readZipXmlEntries(arrayBuffer);
-  var sheetName = Object.keys(xmlByName).sort().find(function(n){ return /^xl\/worksheets\/sheet\d+\.xml$/.test(n); });
-  if(!sheetName) throw new Error("Inget kalkylblad hittades i denna .xlsx-fil");
-  var sharedStrings = parseSharedStrings(xmlByName["xl/sharedStrings.xml"]);
-  return parseSheetToRows(xmlByName[sheetName], sharedStrings);
+  var parts = await readXlsxParts(arrayBuffer);
+  if(!parts.sheet) throw new Error("Inget kalkylblad hittades i denna .xlsx-fil");
+  return parseSheetToRows(parts.sheet, parseSharedStrings(parts.sharedStrings));
 }
 
 /* ---------------- rows -> contacts (shared by CSV and XLSX) ---------------- */
@@ -829,27 +798,14 @@ function headerIndex(headers, names){
 function rowsToContacts(rows){
   if(!rows.length) return [];
   var headers = rows[0];
-  var idx = {
-    name:       headerIndex(headers, IMPORT_HEADER_ALIASES.name),
-    firstName:  headerIndex(headers, IMPORT_HEADER_ALIASES.firstName),
-    lastName:   headerIndex(headers, IMPORT_HEADER_ALIASES.lastName),
-    department: headerIndex(headers, IMPORT_HEADER_ALIASES.department),
-    phone:      headerIndex(headers, IMPORT_HEADER_ALIASES.phone),
-    phone2:     headerIndex(headers, IMPORT_HEADER_ALIASES.phone2),
-    label1:     headerIndex(headers, IMPORT_HEADER_ALIASES.label1),
-    label2:     headerIndex(headers, IMPORT_HEADER_ALIASES.label2),
-    email:      headerIndex(headers, IMPORT_HEADER_ALIASES.email),
-    lists:      headerIndex(headers, IMPORT_HEADER_ALIASES.lists)
-  };
+  var idx = {};
+  Object.keys(IMPORT_HEADER_ALIASES).forEach(function(k){ idx[k] = headerIndex(headers, IMPORT_HEADER_ALIASES[k]); });
   var out = [];
   var nextId = 1; /* per-import contact identity, so a single contact (not just its department) can be dragged and tracked across pages -- also doubles as this contact's original row order, since it's assigned before sortContacts() reorders the array (see contactsForChain) */
   for(var r=1;r<rows.length;r++){
     var row = rows[r];
     var get = function(i){ return i===-1 || row[i]==null ? "" : String(row[i]).trim(); };
-    var name = get(idx.name);
-    if(!name){
-      name = (get(idx.firstName) + " " + get(idx.lastName)).trim();
-    }
+    var name = get(idx.name) || (get(idx.firstName) + " " + get(idx.lastName)).trim();
     if(!name) continue;
     var lists = get(idx.lists).split(",").map(function(s){ return s.trim(); }).filter(Boolean);
     out.push({
