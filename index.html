@@ -1001,9 +1001,12 @@ function buildDeptSummary(ctx, contacts, maxWidth){
 
 /* shared by both row-column formatters below: plain character cap with a
    dot-truncate marker, no pixel measurement involved (unlike truncateText,
-   which measures actual rendered width against a canvas font) */
+   which measures actual rendered width against a canvas font). One extra
+   character over the cap is let through untouched -- "Marke" fits in a
+   4-char department column just as well as "Mark" would've -- so the dot
+   only appears once a string actually needs cutting, at maxChars+1. */
 function capChars(s, maxChars){
-  return s.length > maxChars ? s.slice(0, maxChars) + "." : s;
+  return s.length > maxChars + 1 ? s.slice(0, maxChars) + "." : s;
 }
 
 /* department column: keep a leading chief marker ("C "/"C." etc) outside the
@@ -1083,10 +1086,16 @@ function maxFormattedPhoneWidth(ctx, dpi){
 /* the "middle" column (department, or a number-type label) is sized to
    its own worst-case capped content, not a share of the row -- it's the
    least important field, so it gets only as much room as it needs */
-function measureMiddleColWidth(ctx, dpi, fontPt, maxChars, hasChiefPrefix){
+function measureMiddleColWidth(ctx, dpi, fontPt, maxChars, hasChiefPrefix, allowOneOver){
   ctx.font = ptToPx(fontPt, dpi) + "px " + FONT_FAMILY;
-  var sample = (hasChiefPrefix ? "C " : "") + "0".repeat(maxChars) + ".";
-  return ctx.measureText(sample).width;
+  var prefix = hasChiefPrefix ? "C " : "";
+  var capped = ctx.measureText(prefix + "0".repeat(maxChars) + ".").width;
+  if(!allowOneOver) return capped;
+  /* content run through capChars can also be one character over the cap,
+     shown in full with no dot (see capChars) -- make sure the column is
+     wide enough for that case too, whichever measures wider */
+  var fits = ctx.measureText(prefix + "0".repeat(maxChars + 1)).width;
+  return Math.max(capped, fits);
 }
 
 /* name gets all the width the phone column and (if shown) the middle
@@ -1101,7 +1110,7 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
   var deptPhoneGap = gap * 0.5 + deptCharW;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
   var phoneCount = layout.phones;
-  var middleW = layout.showDept ? (measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, DEPT_MAX_CHARS, true) + pad*0.5) : 0;
+  var middleW = layout.showDept ? (measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, DEPT_MAX_CHARS, true, true) + pad*0.5) : 0;
   var totalGaps = layout.showDept ? (gap + deptPhoneGap) : gap;
   var nameW = Math.max(0, wPx - pad*2 - phoneW*phoneCount - middleW - totalGaps);
 
@@ -1141,10 +1150,11 @@ function layoutDoubleRowColumns(ctx, wPx, dpi, showLine2Label, showNumbers){
   var pad = mmToPx(CELL_PADDING_MM, dpi);
   var gap = pad/2;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
-  var middleW = measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, LABEL_MAX_CHARS, false) + pad*0.5;
+  var middleW = measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, LABEL_MAX_CHARS, false, true) + pad*0.5;
   /* "10." is the widest a v10 row number ever gets (capacity is fixed at
-     ROWS_V10) */
-  var numberW = showNumbers ? measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, 2, false) + pad*0.5 : 0;
+     ROWS_V10) -- allowOneOver is false here since row numbers are drawn
+     directly, never routed through capChars's one-over forgiveness */
+  var numberW = showNumbers ? measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, 2, false, false) + pad*0.5 : 0;
 
   var nameW = Math.max(0, wPx - numberW - pad*2 - phoneW - middleW - gap*2);
   var x1 = numberW + pad;
