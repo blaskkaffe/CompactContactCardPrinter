@@ -382,24 +382,6 @@ const PAPER_SIZES = {
   A5: { label:"A5", wMM:148, hMM:210 }
 };
 
-/* -- CSV/XLSX column header names recognized on import (case-insensitive) -- */
-const IMPORT_HEADER_ALIASES = {
-  name:       ["name","full name","fullname"],
-  firstName:  ["first name","firstname","first"],
-  lastName:   ["last name","lastname","last","surname"],
-  department: ["department","dept"],
-  phone:      ["phone","number","phone1","phone 1"],
-  phone2:     ["phone2","phone 2"],
-  label1:     ["label1","label 1","type1","type 1","number type"],
-  label2:     ["label2","label 2","type2","type 2"],
-  email:      ["email","e-mail"],
-  /* comma-separated tag(s) placing a contact on one or more "chained"
-     v10 lists -- independent of department, and orthogonal to it: a
-     contact keeps its normal department grouping for v20 AND can carry
-     any number of these tags for v10 (see pageState.chain). */
-  lists:      ["list","lists","chain","v10 list"]
-};
-
 /* -- card layout definitions --
    v10 is 10 CONTACTS, each spanning two printed lines:
      line 1: name             | label1 (number type, e.g. "Work") | phone1
@@ -679,7 +661,27 @@ function reorderWithinPage(pageIndex, contactId, targetId, insertAfter){
   renderViewer();
 }
 
-/* ---------------- CSV parsing ---------------- */
+/* ---------------- CSV/XLSX import ---------------- */
+/* column header names recognized on import (case-insensitive) -- lives
+   here rather than in CONFIG since it's read only by rowsToContacts,
+   below */
+const IMPORT_HEADER_ALIASES = {
+  name:       ["name","full name","fullname"],
+  firstName:  ["first name","firstname","first"],
+  lastName:   ["last name","lastname","last","surname"],
+  department: ["department","dept"],
+  phone:      ["phone","number","phone1","phone 1"],
+  phone2:     ["phone2","phone 2"],
+  label1:     ["label1","label 1","type1","type 1","number type"],
+  label2:     ["label2","label 2","type2","type 2"],
+  email:      ["email","e-mail"],
+  /* comma-separated tag(s) placing a contact on one or more "chained"
+     v10 lists -- independent of department, and orthogonal to it: a
+     contact keeps its normal department grouping for v20 AND can carry
+     any number of these tags for v10 (see pageState.chain). */
+  lists:      ["list","lists","chain","v10 list"]
+};
+
 function parseCSV(text){
   var rows = [], row = [], field = "", inQuotes = false;
   for(var i=0;i<text.length;i++){
