@@ -73,15 +73,25 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    instead of starting from it. */
 .cardRowHighlight{position:absolute; left:5%; right:5%; height:3px; transform:translateY(-50%); background:#0080ff; border-radius:2px; box-shadow:0 0 5px 1px rgba(0,128,255,.7); pointer-events:none; z-index:5;}
 .cardRowHighlight[hidden]{display:none;}
+/* the block a GROUP/segment drag would actually occupy -- shown behind
+   the thin line above (lower z-index) on every card the drag reaches,
+   not just the one under the cursor, so a cascade onto a later page is
+   visible there too -- see applyGroupDragHighlights. */
+.cardRowHighlightBlock{position:absolute; left:0; right:0; background:rgba(0,128,255,.18); border-top:2px solid rgba(0,128,255,.7); border-bottom:2px solid rgba(0,128,255,.7); pointer-events:none; z-index:4;}
+.cardRowHighlightBlock[hidden]{display:none;}
 
 /* the group-capsule strip (see buildCardEdgeHandles) -- align-self:stretch
    (the default; .pagePair sets no align-items) makes it exactly as tall
    as the card next to it. Per-contact dragging now happens directly on
    the card itself (see .page canvas, wireCardRowDrag), so this strip only
    holds the colored segment capsule, flush against the card as a tab
-   extending from it (only the outer corners rounded, per side below). */
-.cardEdgeHandles{position:relative; width:20px; flex:0 0 auto; z-index:3;}
-.cardEdgeHandles .segmentCapsule{position:absolute; width:20px; color:#fff; font-size:9px; font-weight:bold; line-height:1.1; display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none;}
+   extending from it (only the outer corners rounded, per side below).
+   Width and font-size are both in em, sized off font-size set on the
+   .pagePair ancestor (see scaleEdgeHandles) rather than a fixed px value,
+   so the same strip reads correctly at single view's full size and at
+   "Alla"'s smaller thumbnail size. */
+.cardEdgeHandles{position:relative; width:1.6em; flex:0 0 auto; z-index:3;}
+.cardEdgeHandles .segmentCapsule{position:absolute; width:1.6em; color:#fff; font-size:1em; font-weight:bold; line-height:1.1; display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none;}
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
 .cardEdgeHandles.side-left .segmentCapsule{right:0; border-radius:6px 0 0 6px;}
 .cardEdgeHandles.side-right .segmentCapsule{left:0; border-radius:0 6px 6px 0;}
@@ -1507,7 +1517,7 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts, line2Mode, sho
      exactly (the date only claims as much width as it needs). */
   ctx.font = ptToPx(HEADER_FONT_PT, dpi) + "px " + FONT_FAMILY;
   var dateW = ctx.measureText(new Date().toISOString().slice(0,10)).width + mmToPx(CELL_PADDING_MM, dpi)*2;
-  regions.push({ contactIndex:-1, field:"headerLegend", x:dateW, y:0, w:wPx-dateW, h:headerH });
+  regions.push({ contactIndex:-1, field:"headerLegend", x:dateW, y:0, w:wPx-dateW, h:headerH, pt:HEADER_FONT_PT });
   if(layout.doubleRow){
     var subRowH = bodyH / (capacity*2);
     var showLine2Label = line2Mode === "username";
@@ -1524,10 +1534,10 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts, line2Mode, sho
       var contact = contacts && contacts[i];
       var wideKey = contact ? pickLine2Field(contact, line2Mode).key : "email";
       var fieldsLine2 = showLine2Label ? [wideKey, "phone2Label", "phone2"] : [wideKey, "phone2"];
-      colSet.line1.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine1[ci], x:col.x, y:top1, w:col.w, h:subRowH }); });
+      colSet.line1.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine1[ci], x:col.x, y:top1, w:col.w, h:subRowH, pt:col.pt }); });
       colSet.line2.forEach(function(col, ci){
         if(fieldsLine2[ci] == null) return;
-        regions.push({ contactIndex:i, field:fieldsLine2[ci], x:col.x, y:top2, w:col.w, h:subRowH });
+        regions.push({ contactIndex:i, field:fieldsLine2[ci], x:col.x, y:top2, w:col.w, h:subRowH, pt:col.pt });
       });
     }
   } else {
@@ -1535,13 +1545,13 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts, line2Mode, sho
     var cols2 = layoutRowColumns(ctx, wPx, dpi, layout);
     for(var j=0;j<capacity;j++){
       var top = bodyY + rowH*j;
-      cols2.forEach(function(col){ regions.push({ contactIndex:j, field:col.key, x:col.x, y:top, w:col.w, h:rowH }); });
+      cols2.forEach(function(col){ regions.push({ contactIndex:j, field:col.key, x:col.x, y:top, w:col.w, h:rowH, pt:col.pt }); });
     }
   }
   return regions;
 }
 
-function openEditOverlay(pageEl, target, field, left, top, width, height, initialValue){
+function openEditOverlay(pageEl, target, field, left, top, width, height, initialValue, fontPx){
   var existing = pageEl.querySelector(".editOverlayInput");
   if(existing) existing.remove();
   var input = document.createElement("input");
@@ -1553,7 +1563,8 @@ function openEditOverlay(pageEl, target, field, left, top, width, height, initia
   input.style.top = top + "px";
   input.style.width = Math.max(width, 50) + "px";
   input.style.height = Math.max(height, 16) + "px";
-  input.style.font = "12px monospace";
+  input.style.fontFamily = FONT_FAMILY;
+  input.style.fontSize = (fontPx || 12) + "px";
   input.style.zIndex = "10";
   input.style.border = "2px solid #0080ff";
   input.style.padding = "0 2px";
@@ -1613,8 +1624,15 @@ function onCanvasClick(e, canvas, pageIndex){
   }
 
   var cssScale = rect.width / canvas.width;
+  /* the input's font must match the exact size the field is drawn at on
+     the card -- ptToPx converts the field's own point size to canvas-
+     internal pixels at RENDER_DPI, then cssScale shrinks that down the
+     same way the canvas itself is displayed smaller than its internal
+     resolution. Editing then looks like typing directly into the card,
+     not a differently-sized text box floating over it. */
+  var fontPx = ptToPx(hit.pt, RENDER_DPI) * cssScale;
   openEditOverlay(canvas.parentElement, target, hit.field,
-    hit.x*cssScale, hit.y*cssScale, hit.w*cssScale, hit.h*cssScale, initialValue);
+    hit.x*cssScale, hit.y*cssScale, hit.w*cssScale, hit.h*cssScale, initialValue, fontPx);
 }
 
 /* ---------------- print ---------------- */
@@ -1940,6 +1958,13 @@ function buildPageEl(index){
   var highlight = el("div", { class:"cardRowHighlight" });
   highlight.hidden = true;
   page.appendChild(highlight);
+  /* the wider block a GROUP/segment drag would actually occupy, shown
+     alongside the thin line above -- see applyGroupDragHighlights. Every
+     page gets one so a cascade reaching this page (even when it's not
+     the one under the cursor) has somewhere to show it. */
+  var highlightBlock = el("div", { class:"cardRowHighlightBlock" });
+  highlightBlock.hidden = true;
+  page.appendChild(highlightBlock);
   wireCardDropTarget(canvas, highlight, index);
 
   return page;
@@ -1951,12 +1976,12 @@ function buildPageEl(index){
 function buildPagePairEl(frontIndex){
   var backIndex = partnerPageIndex(frontIndex);
   var pair = el("div", { class:"pagePair", "data-index":String(frontIndex) });
-  /* edge handles only in single view -- see buildCardEdgeHandles; "Alla"
-     shows every pair as a small thumbnail, no room to drag a handle on */
-  if(state.viewMode === "single") pair.appendChild(buildCardEdgeHandles(frontIndex, "left"));
+  /* shown in both view modes now -- the strip scales down with the card
+     (see scaleEdgeHandles) so it still reads at "Alla"'s thumbnail size */
+  pair.appendChild(buildCardEdgeHandles(frontIndex, "left"));
   pair.appendChild(buildPageEl(frontIndex));
   pair.appendChild(buildPageEl(backIndex));
-  if(state.viewMode === "single") pair.appendChild(buildCardEdgeHandles(backIndex, "right"));
+  pair.appendChild(buildCardEdgeHandles(backIndex, "right"));
   return pair;
 }
 
@@ -2088,8 +2113,10 @@ function wireCardRowDrag(canvas, pageIndex){
     var idx = Math.min(geo.capacity - 1, Math.floor((yFrac - geo.headerFrac) / geo.rowFrac));
     var contact = contactsForPage(pageState)[idx];
     if(!contact){ e.preventDefault(); return; }
-    e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify({ type:"contact", fromPage:pageIndex, contactId:contact.id }));
+    var payload = { type:"contact", fromPage:pageIndex, contactId:contact.id };
+    e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify(payload));
     e.dataTransfer.effectAllowed = "move";
+    activeDragPayload = payload;
     showRowDragGhost(e, contact.name);
   });
 }
@@ -2105,6 +2132,70 @@ function showRowDragGhost(e, text){
   }
   rowDragGhostEl.textContent = text;
   e.dataTransfer.setDragImage(rowDragGhostEl, -12, 14);
+}
+
+/* how many contacts a drag payload actually represents -- a single
+   contact keeps just the thin insertion line (see wireCardDropTarget),
+   only a "segment" or whole-department "group" drag gets the wider
+   block preview below. */
+function dragPayloadSize(data){
+  if(!data) return 0;
+  if(data.type === "segment") return data.length;
+  if(data.type === "group") return state.contacts.filter(function(c){ return deptGroupKey(c.department) === data.groupKey; }).length;
+  return 0;
+}
+
+/* dry-run of reflowFromPage's own cascade math, without mutating state:
+   given `count` new rows landing at `atRow` on `pageIndex`, works out
+   which existing rows shift onto which later pages, so a group drag's
+   dragover preview can highlight every affected card, not just the one
+   under the cursor. Approximate for the rare case where the dragged
+   group already sits partly on another v20 page -- takeMatching's own
+   consolidation is more precise than a hover preview needs to be. */
+function simulateGroupInsertHighlights(pageIndex, atRow, count){
+  var highlights = [{ pageIndex:pageIndex, startRow:atRow, rowCount:count }];
+  var page = state.pages[pageIndex];
+  if(!page) return highlights;
+  var overflow = Math.max(0, contactsForPage(page).length + count - layoutRows(page.layout));
+  var idx = pageIndex + 1;
+  while(overflow > 0){
+    var next = state.pages[idx];
+    if(!next || next.layout === "empty"){
+      highlights.push({ pageIndex:idx, startRow:0, rowCount:overflow });
+      break;
+    }
+    var cap = layoutRows(next.layout);
+    highlights.push({ pageIndex:idx, startRow:0, rowCount:Math.min(overflow, cap) });
+    overflow = Math.max(0, contactsForPage(next).length + overflow - cap);
+    idx++;
+  }
+  return highlights;
+}
+
+/* shows the block-highlight rectangle on every affected, CURRENTLY
+   RENDERED card (single view only ever has the current pair on screen;
+   "Alla" may have every page) -- a page reachable by the cascade but not
+   in the DOM right now just has nowhere to show it, which is the best
+   any preview can do. Pages not in the list get their block hidden. */
+function applyGroupDragHighlights(highlights){
+  var byIndex = {};
+  highlights.forEach(function(h){ byIndex[h.pageIndex] = h; });
+  document.querySelectorAll(".page").forEach(function(pageEl){
+    var idx = parseInt(pageEl.getAttribute("data-index"), 10);
+    var block = pageEl.querySelector(".cardRowHighlightBlock");
+    var pageState = state.pages[idx];
+    var h = byIndex[idx];
+    if(!block || !h || !pageState){ if(block) block.hidden = true; return; }
+    var geo = rowFractionsForLayout(pageGeometryForIndex(idx).layout);
+    if(geo.capacity <= 0){ block.hidden = true; return; }
+    var rowCount = Math.min(h.rowCount, geo.capacity - h.startRow);
+    block.style.top = ((geo.headerFrac + h.startRow*geo.rowFrac) * 100) + "%";
+    block.style.height = (rowCount * geo.rowFrac * 100) + "%";
+    block.hidden = false;
+  });
+}
+function clearGroupDragHighlights(){
+  document.querySelectorAll(".cardRowHighlightBlock").forEach(function(b){ b.hidden = true; });
 }
 
 /* lets a group/contact tile dragged from the sidebar's "Dra till kortet"
@@ -2132,10 +2223,26 @@ function wireCardDropTarget(canvas, highlight, index){
     var boundaryFrac = geom.belowMidpoint ? (geom.topFrac + geom.hFrac) : geom.topFrac;
     highlight.style.top = (boundaryFrac*100) + "%";
     highlight.hidden = false;
+
+    /* the wider block preview -- only for a segment/whole-department
+       drag (dragPayloadSize is 0 for a plain contact, which keeps just
+       the line above). A same-page reorder never changes this page's
+       own total count, so it never cascades; anything else (a different
+       page, or straight from the pool) might, hence the dry-run. */
+    var size = dragPayloadSize(activeDragPayload);
+    if(size > 0){
+      var sameCard = activeDragPayload.fromPage === index && activeDragPayload.type === "segment";
+      applyGroupDragHighlights(sameCard
+        ? [{ pageIndex:index, startRow:geom.idx, rowCount:size }]
+        : simulateGroupInsertHighlights(index, geom.idx, size));
+    } else {
+      clearGroupDragHighlights();
+    }
   });
-  canvas.addEventListener("dragleave", function(){ highlight.hidden = true; });
+  canvas.addEventListener("dragleave", function(){ highlight.hidden = true; clearGroupDragHighlights(); });
   canvas.addEventListener("drop", function(e){
     highlight.hidden = true;
+    clearGroupDragHighlights();
     var geom = cardRowGeometry(canvas, index, e.clientY);
     if(!geom) return;
     e.preventDefault();
@@ -2264,6 +2371,15 @@ function singleCardFitPx(pageIndex){
   return { w: dims.w*scale, h: dims.h*scale };
 }
 
+/* the group-capsule strip's width and font-size (see the CSS, both in em)
+   scale off this one pixel value instead of a fixed size, so the strip
+   stays readable at single view's larger size and still makes sense at
+   "Alla"'s smaller thumbnail size -- same strip, same markup, just a
+   different base font-size on its ancestor. */
+function scaleEdgeHandles(pairEl, cardHeightPx){
+  pairEl.style.fontSize = Math.max(7, cardHeightPx * 0.014) + "px";
+}
+
 /* sizes a front+back pair to fit the viewport side by side -- both cards
    share one physical size (CARD_W_MM/CARD_H_MM are global), so a single
    scale computed from the pair's combined width covers both. */
@@ -2273,6 +2389,7 @@ function fitPagePair(pairEl, frontIndex){
     p.style.width = fit.w + "px";
     p.style.height = fit.h + "px";
   });
+  scaleEdgeHandles(pairEl, fit.h);
 }
 
 /* "Vy: Alla" otherwise lets its grid columns grow as wide as 1/3 of the
@@ -2285,6 +2402,16 @@ function refreshAllViewCap(){
   if(state.viewMode !== "all" || !state.pages.length) return;
   var fit = singleCardFitPx(state.currentPage);
   $("#viewerContent").style.setProperty("--maxCardW", fit.w + "px");
+  /* every card in the grid shares the same column width (one grid
+     template, so all tracks resolve to the same size), so measuring just
+     one already-laid-out card and applying it to every pair's strip is
+     accurate -- and correct even when the grid ends up narrower than the
+     cap above (fewer/narrower columns than max-width allows for). */
+  var samplePage = $("#viewerContent .page");
+  if(samplePage){
+    var heightPx = samplePage.getBoundingClientRect().height;
+    $("#viewerContent").querySelectorAll(".pagePair").forEach(function(p){ scaleEdgeHandles(p, heightPx); });
+  }
 }
 
 var observer = null;
@@ -2687,8 +2814,20 @@ function wireDragStart(node, payload){
   node.addEventListener("dragstart", function(e){
     e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify(payload));
     e.dataTransfer.effectAllowed = "move";
+    activeDragPayload = payload;
   });
 }
+/* dataTransfer's own payload can only be read at dragstart/drop, never
+   during dragover (a deliberate HTML5 DnD restriction, so a page can't
+   snoop on a drag before the user commits to dropping) -- mirrored here
+   instead so a dragover handler can know what's actually being dragged
+   (its size, in particular -- see dragPayloadSize) for the multi-row
+   preview below. Every drag in this app originates from its own code, so
+   this side channel is always accurate for it. Cleared on dragend, which
+   always fires on the source element once the drag operation ends,
+   dropped or not. */
+var activeDragPayload = null;
+document.addEventListener("dragend", function(){ activeDragPayload = null; });
 
 /* wires `row` (one name in a v10 page's own ordered contact list) as a
    drop target for reordering that list -- dropping on the row's top
