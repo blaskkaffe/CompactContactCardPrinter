@@ -2078,7 +2078,7 @@ function removeSegmentFromPage(pageIndex, startIdx, length){
 function wireCardRowDrag(canvas, pageIndex){
   canvas.addEventListener("dragstart", function(e){
     var pageState = state.pages[pageIndex];
-    if(state.viewMode !== "single" || !pageState || pageState.layout === "empty" || (pageState.layout === "v10" && pageState.chain)){
+    if(!pageState || pageState.layout === "empty" || (pageState.layout === "v10" && pageState.chain)){
       e.preventDefault(); return;
     }
     var geo = rowFractionsForLayout(pageGeometryForIndex(pageIndex).layout);
@@ -2111,14 +2111,15 @@ function showRowDragGhost(e, text){
    pool be dropped directly onto a row of the card itself, landing
    exactly there via moveMatchingBetweenPagesAt instead of always
    appending. Also accepts a drag started on the card's own row
-   (wireCardRowDrag) or its group capsule (buildCardEdgeHandles) -- same
-   MIME, "contact"/"segment" payloads carrying fromPage -- and reorders
-   in place instead, when the drag and drop are on the same page. Only
-   active in "Ett kort" view -- in "Alla" the cards are thumbnails, too
-   small to target a row on. */
+   (wireCardRowDrag) or its group capsule (buildCardEdgeHandles, single
+   view only) -- same MIME, "contact"/"segment" payloads carrying
+   fromPage -- and reorders in place instead, when the drag and drop are
+   on the same page. Works in both view modes: "Alla" cards are smaller
+   thumbnails, so landing on an exact row is less precise there, but
+   moving a contact/department onto a different card is exactly as
+   useful at that size. */
 function wireCardDropTarget(canvas, highlight, index){
   canvas.addEventListener("dragover", function(e){
-    if(state.viewMode !== "single") return;
     if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
     var geom = cardRowGeometry(canvas, index, e.clientY);
     if(!geom) return;
@@ -2135,7 +2136,6 @@ function wireCardDropTarget(canvas, highlight, index){
   canvas.addEventListener("dragleave", function(){ highlight.hidden = true; });
   canvas.addEventListener("drop", function(e){
     highlight.hidden = true;
-    if(state.viewMode !== "single") return;
     var geom = cardRowGeometry(canvas, index, e.clientY);
     if(!geom) return;
     e.preventDefault();
