@@ -192,7 +192,9 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    out of alignment */
 #groupPanel .pageCardHeader span{font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1 1 auto;}
 #groupPanel .pageCardHeader button{font-size:10px; padding:1px 5px; cursor:pointer; flex:0 0 auto;}
-#groupPanel .pageCardHeader button.removeBtn{color:#c00; border-color:#c00;}
+/* red only on hover -- a permanently red-bordered button next to the
+   neutral "Visa" button read as too loud/alarming sitting in a dense list */
+#groupPanel .pageCardHeader button.removeBtn:hover{color:#c00; border-color:#c00;}
 /* one compact row: layout select + color controls (+ Line 2/empty-mode
    select, when shown) all fit together instead of each wrapping onto its
    own line -- a fixed, small width with ellipsis keeps a long option name
@@ -226,10 +228,9 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .pageActionZone{display:flex; gap:6px; margin-bottom:8px;}
 #groupPanel .dropZone{flex:1 1 0; text-align:center; font-size:11px; padding:8px 4px; border:2px dashed #aaa; border-radius:4px; color:#666; transition:background-color .1s, border-color .1s;}
 #groupPanel .dropZone.dragOver{background:#dff0ff; border-color:#0080ff; color:#0060c0;}
-/* a delete target reads as red at rest, not just once something is
-   actually being dragged over it -- it's a destructive action, so it
-   should look like one before you commit to the drop. */
-#groupPanel .deleteZone{border-color:#c00; color:#c00;}
+/* red only once something is actually dragged over it, like every other
+   drop zone -- permanently red at rest was too loud sitting right next
+   to the neutral "+ Ny sida" zone in the same row. */
 #groupPanel .deleteZone.dragOver{background:#fde4e4; border-color:#c00; color:#c00;}
 #groupPanel .emptyNote{color:#777; font-style:italic;}
 /* ===================== END GROUP PANEL ===================== */
