@@ -37,7 +37,7 @@ header.toolbar button:hover{background:#eee;}
 #viewerNav{display:flex; align-items:center; justify-content:center; gap:8px; background:#fff; color:#111; padding:4px 8px; border-radius:6px;}
 #pageIndicator{font-size:16px; font-weight:bold; min-width:90px; text-align:center;}
 label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
-#dataStatus, #gridInfo{font-size:12px; color:#ccc;}
+#dataStatus{font-size:12px; color:#ccc;}
 
 /* holds the group panel and page viewer side by side (the config panel
    floats independently -- see below -- so it never takes width from these) */
@@ -108,14 +108,15 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 .cardEdgeHandles .segmentCapsule{position:absolute; right:0; width:var(--segmentPillHeight); color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none; border-radius:calc(var(--segmentPillHeight)/2) 0 0 calc(var(--segmentPillHeight)/2);}
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
 
-/* a second "ta bort" drop target beside the cards (see wireCardRemoveZone) */
-#cardRemoveZone{position:absolute; left:12px; bottom:12px; z-index:10; padding:8px 12px; font-size:12px; text-align:center; border:2px dashed #c00; border-radius:6px; color:#c00; background:rgba(255,255,255,.94); transition:background-color .1s, border-color .1s;}
+/* a second "ta bort" drop target beside the cards (see wireCardRemoveZone) --
+   top-right corner, opposite #newPageZone's top-left */
+#cardRemoveZone{position:absolute; right:12px; top:12px; z-index:10; padding:8px 12px; font-size:12px; text-align:center; border:2px dashed #c00; border-radius:6px; color:#c00; background:rgba(255,255,255,.94); transition:background-color .1s, border-color .1s;}
 #cardRemoveZone.dragOver{background:#fde4e4; border-color:#c00; color:#c00;}
-/* mirrors #cardRemoveZone's own look and position exactly, just at the
-   opposite corner and for the opposite action -- creating a page instead
-   of removing something from one. Was previously a "Sidor" list zone in
-   the sidebar; the whole list is gone now (see .pageInfoBar), so this is
-   the only way left to add a page. */
+/* mirrors #cardRemoveZone's own look exactly, just at the opposite top
+   corner and for the opposite action -- creating a page instead of
+   removing something from one. Was previously a "Sidor" list zone in the
+   sidebar; the whole list is gone now (see .pageInfoBar), so this is the
+   only way left to add a page. */
 #newPageZone{position:absolute; left:12px; top:12px; z-index:10; padding:8px 12px; font-size:12px; text-align:center; border:2px dashed #888; border-radius:6px; color:#555; background:rgba(255,255,255,.94); transition:background-color .1s, border-color .1s, color .1s;}
 #newPageZone.dragOver{background:#dff0ff; border-color:#0080ff; color:#0060c0;}
 
@@ -247,6 +248,18 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .contactChipName{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;}
 #groupPanel .contactChipPage{color:#a60; font-size:9.5px; flex:none;}
 #groupPanel .emptyNote{color:#777; font-style:italic;}
+#groupPanel .panelActions{display:flex; flex-direction:column; gap:6px; margin-bottom:10px;}
+#groupPanel .panelActions button{width:100%; font-size:11px; padding:4px;}
+/* a multi-use source's tile/chip (or the always-present "Tom rad" spacer):
+   dashed border marks it as a reusable template, cloned fresh on every
+   drag instead of being moved out of the pool (see buildContactList,
+   renderGroupPanel) */
+#groupPanel .groupTile.reusable, #groupPanel .contactChip.reusable{border-style:dashed; border-color:#888;}
+#groupPanel .sourceSection{margin-bottom:14px;}
+#groupPanel .sourceHeader{display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:5px; padding-bottom:3px; border-bottom:1px solid #ccc;}
+#groupPanel .sourceName{font-weight:bold; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;}
+#groupPanel .sourceMultiUse{display:flex; align-items:center; gap:3px; font-size:10px; color:#555; flex:none; cursor:pointer; user-select:none;}
+#groupPanel .sourceMultiUse input{margin:0;}
 /* ===================== END GROUP PANEL ===================== */
 </style>
 <style id="pageSizeStyle"></style>
@@ -256,7 +269,6 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 <header class="toolbar">
   <div class="toolbarSide">
     <h1>Kompakt kontaktkortsskrivare</h1>
-    <span id="gridInfo"></span>
   </div>
   <!-- prev/next + the "Kort X / Y" indicator, centered on the bar (see
        header.toolbar's grid in the CSS) instead of floating over the
@@ -448,6 +460,9 @@ var state = {
   paperSize: "A4",
   currentPage: 0,              /* 0-indexed; the first of however many card sides are on screen (see sidesPerView) */
   contacts: [],
+  sources: [],   /* [{id, name, multiUse}] -- one entry per imported file, in import order; every contact in `contacts` carries the sourceId of whichever import it came from, so same-named departments from two different files are never treated as one group (see groupContactsBySourceAndDepartment) */
+  nextContactId: 1,
+  nextSourceId: 1,
   pages: [], /* [{layout, contacts, emptyMode, image, headerColor, headerLegend, savedContacts}] -- one entry per generated page */
   expandedGroups: {},     /* group panel UI only: which pool department tiles are expanded to show individual contacts, keyed by group key */
   expandedPageGroups: {}  /* same, for a page card's own department chips, keyed by "pageIndex:groupKey" */
@@ -729,25 +744,34 @@ function headerIndex(headers, names){
   }
   return -1;
 }
-function rowsToContacts(rows){
+function rowsToContacts(rows, sourceId){
   if(!rows.length) return [];
   var headers = rows[0];
   var idx = {};
   Object.keys(IMPORT_HEADER_ALIASES).forEach(function(k){ idx[k] = headerIndex(headers, IMPORT_HEADER_ALIASES[k]); });
   var out = [];
-  var nextId = 1; /* per-import contact identity, so a single contact (not just its department) can be dragged and tracked across pages */
   for(var r=1;r<rows.length;r++){
     var row = rows[r];
     var get = function(i){ return i===-1 || row[i]==null ? "" : String(row[i]).trim(); };
     var name = get(idx.name) || (get(idx.firstName) + " " + get(idx.lastName)).trim();
     if(!name) continue;
     out.push({
-      id:nextId++,
+      id:state.nextContactId++, sourceId:sourceId,
       name:name, department:get(idx.department), phone:get(idx.phone), phone2:get(idx.phone2),
       label1:get(idx.label1), label2:get(idx.label2), email:get(idx.email)
     });
   }
   return out;
+}
+
+/* a blank spacer row -- not a real imported contact, so it has no
+   sourceId/department and never appears in state.contacts; dragged out of
+   the group panel's own always-present tile via the same clone-on-drop
+   "template" mechanism a multi-use source's contacts use (see
+   wireDragStart's template payload), so every drag creates a fresh
+   instance instead of moving a single shared one around. */
+function emptyRowTemplate(){
+  return { name:"", department:"", phone:"", phone2:"", label1:"", label2:"", email:"", isEmptyRow:true };
 }
 
 /* ---------------- page generation ---------------- */
@@ -773,7 +797,7 @@ function blankPage(layout, contacts){
 function packContactsIntoPages(contacts, capacity){
   if(capacity <= 0) return [];
   var items = [];
-  groupContactsByDepartment(contacts).forEach(function(g){
+  groupContactsBySourceAndDepartment(contacts).forEach(function(g){
     if(g.contacts.length <= capacity){
       items.push(g.contacts.slice());
     } else {
@@ -795,9 +819,17 @@ function packContactsIntoPages(contacts, capacity){
   return bins.map(function(b){ return b.contacts; });
 }
 
+/* every source not flagged multi-use -- a multi-use source (generic
+   support numbers, and the like) is meant to be dragged out by hand
+   wherever it's needed, potentially more than once, so it never takes
+   part in the automatic distribution below. */
+function populatableContacts(){
+  var multiUseIds = new Set(state.sources.filter(function(s){ return s.multiUse; }).map(function(s){ return s.id; }));
+  return state.contacts.filter(function(c){ return !multiUseIds.has(c.sourceId); });
+}
 function regeneratePages(){
   var capacity = layoutRows(DEFAULT_LAYOUT);
-  var pages = packContactsIntoPages(state.contacts, capacity).map(function(c){ return blankPage(DEFAULT_LAYOUT, c); });
+  var pages = packContactsIntoPages(populatableContacts(), capacity).map(function(c){ return blankPage(DEFAULT_LAYOUT, c); });
   if(pages.length && pages.length % 2 !== 0){
     pages.push(blankPage(DEFAULT_LAYOUT));
   }
@@ -840,6 +872,16 @@ function reflowFromPage(index){
 }
 
 /* ---------------- file drop handling ---------------- */
+/* every file dropped becomes its own source in the group panel's pool
+   (state.sources), and its contacts are ADDED to the existing roster
+   rather than replacing it -- so a second/third file's numbers show up
+   alongside the first's instead of wiping it out, each kept in its own
+   section so a department name repeated across files is never merged
+   with another file's (see groupContactsBySourceAndDepartment). Only the
+   very first file dropped auto-fills the pages, matching the previous
+   single-file behavior; anything dropped after that just joins the pool
+   until "Fördela" (see renderGroupPanel) is clicked to redo the automatic
+   distribution across everything collected so far. */
 async function handleFile(file){
   try{
     var rows;
@@ -848,16 +890,26 @@ async function handleFile(file){
     } else {
       rows = parseCSV(await file.text());
     }
-    var contacts = rowsToContacts(rows);
+    var sourceId = "src" + (state.nextSourceId++);
+    var contacts = rowsToContacts(rows, sourceId);
     if(!contacts.length){ setStatus("Inga kontakter hittades i \""+file.name+"\" (behöver en Namn-kolumn)"); return; }
-    state.contacts = sortContacts(contacts);
-    state.currentPage = 0;
-    regeneratePages();
-    setStatus(state.contacts.length + " kontakter inlästa från " + file.name);
+    var firstImport = state.sources.length === 0;
+    state.sources.push({ id:sourceId, name:file.name, multiUse:false });
+    state.contacts = state.contacts.concat(sortContacts(contacts));
+    if(firstImport){
+      state.currentPage = 0;
+      regeneratePages();
+      setStatus(contacts.length + " kontakter inlästa från " + file.name);
+    } else {
+      setStatus(contacts.length + " kontakter tillagda från " + file.name + " -- klicka \"Fördela\" för att fylla sidorna med allt");
+    }
     renderViewer();
   } catch(err){
     setStatus("Kunde inte läsa \""+file.name+"\": " + err.message);
   }
+}
+async function handleFiles(files){
+  for(var i=0;i<files.length;i++){ await handleFile(files[i]); }
 }
 function setStatus(text){ $("#dataStatus").textContent = text; }
 
@@ -892,12 +944,12 @@ function setupDropZone(){
     counter = 0;
     $("#dropOverlay").hidden = true;
     var dt = e.dataTransfer;
-    var file = dt && dt.files && dt.files[0];
-    if(!file){
+    var files = dt && dt.files;
+    if(!files || !files.length){
       setStatus("Släppet innehöll ingen fil som webbläsaren kunde läsa -- om du drog den från en chatt-/webbilaga, spara den till disk först och dra den från filhanteraren istället.");
       return;
     }
-    handleFile(file);
+    handleFiles(files);
   }, opts);
 }
 
@@ -2166,7 +2218,12 @@ function resolveDraggedContacts(data){
     var fromPageState = state.pages[data.fromPage];
     return fromPageState ? contactsForPage(fromPageState).slice(data.startIdx, data.startIdx + data.length) : [];
   }
-  if(data.type === "group") return state.contacts.filter(function(c){ return deptGroupKey(c.department) === data.groupKey; });
+  if(data.type === "group") return state.contacts.filter(function(c){ return c.sourceId === data.sourceId && deptGroupKey(c.department) === data.groupKey; });
+  /* a multi-use source's contact/group, or the "Tom rad" spacer -- these
+     are cloned fresh on drop (see instantiateTemplates) rather than moved
+     out of the pool, so there's no existing contact object to look up;
+     the payload already carries everything the preview needs. */
+  if(data.type === "template") return data.templates || [];
   var contact = state.contacts.find(function(c){ return c.id === data.contactId; });
   return contact ? [contact] : [];
 }
@@ -2355,8 +2412,9 @@ function wireCardDropTarget(canvas, index){
        moveMatchingBetweenPagesAt), opening a new one at DEFAULT_LAYOUT
        ("v20") if it needs to, instead of being refused. */
     handlePanelDrop(data,
-      function(fromPage, groupKey){ moveMatchingBetweenPagesAt(fromPage, index, groupMatcher(groupKey), geom.insertRow); },
-      function(fromPage, contactId){ moveMatchingBetweenPagesAt(fromPage, index, contactMatcher(contactId), geom.insertRow); });
+      function(fromPage, groupKey, sourceId){ moveMatchingBetweenPagesAt(fromPage, index, groupMatcher(sourceId, groupKey), geom.insertRow); },
+      function(fromPage, contactId){ moveMatchingBetweenPagesAt(fromPage, index, contactMatcher(contactId), geom.insertRow); },
+      function(templates){ addTemplatesAt(index, geom.insertRow, templates); });
   });
 }
 
@@ -2394,7 +2452,7 @@ function buildCardEdgeHandles(pageIndex){
 
 /* a "remove from page" drop target right next to the cards, for a
    contact/segment dragged straight off a card's own edge handles.
-   Bottom-left of the viewer, per request (see #newPageZone for its
+   Top-right of the viewer, per request (see #newPageZone for its
    opposite-corner, opposite-action counterpart). Reuses wireDropTarget's
    own dragover/dragleave/drop wiring instead of repeating it. */
 function wireCardRemoveZone(zone){
@@ -2496,7 +2554,6 @@ function renderViewer(){
     overlay.hidden = false;
     lastVisibleCount = 0;
     updateIndicator();
-    updateGridInfo();
     renderGroupPanel();
     return;
   }
@@ -2528,7 +2585,6 @@ function renderViewer(){
   }
   fitVisibleCards();
   updateIndicator();
-  updateGridInfo();
   renderGroupPanel();
 }
 
@@ -2543,14 +2599,6 @@ function updateIndicator(){
   var firstPair = state.currentPage/2+1;
   var lastPair = Math.min(totalPairs, firstPair + Math.max(0, lastVisibleCount/2) - 1);
   $("#pageIndicator").textContent = "Kort " + (firstPair===lastPair ? firstPair : firstPair+"–"+lastPair) + " / " + totalPairs;
-}
-function updateGridInfo(){
-  var geo = pageGeometryForIndex(state.currentPage);
-  if(geo.layout.key === "empty"){
-    $("#gridInfo").textContent = "Tom sida (" + geo.pageDims.name + ")";
-  } else {
-    $("#gridInfo").textContent = geo.grid.cols+" x "+geo.grid.rows+" = "+geo.grid.count+" kort ("+geo.layout.label+", "+geo.pageDims.name+")";
-  }
 }
 
 /* idx names the page to jump to -- the front of its pair in a multi-side
@@ -2589,11 +2637,11 @@ function initEvents(){
   $("#nextBtn").addEventListener("click", goNext);
   $("#printBtn").addEventListener("click", doPrint);
   wireCardRemoveZone($("#cardRemoveZone"));
-  wireDropTarget($("#newPageZone"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage); });
+  wireDropTarget($("#newPageZone"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage, addTemplatesToNewPage); });
   /* dropping a group/contact on the empty-viewer overlay (shown only when
      state.pages is empty) creates the first page, same as "+ Ny sida" --
      otherwise there's nowhere on screen yet to drop onto. */
-  wireDropTarget($("#emptyViewerOverlay"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage); });
+  wireDropTarget($("#emptyViewerOverlay"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage, addTemplatesToNewPage); });
   /* Ctrl+P (Cmd+P on Mac) must go through doPrint() too, not the browser's
      own print of whatever's on screen -- the visible viewer is a live
      editor (one card at a time, edit overlays, etc), not the print layout;
@@ -2643,6 +2691,27 @@ function groupContactsByDepartment(contacts){
   return order.map(function(k){ return byKey.get(k); });
 }
 function computeDepartmentGroups(){ return groupContactsByDepartment(state.contacts); }
+
+/* same idea as groupContactsByDepartment, but a department is only ever
+   the same group if it's also from the same imported source -- two files
+   that both have an "IT" department produce two separate groups here, so
+   dragging or auto-populating one never sweeps up the other's contacts
+   (see the group panel's per-source sections, and packContactsIntoPages).
+   Each group additionally carries its sourceId, needed by groupMatcher to
+   keep the two apart. */
+function groupContactsBySourceAndDepartment(contacts){
+  var byKey = new Map();
+  var order = [];
+  contacts.forEach(function(c){
+    var key = (c.sourceId||"") + "::" + deptGroupKey(c.department);
+    if(!byKey.has(key)){
+      byKey.set(key, { key:deptGroupKey(c.department), sourceId:c.sourceId, label:deptDisplayLabel(c.department), contacts:[] });
+      order.push(key);
+    }
+    byKey.get(key).contacts.push(c);
+  });
+  return order.map(function(k){ return byKey.get(k); });
+}
 
 /* consistent color for a department, shared by the segment capsules
    (buildCardEdgeHandles) and the drag-preview highlight
@@ -2796,12 +2865,47 @@ function removeMatchingFromPage(fromPage, matches){
   renderViewer();
 }
 
-function groupMatcher(groupKey){ return function(c){ return deptGroupKey(c.department) === groupKey; }; }
+/* sourceId is required so two files that both have an "IT" department
+   never match each other's contacts (see groupContactsBySourceAndDepartment) */
+function groupMatcher(sourceId, groupKey){ return function(c){ return c.sourceId === sourceId && deptGroupKey(c.department) === groupKey; }; }
 function contactMatcher(contactId){ return function(c){ return c.id === contactId; }; }
 function idsMatcher(ids){ var set = new Set(ids); return function(c){ return set.has(c.id); }; }
 
-function moveGroupToNewPage(fromPage, groupKey){ moveMatchingToNewPage(fromPage, groupMatcher(groupKey)); }
-function removeGroupFromPage(fromPage, groupKey){ removeMatchingFromPage(fromPage, groupMatcher(groupKey)); }
+function moveGroupToNewPage(fromPage, groupKey, sourceId){ moveMatchingToNewPage(fromPage, groupMatcher(sourceId, groupKey)); }
+function removeGroupFromPage(fromPage, groupKey, sourceId){ removeMatchingFromPage(fromPage, groupMatcher(sourceId, groupKey)); }
+
+/* clones a multi-use contact/group or the "Tom rad" spacer into brand-new
+   contact objects (fresh ids), so the pool's own template is never
+   consumed -- the same source stays draggable out again as many times as
+   needed. Never added to state.contacts: a template instance lives only
+   on whichever page(s) it's dropped onto (see the state.sources doc
+   comment), so it's automatically left out of the pool listing and the
+   "Fördela" auto-distribution, exactly as intended. */
+function instantiateTemplates(templates){
+  return templates.map(function(t){
+    var c = Object.assign({}, t);
+    c.id = state.nextContactId++;
+    return c;
+  });
+}
+function addTemplatesAt(toIndex, atRow, templates){
+  var contacts = instantiateTemplates(templates);
+  if(!contacts.length) return;
+  var toPage = activateContentPage(toIndex);
+  var insertAt = Math.max(0, Math.min(atRow, toPage.contacts.length));
+  toPage.contacts = toPage.contacts.slice(0, insertAt).concat(contacts, toPage.contacts.slice(insertAt));
+  reflowFromPage(toIndex);
+  renderViewer();
+}
+function addTemplatesToNewPage(templates){
+  var contacts = instantiateTemplates(templates);
+  if(!contacts.length) return;
+  var newIndex = state.pages.length;
+  state.pages.push(blankPage(DEFAULT_LAYOUT, contacts));
+  reflowFromPage(newIndex);
+  if(state.pages.length % 2 !== 0) state.pages.push(blankPage(DEFAULT_LAYOUT));
+  renderViewer();
+}
 
 function moveContactToNewPage(fromPage, contactId){ moveMatchingToNewPage(fromPage, contactMatcher(contactId)); }
 function removeContactFromPage(fromPage, contactId){ removeMatchingFromPage(fromPage, contactMatcher(contactId)); }
@@ -2849,11 +2953,15 @@ function wireDropTarget(target, onDrop){
     onDrop(JSON.parse(raw));
   });
 }
-/* dispatches a drop payload to the matching group/contact operation --
-   shared by every drop target so they don't each need their own type check */
-function handlePanelDrop(data, onGroup, onContact){
+/* dispatches a drop payload to the matching group/contact/template
+   operation -- shared by every drop target so they don't each need their
+   own type check. onTemplate is optional: drop targets with no sensible
+   "create a new one here" action (e.g. the remove zone) can leave it out,
+   in which case a template drop is silently ignored there. */
+function handlePanelDrop(data, onGroup, onContact, onTemplate){
   if(data.type === "contact") onContact(data.fromPage, data.contactId);
-  else onGroup(data.fromPage, data.groupKey);
+  else if(data.type === "template"){ if(onTemplate) onTemplate(data.templates); }
+  else onGroup(data.fromPage, data.groupKey, data.sourceId);
 }
 /* starts a panel drag carrying `payload` (a {type, fromPage, ...} object
    matching handlePanelDrop's expectations) -- shared by every draggable
@@ -2900,22 +3008,37 @@ function buildExpandToggle(expanded, onToggle){
   return toggle;
 }
 
-/* one draggable row per contact, used both under an expanded pool tile and
-   under an expanded page chip -- identical either way, since a single name
-   moves through the same take/move functions a whole department does */
-function buildContactList(contacts, fromPage){
+/* strips the id off a contact so it can be carried in a "template" drag
+   payload -- instantiateTemplates assigns each drop its own fresh id, so
+   the id on the pool's own copy is never reused as-is (see
+   state.nextContactId). */
+function contactFields(c){
+  var t = Object.assign({}, c);
+  delete t.id;
+  return t;
+}
+
+/* one draggable row per contact, used under an expanded pool tile.
+   multiUse marks a source flagged for repeat use (see the source header's
+   checkbox in renderGroupPanel): its chips are cloned fresh on every drag
+   (a "template" payload) instead of being moved out of the pool, so the
+   same person can be dropped onto more than one card. */
+function buildContactList(contacts, fromPage, multiUse){
   var list = el("div", { class:"contactList" });
   contacts.forEach(function(c){
-    var pageNums = pageNumbersForContact(c);
+    var pageNums = multiUse ? [] : pageNumbersForContact(c);
     var placed = pageNums.length > 0;
     var chip = el("div", {
-      class: "contactChip" + (placed ? " placed" : ""),
+      class: "contactChip" + (placed ? " placed" : "") + (multiUse ? " reusable" : ""),
       draggable: "true",
-      title: (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till ett kort, \"+ Ny sida\" eller \"✕ Ta bort\" i visaren"
+      title: multiUse
+        ? "Kan dras ut flera gånger -- dra till ett kort eller \"+ Ny sida\" i visaren"
+        : (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till ett kort, \"+ Ny sida\" eller \"✕ Ta bort\" i visaren"
     });
     chip.appendChild(el("span", { class:"contactChipName", text:c.name }));
     if(placed) chip.appendChild(el("span", { class:"contactChipPage", text:"s"+pageNums.join(",") }));
-    wireDragStart(chip, { type:"contact", fromPage:fromPage, contactId:c.id });
+    if(multiUse) wireDragStart(chip, { type:"template", fromPage:null, templates:[contactFields(c)] });
+    else wireDragStart(chip, { type:"contact", fromPage:fromPage, contactId:c.id });
     list.appendChild(chip);
   });
   return list;
@@ -2927,43 +3050,96 @@ function renderGroupPanel(){
   panel.innerHTML = "";
   panel.appendChild(el("h2", { text:"Dra till kortet" }));
 
-  if(!state.contacts.length){
+  if(!state.sources.length){
     panel.appendChild(el("div", { class:"emptyNote", text:"Importera en CSV/XLSX för att se grupper här." }));
     return;
   }
 
-  var clearBtn = el("button", { type:"button", text:"Rensa sidor, gruppera manuellt", style:"width:100%; margin-bottom:10px; font-size:11px; padding:4px;" });
+  var actions = el("div", { class:"panelActions" });
+  var clearBtn = el("button", { type:"button", text:"Rensa alla" });
   clearBtn.addEventListener("click", function(){
     state.pages = [];
     renderViewer();
   });
-  panel.appendChild(clearBtn);
-
-  var grid = el("div", { class:"groupGrid" });
-  computeDepartmentGroups().forEach(function(g){
-    var pageNums = pageNumbersForGroup(g);
-    var placed = pageNums.length > 0;
-    var expanded = !!state.expandedGroups[g.key];
-    var tile = el("div", {
-      class: "groupTile" + (placed ? " placed" : ""),
-      draggable: "true",
-      title: (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till en sida nedan"
-    });
-    var nameRow = el("div", { class:"groupTileNameRow" });
-    nameRow.appendChild(buildExpandToggle(expanded, function(){
-      state.expandedGroups[g.key] = !expanded;
-      renderGroupPanel();
-    }));
-    nameRow.appendChild(el("span", { class:"groupTileName", text:g.label }));
-    nameRow.appendChild(el("span", { class:"groupTileCount", text:g.contacts.length + (placed ? " · s" + pageNums.join(",") : "") }));
-    tile.appendChild(nameRow);
-    /* fromPage:null marks this as a drag from the unplaced-pool grid
-       (as opposed to a specific page's chip) -- see takeGroup() */
-    wireDragStart(tile, { type:"group", fromPage:null, groupKey:g.key });
-    grid.appendChild(tile);
-    if(expanded) grid.appendChild(buildContactList(g.contacts, null));
+  actions.appendChild(clearBtn);
+  var populateBtn = el("button", { type:"button", text:"Fördela", title:"Fyll sidorna automatiskt med alla inlästa kontakter (flergångskällor undantagna) -- kör om samma fördelning efter att fler filer lästs in" });
+  populateBtn.addEventListener("click", function(){
+    state.currentPage = 0;
+    regeneratePages();
+    renderViewer();
   });
-  panel.appendChild(grid);
+  actions.appendChild(populateBtn);
+  panel.appendChild(actions);
+
+  /* always-available blank spacer row -- a "template" tile like a
+     multi-use source's own (see buildContactList), just with no source of
+     its own: every drag creates a fresh empty-fields contact instance. */
+  var emptyTile = el("div", {
+    class: "groupTile reusable",
+    draggable: "true",
+    title: "Tom rad -- kan dras ut flera gånger för att lämna mellanrum mellan grupper"
+  });
+  emptyTile.appendChild(el("span", { class:"groupTileName", text:"+ Tom rad" }));
+  wireDragStart(emptyTile, { type:"template", fromPage:null, templates:[emptyRowTemplate()] });
+  panel.appendChild(emptyTile);
+
+  /* one section per imported file, so a department repeated across two
+     files (e.g. both having "IT") never shows up as a single merged
+     group -- each source's own tiles only ever come from ITS OWN
+     contacts (see groupContactsByDepartment(sourceContacts) below). */
+  state.sources.forEach(function(source){
+    var sourceContacts = state.contacts.filter(function(c){ return c.sourceId === source.id; });
+    if(!sourceContacts.length) return;
+
+    var section = el("div", { class:"sourceSection" });
+    var header = el("div", { class:"sourceHeader" });
+    header.appendChild(el("span", { class:"sourceName", text:source.name, title:source.name }));
+    var toggleLabel = el("label", {
+      class:"sourceMultiUse",
+      title:"Tillåt att kontakter härifrån dras ut till flera platser (t.ex. generella supportnummer) -- de ingår då inte längre i \"Fördela\""
+    });
+    var toggleInput = el("input", { type:"checkbox" });
+    toggleInput.checked = !!source.multiUse;
+    toggleInput.addEventListener("change", function(){
+      source.multiUse = toggleInput.checked;
+      renderGroupPanel();
+    });
+    toggleLabel.appendChild(toggleInput);
+    toggleLabel.appendChild(el("span", { text:"Flergång" }));
+    header.appendChild(toggleLabel);
+    section.appendChild(header);
+
+    var grid = el("div", { class:"groupGrid" });
+    groupContactsByDepartment(sourceContacts).forEach(function(g){
+      var expandKey = source.id + ":" + g.key;
+      var expanded = !!state.expandedGroups[expandKey];
+      var pageNums = source.multiUse ? [] : pageNumbersForGroup(g);
+      var placed = pageNums.length > 0;
+      var tile = el("div", {
+        class: "groupTile" + (placed ? " placed" : "") + (source.multiUse ? " reusable" : ""),
+        draggable: "true",
+        title: source.multiUse
+          ? "Kan dras ut flera gånger -- dra till en sida nedan"
+          : (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till en sida nedan"
+      });
+      var nameRow = el("div", { class:"groupTileNameRow" });
+      nameRow.appendChild(buildExpandToggle(expanded, function(){
+        state.expandedGroups[expandKey] = !expanded;
+        renderGroupPanel();
+      }));
+      nameRow.appendChild(el("span", { class:"groupTileName", text:g.label }));
+      nameRow.appendChild(el("span", { class:"groupTileCount", text:g.contacts.length + (placed ? " · s" + pageNums.join(",") : "") }));
+      tile.appendChild(nameRow);
+      if(source.multiUse) wireDragStart(tile, { type:"template", fromPage:null, templates:g.contacts.map(contactFields) });
+      /* fromPage:null marks this as a drag from the unplaced-pool grid
+         (as opposed to a specific page's chip) -- see takeGroup() */
+      else wireDragStart(tile, { type:"group", fromPage:null, groupKey:g.key, sourceId:source.id });
+      grid.appendChild(tile);
+      if(expanded) grid.appendChild(buildContactList(g.contacts, null, source.multiUse));
+    });
+    section.appendChild(grid);
+    panel.appendChild(section);
+  });
 }
 
 populatePaperSizes();
