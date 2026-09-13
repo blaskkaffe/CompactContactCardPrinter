@@ -6,6 +6,16 @@
 <title>Kompakt kontaktkortsskrivare</title>
 <style>
 *{box-sizing:border-box;}
+/* shared by the segment capsule tab (.cardEdgeHandles) and its drag-ghost
+   pill (#segmentDragGhost) -- one set of numbers so the two always match:
+   same text size, and the tab's width equal to the pill's own rendered
+   height (padding + line box), rather than each sized independently. */
+:root{
+  --segmentFontSize: 12px;
+  --segmentPillPadY: 5px;
+  --segmentLineHeight: 1.2;
+  --segmentPillHeight: calc(var(--segmentLineHeight) * var(--segmentFontSize) + var(--segmentPillPadY) * 2);
+}
 html,body{height:100%;}
 body{margin:0; font:14px/1.4 Arial, sans-serif; background:#e6e6e6; color:#111; display:flex; flex-direction:column;}
 
@@ -81,17 +91,18 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    holds the colored segment capsule, flush against the card as a tab
    extending from it. Always sits on the card's own left -- front and back
    cards alike -- rather than the previous outer/inner split, so there's
-   only ever one variant of this strip to style. Width and font-size are
-   both in em, sized off font-size set on the .pagePair ancestor (see
-   scaleEdgeHandles) rather than a fixed px value, so the same strip reads
-   correctly whatever size sidesPerView ends up fitting on screen. */
-.cardEdgeHandles{position:relative; width:2em; flex:0 0 auto; z-index:3;}
+   only ever one variant of this strip to style. Width and font-size both
+   come from the shared --segment* variables (see :root above) -- the
+   same numbers that size #segmentDragGhost -- so the resting tab always
+   matches the pill it turns into mid-drag, rather than each sized
+   independently. */
+.cardEdgeHandles{position:relative; width:var(--segmentPillHeight); flex:0 0 auto; z-index:3;}
 /* right:0 anchors the capsule flush against the card, on the strip's right
    edge; the tab's free (left) end gets the rounding. Radius is exactly
    half the strip's own width, so a single-row segment (whose height is at
    least that width) reads as a true half-circle cap, not just a rounded
    corner. */
-.cardEdgeHandles .segmentCapsule{position:absolute; right:0; width:2em; color:#fff; font-size:1em; font-weight:bold; line-height:1.15; display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none; border-radius:1em 0 0 1em;}
+.cardEdgeHandles .segmentCapsule{position:absolute; right:0; width:var(--segmentPillHeight); color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none; border-radius:calc(var(--segmentPillHeight)/2) 0 0 calc(var(--segmentPillHeight)/2);}
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
 
 /* a second "ta bort" drop target beside the cards (see wireCardRemoveZone) */
@@ -127,8 +138,11 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    a horizontal pill in the segment's own color, sized to its text by
    showSegmentDragGhost measuring its own rendered box before setDragImage
    is called. border-radius:999px rounds a box of any width into a full
-   pill regardless of its (text-dependent) size. */
-#segmentDragGhost{position:fixed; top:-999px; left:-999px; padding:5px 16px; color:#fff; font-size:12px; font-weight:bold; border-radius:999px; white-space:nowrap; pointer-events:none; box-shadow:0 1px 4px rgba(0,0,0,.4);}
+   pill regardless of its (text-dependent) size. font-size/line-height/
+   padding-block share the same --segment* variables as .segmentCapsule
+   (see :root above), so the resting tab and this pill always agree on
+   text size, and the tab's own width equals this pill's rendered height. */
+#segmentDragGhost{position:fixed; top:-999px; left:-999px; padding:var(--segmentPillPadY) 16px; color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); border-radius:999px; white-space:nowrap; pointer-events:none; box-shadow:0 1px 4px rgba(0,0,0,.4);}
 
 /* ===================== PER-CARD INFO BAR (viewer) ===================== */
 /* the thin strip floating directly above each card in the viewer -- what
@@ -2005,10 +2019,8 @@ function buildPageEl(index){
 
 /* one printed sheet's worth of preview: front + back side by side, since
    that's the actual physical unit -- pages are always printed in pairs
-   (see partnerPageIndex). frontIndex is always even. The strip scales
-   down with the card (see scaleEdgeHandles) so it still reads at
-   whatever size sidesPerView ends up fitting on screen. Every card gets
-   its own strip immediately to its own left, front and back alike (see
+   (see partnerPageIndex). frontIndex is always even. Every card gets its
+   own strip immediately to its own left, front and back alike (see
    .cardEdgeHandles), instead of the old outer/inner split -- so this is
    just the same two steps repeated once per card. */
 function buildPagePairEl(frontIndex){
@@ -2022,8 +2034,8 @@ function buildPagePairEl(frontIndex){
 }
 /* the narrowest tier (sidesPerView===1) shows only one physical side, not
    its printed partner -- same wrapper/edge-handle strip as a full pair,
-   just missing the second .page, so buildPageEl/fitVisibleCards/
-   scaleEdgeHandles all still work on it unchanged. */
+   just missing the second .page, so buildPageEl/fitVisibleCards still
+   work on it unchanged. */
 function buildLonePageEl(index){
   var pair = el("div", { class:"pagePair", "data-index":String(index) });
   pair.appendChild(buildCardEdgeHandles(index));
@@ -2495,16 +2507,6 @@ function sidesPerView(){
 var VIEWER_NAV_CLEARANCE_PX = 150;
 var VIEWER_BOTTOM_MARGIN_PX = 32;
 
-/* the group-capsule strip's width and font-size (see the CSS, both in em)
-   scale off this one pixel value instead of a fixed size, so the strip
-   stays readable whatever size sidesPerView ends up fitting on screen --
-   the floor and multiplier are picked so the capsule text reads at
-   roughly the same size as the rest of the UI's small controls even on a
-   short card, rather than shrinking down to near-illegible. */
-function scaleEdgeHandles(pairEl, cardHeightPx){
-  pairEl.style.fontSize = Math.max(11, cardHeightPx * 0.028) + "px";
-}
-
 /* sizes every currently-rendered .page to fit them all on screen at once,
    side by side, on whichever axis (combined width or height) is tighter
    -- every card shares one physical size (CARD_W_MM/CARD_H_MM are
@@ -2512,7 +2514,10 @@ function scaleEdgeHandles(pairEl, cardHeightPx){
    them. Reads the gaps straight from the DOM (12px between a pair's own
    front/back, 24px between separate pairs, both from the CSS) rather
    than re-deriving how many pairs are showing, so it works the same
-   whether renderViewer just built a lone side or several full pairs. */
+   whether renderViewer just built a lone side or several full pairs. The
+   edge-handles strip itself is a fixed size regardless (see the CSS --
+   it's sized to match the drag-ghost pill, not the card), so there's no
+   per-pair scaling step here anymore. */
 function fitVisibleCards(){
   var wrap = $("#viewerContent");
   var pages = wrap.querySelectorAll(".page");
@@ -2527,7 +2532,6 @@ function fitVisibleCards(){
   var scale = Math.min(cw/dims.w, ch/dims.h);
   var w = dims.w*scale, h = dims.h*scale;
   pages.forEach(function(p){ p.style.width = w+"px"; p.style.height = h+"px"; });
-  pairs.forEach(function(pp){ scaleEdgeHandles(pp, h); });
 }
 
 /* however many card sides renderViewer actually put on screen last time
