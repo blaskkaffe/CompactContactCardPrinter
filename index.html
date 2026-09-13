@@ -19,13 +19,23 @@
 html,body{height:100%;}
 body{margin:0; font:14px/1.4 Arial, sans-serif; background:#e6e6e6; color:#111; display:flex; flex-direction:column;}
 
-header.toolbar{flex:0 0 auto; background:#1c1c1c; color:#fff; padding:8px 12px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
+/* three columns -- left/right take whatever's left over in equal shares
+   (1fr each), the middle column (#viewerNav) sizes to its own content --
+   so the nav sits precisely centered on the bar regardless of how long
+   #dataStatus's text is, and (unlike centering it with position:absolute)
+   can never visually collide with the toolbar's own left/right content:
+   grid columns simply don't overlap. */
+header.toolbar{flex:0 0 auto; background:#1c1c1c; color:#fff; padding:8px 12px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; column-gap:10px;}
 header.toolbar h1{font-size:15px; margin:0 14px 0 0;}
-/* paper size + print, pinned to the top-right of the bar via .spacer below */
+.toolbarSide{display:flex; flex-wrap:wrap; align-items:center; gap:10px; min-width:0;}
+.toolbarSide.toolbarSideRight{justify-content:flex-end;}
 header.toolbar select, header.toolbar button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
 header.toolbar button:hover{background:#eee;}
+/* the middle grid column -- prev/next + the "Kort X / Y" indicator, one
+   pill sitting in the toolbar's own dead center regardless of viewport
+   width (see header.toolbar above) rather than floating over the cards */
+#viewerNav{display:flex; align-items:center; justify-content:center; gap:8px; background:#fff; color:#111; padding:4px 8px; border-radius:6px;}
 #pageIndicator{font-size:16px; font-weight:bold; min-width:90px; text-align:center;}
-.spacer{flex:1 1 auto;}
 label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
 #dataStatus, #gridInfo{font-size:12px; color:#ccc;}
 
@@ -33,31 +43,24 @@ label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
    floats independently -- see below -- so it never takes width from these) */
 #mainRow{flex:1 1 auto; display:flex; overflow:hidden;}
 
-/* viewerWrap itself never scrolls -- #viewerNav (prev/next/print) is a
-   permanent overlay pinned to the top-center of the viewer (centered over
-   the same area the cards are centered in, clear of the card itself
-   thanks to #viewerContent's padding-top below), and #viewerContent (the
-   actual content renderViewer() rebuilds) fills the rest, so the nav
-   always stays in place. How many card sides #viewerContent actually
-   shows at once (1, 2 or 4) is purely a function of the viewport's own
-   size -- see sidesPerView -- so there's no separate "view all" mode with
-   its own scrolling grid to keep in sync with this. */
+/* How many card sides #viewerContent actually shows at once (1, 2 or 4) is
+   purely a function of the viewport's own size -- see sidesPerView -- so
+   there's no separate "view all" mode with its own scrolling grid to keep
+   in sync with this. */
 main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; background:#e6e6e6;}
-/* padding-top reserves clearance below #viewerNav for each card's own
-   .pageInfoBar strip (see below), which floats above the card -- without
-   it, a short viewport centers the card(s) high enough for that strip to
-   end up directly under #viewerNav, hidden behind its buttons.
-   padding-bottom gives the cards some breathing room of their own at the
-   bottom of the viewer (this is just layout padding around the preview --
-   it has nothing to do with the print grid's own margins, which stay
-   perfectly centered, see blockOriginMm) -- otherwise the top padding
-   alone leaves noticeably less room below than above. Must match
-   VIEWER_NAV_CLEARANCE_PX in the JS. */
-#viewerContent{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:150px 24px 32px;}
-
-#viewerNav{position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:10; display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.94); padding:6px 8px; border-radius:6px; box-shadow:0 1px 5px rgba(0,0,0,.3);}
-#viewerNav button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
-#viewerNav button:hover{background:#eee;}
+/* padding-top reserves clearance for each card's own .pageInfoBar strip
+   (see below), which floats above the card -- without it, a short
+   viewport centers the card(s) high enough for that strip to end up
+   pushed above the viewer entirely, out of view. padding-bottom gives the
+   cards some breathing room of their own at the bottom of the viewer
+   (this is just layout padding around the preview -- it has nothing to
+   do with the print grid's own margins, which stay perfectly centered,
+   see blockOriginMm) -- otherwise the top padding alone leaves noticeably
+   less room below than above. Left/right must match VIEWER_SIDE_PADDING_PX,
+   top must match PAGE_INFO_BAR_CLEARANCE_PX, both in the JS -- fitVisibleCards
+   sizes cards against this same content box, not the padding along with it,
+   so a row can never size itself out past this inset or need to wrap. */
+#viewerContent{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:80px 32px 32px;}
 
 /* shown instead of any page content while there's nothing to display yet
    (no pages exist) -- one message covering the whole viewer, not one
@@ -154,13 +157,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    so it floats above the card rather than adding to its own in-flow
    height -- #viewerContent's padding-top leaves room for it above the
    very top row. */
-/* z-index above #viewerNav's own 10: fitVisibleCards can, at some in-
-   between viewport widths, size a multi-pair row a hair wider than
-   actually fits (a height-bound scale doesn't recheck the row's own
-   width budget), wrapping a second pair's info bar up behind the nav --
-   keeping this above it means Visa/Ta bort stay clickable even then,
-   rather than getting trapped under the nav's own buttons. */
-.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; margin-bottom:6px; background:rgba(255,255,255,.96); border:1px solid #bbb; border-radius:4px; padding:4px 6px; font-size:11px; box-shadow:0 1px 4px rgba(0,0,0,.25); z-index:11;}
+.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; margin-bottom:6px; background:rgba(255,255,255,.96); border:1px solid #bbb; border-radius:4px; padding:4px 6px; font-size:11px; box-shadow:0 1px 4px rgba(0,0,0,.25); z-index:2;}
 .pageInfoBar .pageInfoHeader{display:flex; align-items:center; gap:6px; margin-bottom:4px;}
 /* always exactly one row: the usage text truncates with an ellipsis
    (title carries the full text) rather than wrapping and pushing Remove
@@ -194,6 +191,10 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    tooltip on hover, same as a typical OS/app color-grid picker */
 .pageInfoBar .swatchSelect .swatchList{position:absolute; top:100%; left:0; z-index:20; margin-top:2px; background:#fff; border:1px solid #999; border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.3); padding:6px; display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; max-height:220px; overflow-y:auto;}
 .pageInfoBar .swatchSelect .swatchList[hidden]{display:none;}
+/* flips added by positionSwatchList once the popup's real (only-knowable-
+   once-visible) size would otherwise run past the viewport's edge */
+.pageInfoBar .swatchSelect .swatchList.alignRight{left:auto; right:0;}
+.pageInfoBar .swatchSelect .swatchList.openUp{top:auto; bottom:100%; margin-top:0; margin-bottom:2px;}
 .pageInfoBar .swatchSelect .swatchItem{width:28px; height:28px; border-radius:3px; cursor:pointer; border:2px solid #fff; outline:1px solid rgba(0,0,0,.2);}
 .pageInfoBar .swatchSelect .swatchItem:hover, .pageInfoBar .swatchSelect .swatchItem.active{border-color:#0080ff;}
 .pageInfoBar .rgbBox{display:flex; gap:3px; flex-basis:100%; margin-top:2px;}
@@ -270,17 +271,31 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 <body>
 
 <header class="toolbar">
-  <h1>Kompakt kontaktkortsskrivare</h1>
-  <span id="gridInfo"></span>
-  <div class="spacer"></div>
-  <span id="dataStatus">Släpp en CSV- eller XLSX-fil för att börja</span>
-  <!-- paper size + print, pinned to the top-right of the bar by the spacer
-       above -- everything about a page ITSELF (layout, header color, ...)
-       lives on the card in the viewer now, see .pageInfoBar/buildPageInfoBar -->
-  <label class="tool">Papper:
-    <select id="paperSize"></select>
-  </label>
-  <button id="printBtn">Skriv ut</button>
+  <div class="toolbarSide">
+    <h1>Kompakt kontaktkortsskrivare</h1>
+    <span id="gridInfo"></span>
+  </div>
+  <!-- prev/next + the "Kort X / Y" indicator, centered on the bar (see
+       header.toolbar's grid in the CSS) instead of floating over the
+       viewer -- never wiped by renderViewer(), which only touches
+       #viewerContent. Always shown: however many card sides are visible
+       at once (see sidesPerView), Prev/Next always steps to the next
+       batch of that same size. -->
+  <div id="viewerNav">
+    <button id="prevBtn">&larr; Föreg.</button>
+    <span id="pageIndicator"></span>
+    <button id="nextBtn">Nästa &rarr;</button>
+  </div>
+  <div class="toolbarSide toolbarSideRight">
+    <span id="dataStatus">Släpp en CSV- eller XLSX-fil för att börja</span>
+    <!-- everything about a page ITSELF (layout, header color, ...) lives
+         on the card in the viewer now, see .pageInfoBar/buildPageInfoBar --
+         paper size + print are the only page-wide settings left up here. -->
+    <label class="tool">Papper:
+      <select id="paperSize"></select>
+    </label>
+    <button id="printBtn">Skriv ut</button>
+  </div>
 </header>
 
 <div id="mainRow">
@@ -291,18 +306,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
   <aside id="groupPanel">
     <div id="groupPanelBody"></div>
   </aside>
-  <!-- #viewerNav (prev/next/the "Kort X / Y" indicator) floats over the
-       top-center of the viewer and is never wiped by renderViewer(),
-       which only touches #viewerContent -- see the CSS block above for
-       how it stays pinned there. Always shown: however many card sides
-       are visible at once (see sidesPerView), Prev/Next always steps to
-       the next batch of that same size. -->
   <main id="viewerWrap">
-    <div id="viewerNav">
-      <button id="prevBtn">&larr; Föreg.</button>
-      <span id="pageIndicator"></span>
-      <button id="nextBtn">Nästa &rarr;</button>
-    </div>
     <div id="viewerContent"></div>
     <div id="emptyViewerOverlay" hidden></div>
     <!-- a second "remove from page" target for a contact/segment dragged
@@ -1796,12 +1800,24 @@ function buildSwatchSelect(options, value, onChange, title){
     e.stopPropagation();
     closeOpenSwatchLists();
     list.hidden = !list.hidden;
+    if(!list.hidden) positionSwatchList(list);
   });
 
   return wrap;
 }
+/* keeps the color-swatch popup fully on screen: it opens right/down by
+   default (see the CSS), but a card's own swatch button can sit close
+   enough to the viewer's edge that the popup's real size -- unknowable
+   while it was still hidden -- would run past it, so this measures the
+   now-visible popup and flips it to whichever side actually has room. */
+function positionSwatchList(list){
+  list.classList.remove("alignRight", "openUp");
+  var rect = list.getBoundingClientRect();
+  if(rect.right > window.innerWidth) list.classList.add("alignRight");
+  if(rect.bottom > window.innerHeight) list.classList.add("openUp");
+}
 function closeOpenSwatchLists(){
-  document.querySelectorAll(".pageInfoBar .swatchList").forEach(function(l){ l.hidden = true; });
+  document.querySelectorAll(".pageInfoBar .swatchList").forEach(function(l){ l.hidden = true; l.classList.remove("alignRight", "openUp"); });
 }
 
 function pageLayoutOptionsSelect(currentKey, onChange){
@@ -2503,32 +2519,47 @@ function sidesPerView(){
    flex centering only ever reallocates slack between top/bottom in
    proportion to the padding difference, which is too subtle to read as
    "the bottom has more room" -- reserving the exact space makes each
-   padding value the real, visible gap. */
-var VIEWER_NAV_CLEARANCE_PX = 150;
+   padding value the real, visible gap. PAGE_INFO_BAR_CLEARANCE_PX only
+   has to clear each card's own .pageInfoBar strip now -- the nav lives in
+   the toolbar, not over the viewer, so it's no longer part of this budget. */
+var PAGE_INFO_BAR_CLEARANCE_PX = 80;
 var VIEWER_BOTTOM_MARGIN_PX = 32;
+/* must match #viewerContent's own left/right padding in the CSS -- used
+   below to size against the actual content box, not the padding along
+   with it (that used to let a row size itself right out to the padded
+   edge, or even wrap when it didn't actually need to -- see fitVisibleCards). */
+var VIEWER_SIDE_PADDING_PX = 32;
 
 /* sizes every currently-rendered .page to fit them all on screen at once,
    side by side, on whichever axis (combined width or height) is tighter
    -- every card shares one physical size (CARD_W_MM/CARD_H_MM are
    global), so a single scale computed from the total width covers all of
-   them. Reads the gaps straight from the DOM (12px between a pair's own
-   front/back, 24px between separate pairs, both from the CSS) rather
-   than re-deriving how many pairs are showing, so it works the same
-   whether renderViewer just built a lone side or several full pairs. The
-   edge-handles strip itself is a fixed size regardless (see the CSS --
-   it's sized to match the drag-ghost pill, not the card), so there's no
-   per-pair scaling step here anymore. */
+   them. Reads the fixed (non-card) width straight from the DOM instead of
+   assuming it -- every edge-handles strip's actual rendered width, the
+   12px gap between a pair's own front/back, and the 24px gap between
+   separate pairs (both from the CSS) -- so it works the same whether
+   renderViewer just built a lone side or several full pairs, and never
+   under-counts the strips (which used to leave rows a bit too wide for
+   their own budget, forcing an unwanted wrap into a second row that then
+   overflowed the viewer's own height). */
 function fitVisibleCards(){
   var wrap = $("#viewerContent");
   var pages = wrap.querySelectorAll(".page");
   var pairs = wrap.querySelectorAll(".pagePair");
   if(!pages.length) return;
   var dims = pageGeometryForIndex(state.currentPage).cardDims;
-  var innerGaps = 0;
-  pairs.forEach(function(pp){ innerGaps += Math.max(0, pp.querySelectorAll(".page").length - 1) * 12; });
+  var stripEl = wrap.querySelector(".cardEdgeHandles");
+  var stripW = stripEl ? stripEl.getBoundingClientRect().width : 0;
+  var stripCount = 0, pageGapCount = 0;
+  pairs.forEach(function(pp){
+    stripCount += pp.querySelectorAll(".cardEdgeHandles").length;
+    pageGapCount += Math.max(0, pp.querySelectorAll(".page").length - 1);
+  });
   var rowGaps = Math.max(0, pairs.length - 1) * 24;
-  var cw = (wrap.clientWidth * 0.92 - innerGaps - rowGaps) / pages.length;
-  var ch = wrap.clientHeight - VIEWER_NAV_CLEARANCE_PX - VIEWER_BOTTOM_MARGIN_PX;
+  var fixedW = stripCount*stripW + pageGapCount*12 + rowGaps;
+  var availW = wrap.clientWidth - VIEWER_SIDE_PADDING_PX*2;
+  var cw = (availW - fixedW) / pages.length;
+  var ch = wrap.clientHeight - PAGE_INFO_BAR_CLEARANCE_PX - VIEWER_BOTTOM_MARGIN_PX;
   var scale = Math.min(cw/dims.w, ch/dims.h);
   var w = dims.w*scale, h = dims.h*scale;
   pages.forEach(function(p){ p.style.width = w+"px"; p.style.height = h+"px"; });
