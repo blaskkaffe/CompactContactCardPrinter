@@ -248,8 +248,8 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .contactChipName{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;}
 #groupPanel .contactChipPage{color:#a60; font-size:9.5px; flex:none;}
 #groupPanel .emptyNote{color:#777; font-style:italic;}
-#groupPanel .panelActions{display:flex; flex-direction:column; gap:6px; margin-bottom:10px;}
-#groupPanel .panelActions button{width:100%; font-size:11px; padding:4px;}
+#groupPanel .panelActions{display:flex; flex-direction:row; gap:6px; margin-bottom:10px;}
+#groupPanel .panelActions button{flex:1 1 0; min-width:0; font-size:11px; padding:4px;}
 /* a multi-use source's tile/chip (or the always-present "Tom rad" spacer):
    dashed border marks it as a reusable template, cloned fresh on every
    drag instead of being moved out of the pool (see buildContactList,
@@ -2438,6 +2438,7 @@ function buildCardEdgeHandles(pageIndex){
   contiguousDeptSegments(contacts).forEach(function(seg){
     var color = colorForDeptKey(seg.key);
     var capsule = el("div", { class:"segmentCapsule", draggable:"true", text:seg.label,
+      "data-full-label":seg.label,
       title:seg.label + " -- dra för att flytta hela gruppen (inom sidan eller till en annan sida)" });
     capsule.style.background = color;
     capsule.style.top = ((geo.headerFrac + seg.startIdx*geo.rowFrac) * 100) + "%";
@@ -2534,6 +2535,26 @@ function fitVisibleCards(){
   pages.forEach(function(p){ p.style.width = w+"px"; p.style.height = h+"px"; });
 }
 
+/* a segment capsule's label runs top-to-bottom (writing-mode:vertical-rl,
+   see .segmentCapsule) inside a pill whose length is fixed by however
+   many rows that department run covers -- a short run (as little as one
+   row) only has room for a couple of characters before the label would
+   wrap into a second column and spill out of the pill's own fixed width.
+   Only knowable once the page (and so the capsule, which stretches to
+   match it) has its real pixel height, i.e. after fitVisibleCards --
+   truncates each one to however many characters its own actual height
+   fits, roughly one character per font-size's worth of vertical room. */
+function fitSegmentCapsuleLabels(){
+  document.querySelectorAll(".segmentCapsule").forEach(function(capsule){
+    var full = capsule.dataset.fullLabel;
+    if(full == null) return;
+    var heightPx = capsule.getBoundingClientRect().height;
+    var fontPx = parseFloat(getComputedStyle(capsule).fontSize) || 12;
+    var maxChars = Math.max(1, Math.floor(heightPx / fontPx));
+    capsule.textContent = full.length > maxChars ? full.slice(0, maxChars) : full;
+  });
+}
+
 /* however many card sides renderViewer actually put on screen last time
    -- lets updateIndicator report the right range (e.g. "Kort 1–2 / 3")
    without recomputing sidesPerView itself. */
@@ -2584,6 +2605,7 @@ function renderViewer(){
     lastVisibleCount = pairsToShow*2;
   }
   fitVisibleCards();
+  fitSegmentCapsuleLabels();
   updateIndicator();
   renderGroupPanel();
 }
