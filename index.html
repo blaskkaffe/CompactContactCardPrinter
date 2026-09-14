@@ -37,6 +37,13 @@
   /* the one floating-surface shadow -- group panel boxes, the per-card
      info bar, and the card itself all use exactly this. */
   --shadow-panel: 0 2px 5px rgba(0,0,0,.28);
+  /* the one floating-MENU corner radius (group panel boxes, the per-card
+     info bar -- NOT the card itself, see --shadow-panel for that trio) --
+     a pill's own rendered corner (border-radius:999px clamps to half its
+     height) plus #groupPanelControls' own padding, i.e. as far again
+     past the pill radius as its lowest button (#emptyRowTile) already
+     sits from the menu's outer edge. */
+  --panel-radius: calc(var(--segmentPillHeight)/2 + 10px);
 }
 html,body{height:100%;}
 body{display:flex; flex-direction:column; margin:0; background:var(--bg); color:var(--text); font:14px/1.4 Arial, sans-serif;}
@@ -71,8 +78,13 @@ header.toolbar h1{margin:0 14px 0 0; font-size:15px; white-space:nowrap;}
 }
 .toolbarSide{display:flex; flex-wrap:nowrap; align-items:center; gap:10px;}
 .toolbarSideRight{justify-content:flex-end;}
-header.toolbar select, header.toolbar button{flex:0 0 auto; padding:4px 8px; background:var(--panel); border:1px solid var(--border-dark); border-radius:4px; font-size:12px; cursor:pointer;}
+/* :not(.pill) so #printBtn (a .pill, see HTML) supplies its own shape
+   instead of this generic one fighting it on specificity. */
+header.toolbar select, header.toolbar button:not(.pill){flex:0 0 auto; padding:4px 8px; background:var(--panel); border:1px solid var(--border-dark); border-radius:4px; font-size:12px; cursor:pointer;}
 header.toolbar button:hover{background:var(--hover-bg);}
+/* same idle look as a portal button -- .pill (see SHARED PATTERNS) gives
+   it the shape, this gives it the color. */
+#printBtn{flex:0 0 auto; background:var(--panel); border:1px solid var(--border-dark); cursor:pointer;}
 label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:12px; white-space:nowrap;}
 /* the one toolbar label allowed to shrink/ellipsize under pressure. */
 #dataStatus{color:var(--border-light); font-size:12px;}
@@ -100,7 +112,7 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
    them. #groupPanelControls never scrolls/rebuilds, #groupPanelBody does
    (see renderGroupPanel). */
 #groupPanel{display:flex; flex-direction:column; gap:12px; flex:0 0 260px; padding:14px; color:var(--text); overflow:hidden;}
-#groupPanelControls, #groupPanelBody{background:var(--panel); border:1px solid var(--border); border-radius:8px; box-shadow:var(--shadow-panel);}
+#groupPanelControls, #groupPanelBody{background:var(--panel); border:1px solid var(--border); border-radius:var(--panel-radius); box-shadow:var(--shadow-panel);}
 #groupPanelControls{display:flex; flex-direction:column; gap:8px; flex:0 0 auto; padding:10px;}
 /* drop zones + buttons share one grid so the row reads as one cluster. */
 #groupPanelControls .panelControlsGrid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
@@ -216,8 +228,11 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
 /* floats directly above its card (bottom:100%) rather than adding to its
    own in-flow height -- #viewerContent's padding-top leaves room above
    the top row. Holds the used/free count, A-Ö/Ta bort, and the layout/
-   color/etc selectors (see buildPageInfoBar). */
-.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; z-index:2; margin-bottom:6px; padding:4px 6px; background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:4px; box-shadow:var(--shadow-panel); font-size:11px;}
+   color/etc selectors (see buildPageInfoBar). background/border here are
+   just the fallback for a page with no department color to take (see
+   colorForPage) -- tintElement overrides both per page to match that
+   page's own portal button, same as a placed contact chip/group tile. */
+.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; z-index:2; margin-bottom:6px; padding:4px 6px; background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:var(--panel-radius); box-shadow:var(--shadow-panel); font-size:11px;}
 .pageInfoBar .pageInfoHeader{display:flex; align-items:center; gap:6px; margin-bottom:4px;}
 .pageInfoBar .pageInfoHeader span{flex:1 1 auto; font-size:11px; font-weight:bold;}
 .pageInfoBar .pageInfoHeader span.full{color:#a00;}
@@ -289,7 +304,7 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
     <label class="tool">Papper:
       <select id="paperSize"></select>
     </label>
-    <button id="printBtn">Skriv ut</button>
+    <button id="printBtn" class="pill">Skriv ut</button>
   </div>
 </header>
 
@@ -1945,6 +1960,8 @@ function buildPageControls(index){
    the numbering needs to expose (see sidesPerView, buildPagePairEl). */
 function buildPageInfoBar(index){
   var bar = el("div", { class:"pageInfoBar" });
+  var barColor = colorForPage(index);
+  if(barColor) tintElement(bar, barColor);
   var pageState = state.pages[index];
   if(!pageState) return bar; /* no data yet -- nothing to show/control */
 
@@ -2647,13 +2664,13 @@ function goNext(){ scrollToPage(state.currentPage + sidesPerView()); }
    back, and jumping straight to that exact index works there same as
    anywhere else, unlike the old always-jump-to-the-front-of-a-pair
    version. */
-/* the color a page's own portal button uses while current -- its first
-   real contact's department color, same palette entry that contact uses
-   everywhere else (its group tile/chip, its segment capsule on the card
-   itself), so the highlighted portal obviously matches the page it
-   points at. null for a page with no contacts to take a color from (an
-   "empty" spacer page), which leaves the .current CSS rule's blue
-   fallback in place. */
+/* the color a page's own portal button (while current) and its own
+   .pageInfoBar both use -- its first real contact's department color,
+   same palette entry that contact uses everywhere else (its group
+   tile/chip, its segment capsule on the card itself), so a page's portal,
+   its info bar, and its own card all read as the same color. null for a
+   page with no contacts to take a color from (an "empty" spacer page),
+   which leaves each caller's own CSS fallback in place. */
 function colorForPage(pageIndex){
   var page = state.pages[pageIndex];
   if(!page || !page.contacts.length) return null;
