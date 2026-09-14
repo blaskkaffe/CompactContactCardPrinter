@@ -199,13 +199,6 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 .pageInfoBar .swatchSelect .swatchList.openUp{top:auto; bottom:100%; margin-top:0; margin-bottom:2px;}
 .pageInfoBar .swatchSelect .swatchItem{width:28px; height:28px; border-radius:3px; cursor:pointer; border:2px solid #fff; outline:1px solid rgba(0,0,0,.2);}
 .pageInfoBar .swatchSelect .swatchItem:hover, .pageInfoBar .swatchSelect .swatchItem.active{border-color:#0080ff;}
-/* the custom-color row -- spans every column of the swatch grid (so it
-   always starts its own fresh row, whatever the swatch count leaves off
-   at) and lays out R/G/B plus the apply button as four equal cells of
-   its own, matching the swatch grid above it. */
-.pageInfoBar .swatchSelect .swatchRgbRow{grid-column:1 / -1; display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; margin-top:2px; padding-top:4px; border-top:1px solid #eee;}
-.pageInfoBar .swatchSelect .swatchRgbInput{width:100%; min-width:0; font-size:10px; padding:2px; border-radius:3px; border:1px solid #bbb; text-align:center;}
-.pageInfoBar .swatchSelect .swatchRgbApply{font-size:10px; padding:2px; border-radius:3px; border:1px solid #bbb; background:#fff; cursor:pointer;}
 /* ===================== END PER-CARD INFO BAR ===================== */
 
 #dropOverlay{position:fixed; inset:0; background:rgba(20,20,20,.75); color:#fff; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:bold; z-index:1000; pointer-events:none;}
@@ -253,18 +246,20 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .groupGrid{display:flex; flex-direction:column; gap:4px; margin-bottom:10px;}
 #groupPanel .groupTile{background:#fff; border:1px solid #ccc; border-radius:5px; padding:5px 7px; font-size:11px; min-width:0; cursor:grab;}
 #groupPanel .groupTile:active{cursor:grabbing;}
-#groupPanel .groupTile.placed, #groupPanel .contactChip.placed{border-color:#c98a2e; background:#fff8ee;}
+/* a "placed" tile/chip's own background/border color comes inline from
+   JS (see renderGroupPanel/buildContactList) -- a light tint of that
+   group's own color, same as the drag preview highlight, rather than one
+   flat color for every group regardless of which it is. */
 #groupPanel .groupTileNameRow{display:flex; align-items:center; gap:3px; min-width:0;}
 #groupPanel .groupTileName{font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;}
 #groupPanel .groupTileCount{color:#777; flex:none; white-space:nowrap; font-size:10px;}
-#groupPanel .groupTile.placed .groupTileCount{color:#a60;}
 #groupPanel .groupTileToggle{cursor:pointer; color:#888; font-size:9px; flex:none; user-select:none; padding:0 1px;}
 #groupPanel .groupTileToggle:hover{color:#333;}
 #groupPanel .contactList{display:flex; flex-direction:column; gap:3px; padding:2px 0 4px 6px; margin-top:-2px; border-left:2px solid #eee;}
 #groupPanel .contactChip{display:flex; justify-content:space-between; align-items:center; gap:4px; background:#fff; border:1px solid #ddd; border-radius:3px; padding:2px 6px; font-size:10.5px; cursor:grab; min-width:0;}
 #groupPanel .contactChip:active{cursor:grabbing;}
 #groupPanel .contactChipName{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;}
-#groupPanel .contactChipPage{color:#a60; font-size:9.5px; flex:none;}
+#groupPanel .contactChipPage{font-size:9.5px; flex:none;}
 #groupPanel .emptyNote{color:#777; font-style:italic;}
 /* a multi-use source's tile/chip (or the always-present "Tom rad" spacer):
    dashed border marks it as a reusable template, cloned fresh on every
@@ -478,24 +473,29 @@ const LAYOUTS = {
    its own dropdown is how you change it afterward, same as any page */
 const DEFAULT_LAYOUT = "v20";
 
-/* -- header background presets -- each hue taken from the Dracula
-   terminal theme's real accent colors (draculatheme.com/spec: Red
-   #FF5555, Orange #FFB86C, Yellow #F1FA8C, Green #50FA7B, Cyan #8BE9FD,
-   Purple #BD93F9, Pink #FF79C6), boosted to a high, even saturation and
-   then darkened just enough to hold >=8:1 WCAG contrast against white
-   text -- Dracula's own colors are pastel/neon, made for light text on a
-   DARK background, so they can't be used at their original lightness
-   here without the header text becoming unreadable. The hue is the only
-   thing carried over unchanged; that's what still reads as "Dracula" at
-   a glance despite every swatch being much darker than the source. */
+/* -- header background presets -- 16 hues evenly spaced around the wheel
+   (22.5° apart) at one consistent saturation/lightness, each tuned to
+   land close to the same ~5.8:1 contrast against white header text --
+   picking a color is now just "which hue", not "which hue at which of
+   several different darknesses", the way the old 7-color set (a mix of
+   hand-picked Dracula accents at wildly different contrast ratios) read. */
 const COLOR_PRESETS = [
-  { name:"Röd",    hex:"#da2424" },
-  { name:"Orange", hex:"#f77622" },
-  { name:"Gul",    hex:"#ecab11" },
-  { name:"Grön",   hex:"#43bd35" },
-  { name:"Cyan",   hex:"#124e89" },
-  { name:"Lila",   hex:"#3d083b" },
-  { name:"Rosa",   hex:"#5a7088" }
+  { name:"Röd",      hex:"#c52020" },
+  { name:"Orange",   hex:"#a14e1a" },
+  { name:"Gul",      hex:"#7c6214" },
+  { name:"Oliv",     hex:"#5f6b11" },
+  { name:"Lime",     hex:"#427112" },
+  { name:"Grön",     hex:"#1f7513" },
+  { name:"Smaragd",  hex:"#13752c" },
+  { name:"Turkos",   hex:"#137350" },
+  { name:"Cyan",     hex:"#127070" },
+  { name:"Azur",     hex:"#1a6a9d" },
+  { name:"Blå",      hex:"#2e59dd" },
+  { name:"Indigo",   hex:"#503adf" },
+  { name:"Lila",     hex:"#8934de" },
+  { name:"Magenta",  hex:"#a91fbc" },
+  { name:"Rosa",     hex:"#b71e91" },
+  { name:"Cerise",   hex:"#c11f5b" }
 ];
 
 /* ================= shared utilities ================= */
@@ -1834,34 +1834,6 @@ function buildSwatchSelect(options, value, onChange, title){
     list.appendChild(item);
   });
 
-  /* an arbitrary custom color, as three R/G/B number fields plus an apply
-     button -- its own row (.swatchRgbRow spans every grid column) so it
-     always starts a fresh row regardless of how many swatches came before
-     it, rather than sharing the grid's own column tracks and landing
-     wherever the swatch count happens to leave off. */
-  var rgbRow = el("div", { class:"swatchRgbRow" });
-  var startColor = hexToRgb(current ? current[0] : value);
-  var rgbInputs = ["R","G","B"].map(function(ch, idx){
-    var input = document.createElement("input");
-    input.type = "number"; input.min = "0"; input.max = "255";
-    input.className = "swatchRgbInput";
-    input.title = ch;
-    input.value = [startColor.r, startColor.g, startColor.b][idx];
-    input.addEventListener("click", function(e){ e.stopPropagation(); });
-    rgbRow.appendChild(input);
-    return input;
-  });
-  var rgbApplyBtn = el("button", { type:"button", class:"swatchRgbApply", text:"RGB", title:"Använd anpassad RGB-färg" });
-  rgbApplyBtn.addEventListener("click", function(e){
-    e.stopPropagation();
-    var vals = rgbInputs.map(function(inp){ return Math.max(0, Math.min(255, parseInt(inp.value,10)||0)); });
-    var hex = "#" + vals.map(function(v){ return v.toString(16).padStart(2,"0"); }).join("");
-    list.hidden = true;
-    onChange(hex);
-  });
-  rgbRow.appendChild(rgbApplyBtn);
-  list.appendChild(rgbRow);
-
   wrap.appendChild(list);
 
   btn.addEventListener("click", function(e){
@@ -1898,11 +1870,13 @@ function hexToRgb(hex){
   return { r:parseInt(hex.slice(0,2),16)||0, g:parseInt(hex.slice(2,4),16)||0, b:parseInt(hex.slice(4,6),16)||0 };
 }
 
-/* per-page header color: 7 preset swatches (all pre-verified for good
-   contrast with white text) plus a custom R/G/B row inside the same
-   dropdown (see buildSwatchSelect) for an arbitrary color -- contrast
-   with white is the picker's own responsibility there, unlike the
-   vetted presets */
+/* per-page header color: the 16 preset swatches, all pre-verified for
+   good contrast with white text -- no free-form color entry anymore (the
+   old R/G/B row was fiddly to use), so isPreset should always be true for
+   anything set through this UI; the fallback only matters for a
+   headerColor from before that row was removed, or set some other way,
+   that doesn't happen to match a current preset -- shown as its own
+   "Anpassad" (custom) swatch rather than silently snapping to one. */
 function buildHeaderColorControls(pageState){
   var options = COLOR_PRESETS.map(function(c){ return [c.hex, c.name]; });
   var isPreset = COLOR_PRESETS.some(function(c){ return c.hex.toLowerCase() === (pageState.headerColor||"").toLowerCase(); });
@@ -3175,7 +3149,19 @@ function buildContactList(contacts, fromPage, multiUse){
         : (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till ett kort, \"+ Ny sida\" eller \"✕ Ta bort\" i visaren"
     });
     chip.appendChild(el("span", { class:"contactChipName", text:c.name }));
-    if(placed) chip.appendChild(el("span", { class:"contactChipPage", text:"s"+pageNums.join(",") }));
+    /* a light tint of this contact's own department color instead of a
+       flat "placed" color for every group alike -- same alpha the drag
+       preview highlight uses (see applyDragHighlights) for the fill, and
+       the stronger one for the border/badge text, so "placed" always
+       reads in the same colors as wherever it actually landed. */
+    if(placed){
+      var chipColor = colorForDeptKey(deptGroupKey(c.department));
+      chip.style.background = hexToRgba(chipColor, 0.32);
+      chip.style.borderColor = hexToRgba(chipColor, 0.85);
+      var pageBadge = el("span", { class:"contactChipPage", text:"s"+pageNums.join(",") });
+      pageBadge.style.color = hexToRgba(chipColor, 0.9);
+      chip.appendChild(pageBadge);
+    }
     if(multiUse) wireDragStart(chip, { type:"template", fromPage:null, templates:[contactFields(c)] });
     else wireDragStart(chip, { type:"contact", fromPage:fromPage, contactId:c.id });
     list.appendChild(chip);
@@ -3233,13 +3219,25 @@ function renderGroupPanel(){
           ? "Kan dras ut flera gånger -- dra till en sida nedan"
           : (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till en sida nedan"
       });
+      /* a light tint of this group's own color instead of a flat "placed"
+         color for every group alike -- same alpha the drag preview
+         highlight uses (see applyDragHighlights) for the fill, and the
+         stronger one for the border/count text, so "placed" always reads
+         in the same colors as wherever it actually landed. */
+      if(placed){
+        var tileColor = colorForDeptKey(g.key);
+        tile.style.background = hexToRgba(tileColor, 0.32);
+        tile.style.borderColor = hexToRgba(tileColor, 0.85);
+      }
       var nameRow = el("div", { class:"groupTileNameRow" });
       nameRow.appendChild(buildExpandToggle(expanded, function(){
         state.expandedGroups[expandKey] = !expanded;
         renderGroupPanel();
       }));
       nameRow.appendChild(el("span", { class:"groupTileName", text:g.label }));
-      nameRow.appendChild(el("span", { class:"groupTileCount", text:g.contacts.length + (placed ? " · s" + pageNums.join(",") : "") }));
+      var countSpan = el("span", { class:"groupTileCount", text:g.contacts.length + (placed ? " · s" + pageNums.join(",") : "") });
+      if(placed) countSpan.style.color = hexToRgba(tileColor, 0.9);
+      nameRow.appendChild(countSpan);
       tile.appendChild(nameRow);
       if(source.multiUse) wireDragStart(tile, { type:"template", fromPage:null, templates:g.contacts.map(contactFields) });
       /* fromPage:null marks this as a drag from the unplaced-pool grid
