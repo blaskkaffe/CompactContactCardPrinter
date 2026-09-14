@@ -26,7 +26,7 @@ body{display:flex;flex-direction:column;margin:0;background:var(--bg);color:var(
 .truncate{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* Toolbar */
-header.toolbar{display:grid;grid-template-columns:max-content minmax(52px,1fr) minmax(190px,max-content);align-items:center;column-gap:var(--space-4);flex:0 0 auto;padding:var(--space-3) var(--space-4);background:#1c1c1c;color:#fff}
+header.toolbar{display:grid;grid-template-columns:max-content minmax(52px,1fr) max-content;align-items:center;column-gap:var(--space-4);flex:0 0 auto;padding:var(--space-3) var(--space-4);background:#1c1c1c;color:#fff}
 header.toolbar h1{margin:0 var(--space-4) 0 0;font-size:var(--title-font);white-space:nowrap}
 .toolbarSide{display:flex;flex-wrap:nowrap;align-items:center;gap:var(--space-4)}
 .toolbarSideRight{justify-content:flex-end}
@@ -34,7 +34,6 @@ header.toolbar select,header.toolbar button:not(.pill){flex:0 0 auto;height:30px
 header.toolbar button:hover{background:var(--hover-bg)}
 #printBtn{flex:0 0 auto;background:var(--panel);border:1px solid var(--border-dark);cursor:pointer}
 label.tool{display:flex;align-items:center;gap:var(--space-1);flex:0 0 auto;font-size:var(--ui-font);white-space:nowrap}
-#dataStatus{color:var(--border-light);font-size:var(--ui-font)}
 #portalPanel{display:flex;align-items:center;gap:var(--space-2);max-width:40vw;padding:2px 0;overflow-x:auto;overflow-y:hidden}
 #portalPanel .portalBtn{flex:0 0 auto;justify-content:center;background:var(--panel);border:1px solid var(--border-dark);color:var(--text-soft);font-weight:bold;transition:background-color .1s,border-color .1s,transform .08s,box-shadow .08s}
 #portalPanel .portalBtn:hover{background:var(--hover-bg)}
@@ -174,10 +173,15 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
        same as before it lived here. -->
   <div id="portalPanel"></div>
   <div class="toolbarSide toolbarSideRight">
-    <span id="dataStatus" class="truncate">Släpp en CSV- eller XLSX-fil för att börja</span>
     <!-- everything about a page ITSELF (layout, header color, ...) lives
          on the card in the viewer now, see .pageInfoBar/buildPageInfoBar --
-         paper size + print are the only page-wide settings left up here. -->
+         paper size + print are the only page-wide settings left up here.
+         Import status used to show here too (as #dataStatus), but which
+         files loaded is already visible in the group panel's own source
+         list below -- see renderGroupPanel -- so it was redundant, and
+         its text could grow long enough to squeeze #portalPanel's pills
+         out of room (see header.toolbar's grid in the CSS) -- setStatus
+         now just logs instead of touching the DOM. -->
     <label class="tool">Papper:
       <select id="paperSize"></select>
     </label>
@@ -803,7 +807,13 @@ async function handleFile(file){
 async function handleFiles(files){
   for(var i=0;i<files.length;i++){ await handleFile(files[i]); }
 }
-function setStatus(text){ $("#dataStatus").textContent = text; }
+/* used to write into a toolbar status span -- removed since which files
+   loaded is already visible in the group panel's own source list, and
+   the span's text could grow long enough to squeeze the portal pills out
+   of room. Kept as a thin console log rather than touched at every call
+   site, so an actual failure (a bad CSV, an unreadable drop, a page that
+   failed to print) still leaves a trace somewhere. */
+function setStatus(text){ console.log(text); }
 
 /* true for a real file drag (dataTransfer always advertises the "Files"
    type for these, even in the chat/web-attachment case below where the
