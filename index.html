@@ -314,9 +314,9 @@ const PAPER_SIZES = {
    pageLayoutOptionsSelect) -- label is the full descriptive name used
    everywhere else (page card headers, etc). */
 const LAYOUTS = {
-  v20:   { key:"v20",   label:"20 rader vertikal",              shortLabel:"20 rader",   orientation:"vertical",   phones:1, showDept:true,  doubleRow:false },
-  v10:   { key:"v10",   label:"10 kontakter vertikal (2 rader)", shortLabel:"10 (2 rad)", orientation:"vertical",   phones:2, showDept:false, doubleRow:true, phoneRowLegend:"Jobb / Hem" },
-  empty: { key:"empty", label:"Tom sida",                        shortLabel:"Tom",        orientation:"vertical",   phones:0, showDept:false, doubleRow:false }
+  v20:   { key:"v20",   label:"20 rader vertikal",              shortLabel:"20 rader",   orientation:"vertical",   phones:1, showDept:true,  doubleRow:false, sortable:true },
+  v10:   { key:"v10",   label:"10 kontakter vertikal (2 rader)", shortLabel:"10 (2 rad)", orientation:"vertical",   phones:2, showDept:false, doubleRow:true, phoneRowLegend:"Jobb / Hem", sortable:true },
+  empty: { key:"empty", label:"Tom sida",                        shortLabel:"Tom",        orientation:"vertical",   phones:0, showDept:false, doubleRow:false, sortable:false }
 };
 /* every freshly created page (auto-chunked on import, or dragged onto
    "+ New page"/an activated "empty" slot) starts out as this layout --
@@ -1704,20 +1704,26 @@ function buildPageInfoBar(index){
      rather than repeating the same sort; starts unset, which resolves to
      alphabetical first, per how the button's meant to work. The page is
      already the one on screen (its info bar sits right on it), so there's
-     no separate "jump to this card" button to make room for anymore. */
-  var sortBtn = el("button", { type:"button", text:"A-Ö",
-    title: pageState.sortMode === "alpha" ? "Sortera efter avdelning" : "Sortera alfabetiskt (A-Ö)" });
-  sortBtn.addEventListener("click", function(){
-    if(pageState.sortMode === "alpha"){
-      pageState.contacts = sortContacts(pageState.contacts);
-      pageState.sortMode = "dept";
-    } else {
-      pageState.contacts.sort(function(a, b){ return (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"}); });
-      pageState.sortMode = "alpha";
-    }
-    renderViewer();
-  });
-  headerRow.appendChild(sortBtn);
+     no separate "jump to this card" button to make room for anymore.
+     Only shown for layouts that actually have sortable contact rows to
+     begin with -- same per-layout flag system as phones/showDept/
+     doubleRow (see LAYOUTS): "empty" has no rows at all, so sortable is
+     false there. */
+  if(LAYOUTS[pageState.layout].sortable){
+    var sortBtn = el("button", { type:"button", text:"A-Ö",
+      title: pageState.sortMode === "alpha" ? "Sortera efter avdelning" : "Sortera alfabetiskt (A-Ö)" });
+    sortBtn.addEventListener("click", function(){
+      if(pageState.sortMode === "alpha"){
+        pageState.contacts = sortContacts(pageState.contacts);
+        pageState.sortMode = "dept";
+      } else {
+        pageState.contacts.sort(function(a, b){ return (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"}); });
+        pageState.sortMode = "alpha";
+      }
+      renderViewer();
+    });
+    headerRow.appendChild(sortBtn);
+  }
   var removeBtn = el("button", { type:"button", class:"removeBtn", text:"×", title:"Ta bort den här sidan" });
   removeBtn.addEventListener("click", function(){ removePage(index); });
   headerRow.appendChild(removeBtn);
