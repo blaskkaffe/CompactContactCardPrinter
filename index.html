@@ -108,17 +108,6 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 .cardEdgeHandles .segmentCapsule{position:absolute; right:0; width:var(--segmentPillHeight); color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none; border-radius:calc(var(--segmentPillHeight)/2) 0 0 calc(var(--segmentPillHeight)/2);}
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
 
-/* a second "ta bort" drop target beside the cards (see wireCardRemoveZone) --
-   top-right corner, opposite #newPageZone's top-left */
-#cardRemoveZone{position:absolute; right:12px; top:12px; z-index:10; padding:8px 12px; font-size:12px; text-align:center; border:2px dashed #c00; border-radius:6px; color:#c00; background:rgba(255,255,255,.94); transition:background-color .1s, border-color .1s;}
-#cardRemoveZone.dragOver{background:#fde4e4; border-color:#c00; color:#c00;}
-/* mirrors #cardRemoveZone's own look exactly, just at the opposite top
-   corner and for the opposite action -- creating a page instead of
-   removing something from one. Was previously a "Sidor" list zone in the
-   sidebar; the whole list is gone now (see .pageInfoBar), so this is the
-   only way left to add a page. */
-#newPageZone{position:absolute; left:12px; top:12px; z-index:10; padding:8px 12px; font-size:12px; text-align:center; border:2px dashed #888; border-radius:6px; color:#555; background:rgba(255,255,255,.94); transition:background-color .1s, border-color .1s, color .1s;}
-#newPageZone.dragOver{background:#dff0ff; border-color:#0080ff; color:#0060c0;}
 
 /* always shown as a front+back pair -- pages are printed in pairs (see
    partnerPageIndex), so there's never a reason to view one side alone,
@@ -233,8 +222,25 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 }
 
 /* ===================== GROUP PANEL (department grouping helper) ===================== */
-#groupPanel{flex:0 0 260px; background:#f0f0f0; color:#111; display:flex; flex-direction:column; border-right:1px solid #bbb;}
-#groupPanelBody{flex:1 1 auto; overflow-y:auto; padding:10px; font-size:12px;}
+/* two stacked boxes on the gray aside background, with room around them on
+   every side (top/bottom via the column gap, left via this padding, right
+   because neither box stretches to the aside's own right edge) -- the top
+   one (#groupPanelControls) never scrolls or gets rebuilt, only the
+   bottom one (#groupPanelBody) does (see renderGroupPanel). */
+#groupPanel{flex:0 0 260px; background:#f0f0f0; color:#111; display:flex; flex-direction:column; gap:12px; padding:14px 14px 14px 14px; border-right:1px solid #bbb; overflow:hidden;}
+#groupPanelControls{flex:0 0 auto; background:#fff; border:1px solid #bbb; border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:8px;}
+/* the 4 action items share one 2-column grid -- the drop zones and the
+   plain buttons are sized identically so the whole row reads as one
+   control cluster, not two different kinds of thing. */
+#groupPanelControls .panelControlsGrid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+#groupPanelControls .panelControlsGrid > *{font-size:12px; padding:8px 6px; text-align:center; border-radius:5px; min-width:0;}
+#groupPanelControls button{border:1px solid #999; background:#fff; cursor:pointer;}
+#groupPanelControls button:hover{background:#eee;}
+#newPageZone{border:1px solid #888; color:#555; transition:background-color .1s, border-color .1s, color .1s;}
+#newPageZone.dragOver{background:#dff0ff; border-color:#0080ff; color:#0060c0;}
+#cardRemoveZone{border:1px solid #c00; color:#c00; transition:background-color .1s, border-color .1s;}
+#cardRemoveZone.dragOver{background:#fde4e4;}
+#groupPanelBody{flex:1 1 auto; overflow-y:auto; background:#fff; border:1px solid #bbb; border-radius:8px; padding:10px; font-size:12px;}
 #groupPanel h2{font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#555; margin:0 0 8px;}
 /* single column ("Dra till kortet") -- draggable straight onto the card
    itself as well as onto a page below (see wireCardDropTarget; it isn't
@@ -255,8 +261,6 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .contactChipName{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;}
 #groupPanel .contactChipPage{color:#a60; font-size:9.5px; flex:none;}
 #groupPanel .emptyNote{color:#777; font-style:italic;}
-#groupPanel .panelActions{display:flex; flex-direction:row; gap:6px; margin-bottom:10px;}
-#groupPanel .panelActions button{flex:1 1 0; min-width:0; font-size:11px; padding:4px;}
 /* a multi-use source's tile/chip (or the always-present "Tom rad" spacer):
    dashed border marks it as a reusable template, cloned fresh on every
    drag instead of being moved out of the pool (see buildContactList,
@@ -301,22 +305,36 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 </header>
 
 <div id="mainRow">
-  <!-- GROUP PANEL: the unplaced-contacts pool ("Dra till kortet") plus each
-       page's own drag-reorderable content list -- everything about a page
-       ITSELF (used/free count, Visa/Ta bort, layout/color/etc selectors)
-       lives on the card in the viewer instead, see .pageInfoBar. -->
+  <!-- GROUP PANEL: two stacked boxes -- #groupPanelControls (static, never
+       rebuilt) holds the drop zones and the buttons that act on the whole
+       roster; #groupPanelBody (rebuilt by renderGroupPanel) is the
+       scrollable unplaced-contacts pool ("Dra till kortet"), one section
+       per imported source. Everything about a page ITSELF (used/free
+       count, A-Ö/Ta bort, layout/color/etc selectors) lives on the card in
+       the viewer instead, see .pageInfoBar. -->
   <aside id="groupPanel">
+    <div id="groupPanelControls">
+      <div class="panelControlsGrid">
+        <!-- drop a group/contact here to send it straight to a freshly
+             created page -- see moveGroupToNewPage/moveContactToNewPage. -->
+        <div id="newPageZone" title="Dra hit för att skapa en ny sida">+ Ny sida</div>
+        <!-- a second "remove from page" target for a contact/segment
+             dragged off a card's own edge handles (see wireCardRemoveZone). -->
+        <div id="cardRemoveZone" title="Dra hit för att ta bort från sidan">✕ Ta bort</div>
+        <button id="clearAllBtn" type="button">Rensa alla</button>
+        <button id="populateBtn" type="button" title="Fyll sidorna automatiskt med alla inlästa kontakter (flergångskällor undantagna) -- kör om samma fördelning efter att fler filer lästs in">Fördela kontakter</button>
+      </div>
+      <!-- always-available blank spacer row -- a "template" tile like a
+           multi-use source's own (see buildContactList/wireDragStart in
+           the script), just with no source of its own: every drag creates
+           a fresh empty-fields contact instance. -->
+      <div id="emptyRowTile" class="groupTile reusable" draggable="true" title="Tom rad -- kan dras ut flera gånger för att lämna mellanrum mellan grupper">+ Tom rad</div>
+    </div>
     <div id="groupPanelBody"></div>
   </aside>
   <main id="viewerWrap">
     <div id="viewerContent"></div>
     <div id="emptyViewerOverlay" hidden></div>
-    <!-- drop a group/contact here to send it straight to a freshly
-         created page -- see moveGroupToNewPage/moveContactToNewPage. -->
-    <div id="newPageZone" title="Dra hit för att skapa en ny sida">+ Ny sida</div>
-    <!-- a second "remove from page" target for a contact/segment dragged
-         off a card's own edge handles (see wireCardRemoveZone). -->
-    <div id="cardRemoveZone" title="Dra hit för att ta bort från sidan">✕ Ta bort</div>
   </main>
 </div>
 
@@ -2458,11 +2476,11 @@ function buildCardEdgeHandles(pageIndex){
   return strip;
 }
 
-/* a "remove from page" drop target right next to the cards, for a
-   contact/segment dragged straight off a card's own edge handles.
-   Top-right of the viewer, per request (see #newPageZone for its
-   opposite-corner, opposite-action counterpart). Reuses wireDropTarget's
-   own dragover/dragleave/drop wiring instead of repeating it. */
+/* a "remove from page" drop target for a contact/segment dragged straight
+   off a card's own edge handles -- lives in #groupPanelControls, next to
+   #newPageZone (its opposite-action counterpart), not over the viewer.
+   Reuses wireDropTarget's own dragover/dragleave/drop wiring instead of
+   repeating it. */
 function wireCardRemoveZone(zone){
   wireDropTarget(zone, function(data){
     if(data.type === "segment"){ removeSegmentFromPage(data.fromPage, data.startIdx, data.length); return; }
@@ -2519,21 +2537,6 @@ var VIEWER_SIDE_PADDING_PX = 32;
    under-counts the strips (which used to leave rows a bit too wide for
    their own budget, forcing an unwanted wrap into a second row that then
    overflowed the viewer's own height). */
-/* the corner drop zones (#newPageZone top-left, #cardRemoveZone top-right)
-   float above the viewer independently of the card row's own centering --
-   sizing the row against only the plain side padding left a zone wider
-   than that padding sitting on top of the nearest card's pageInfoBar/edge
-   strip instead of beside it. Measured live (like stripW below) rather
-   than assumed, so it stays correct if either zone's label ever changes;
-   +8 leaves a visible gap rather than a flush edge. */
-function requiredSideClearancePx(wrapRect){
-  var clearance = VIEWER_SIDE_PADDING_PX;
-  var newZoneRect = $("#newPageZone").getBoundingClientRect();
-  var removeZoneRect = $("#cardRemoveZone").getBoundingClientRect();
-  clearance = Math.max(clearance, newZoneRect.right - wrapRect.left + 8);
-  clearance = Math.max(clearance, wrapRect.right - removeZoneRect.left + 8);
-  return clearance;
-}
 function fitVisibleCards(){
   var wrap = $("#viewerContent");
   var pages = wrap.querySelectorAll(".page");
@@ -2549,8 +2552,7 @@ function fitVisibleCards(){
   });
   var rowGaps = Math.max(0, pairs.length - 1) * 24;
   var fixedW = stripCount*stripW + pageGapCount*12 + rowGaps;
-  var sidePad = requiredSideClearancePx(wrap.getBoundingClientRect());
-  var availW = wrap.clientWidth - sidePad*2;
+  var availW = wrap.clientWidth - VIEWER_SIDE_PADDING_PX*2;
   var cw = (availW - fixedW) / pages.length;
   var ch = wrap.clientHeight - PAGE_INFO_BAR_CLEARANCE_PX - VIEWER_BOTTOM_MARGIN_PX;
   var scale = Math.min(cw/dims.w, ch/dims.h);
@@ -2683,6 +2685,19 @@ function initEvents(){
   $("#printBtn").addEventListener("click", doPrint);
   wireCardRemoveZone($("#cardRemoveZone"));
   wireDropTarget($("#newPageZone"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage, addTemplatesToNewPage); });
+  /* the rest of #groupPanelControls (see the HTML) is static -- never
+     rebuilt by renderGroupPanel -- so it's wired once here instead of on
+     every render, unlike the per-source tiles below it. */
+  $("#clearAllBtn").addEventListener("click", function(){
+    state.pages = [];
+    renderViewer();
+  });
+  $("#populateBtn").addEventListener("click", function(){
+    state.currentPage = 0;
+    regeneratePages();
+    renderViewer();
+  });
+  wireDragStart($("#emptyRowTile"), { type:"template", fromPage:null, templates:[emptyRowTemplate()] });
   /* dropping a group/contact on the empty-viewer overlay (shown only when
      state.pages is empty) creates the first page, same as "+ Ny sida" --
      otherwise there's nowhere on screen yet to drop onto. */
@@ -3099,34 +3114,6 @@ function renderGroupPanel(){
     panel.appendChild(el("div", { class:"emptyNote", text:"Importera en CSV/XLSX för att se grupper här." }));
     return;
   }
-
-  var actions = el("div", { class:"panelActions" });
-  var clearBtn = el("button", { type:"button", text:"Rensa alla" });
-  clearBtn.addEventListener("click", function(){
-    state.pages = [];
-    renderViewer();
-  });
-  actions.appendChild(clearBtn);
-  var populateBtn = el("button", { type:"button", text:"Fördela", title:"Fyll sidorna automatiskt med alla inlästa kontakter (flergångskällor undantagna) -- kör om samma fördelning efter att fler filer lästs in" });
-  populateBtn.addEventListener("click", function(){
-    state.currentPage = 0;
-    regeneratePages();
-    renderViewer();
-  });
-  actions.appendChild(populateBtn);
-  panel.appendChild(actions);
-
-  /* always-available blank spacer row -- a "template" tile like a
-     multi-use source's own (see buildContactList), just with no source of
-     its own: every drag creates a fresh empty-fields contact instance. */
-  var emptyTile = el("div", {
-    class: "groupTile reusable",
-    draggable: "true",
-    title: "Tom rad -- kan dras ut flera gånger för att lämna mellanrum mellan grupper"
-  });
-  emptyTile.appendChild(el("span", { class:"groupTileName", text:"+ Tom rad" }));
-  wireDragStart(emptyTile, { type:"template", fromPage:null, templates:[emptyRowTemplate()] });
-  panel.appendChild(emptyTile);
 
   /* one section per imported file, so a department repeated across two
      files (e.g. both having "IT") never shows up as a single merged
