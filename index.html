@@ -19,20 +19,49 @@
   /* shared design tokens -- the repeated raw colors below (page/panel
      surfaces, borders, the blue "active/drop-target" accent, the red
      "danger/remove" accent) collapsed into one name each, so changing one
-     changes it everywhere instead of hunting down every literal hex. */
+     changes it everywhere instead of hunting down every literal hex.
+     Named by role (what it's FOR) except the plain gray scale below,
+     named by value -- those get reused for whatever happens to need that
+     exact shade (a border here, a hover fill there, muted text somewhere
+     else), so a role-based name would just be misleading half the time. */
   --bg: #e6e6e6;
   --panel: #fff;
   --border: #bbb;
   --border-dark: #999;
+  --border-light: #ccc;
   --text: #111;
+  --text-soft: #333;
   --muted: #777;
+  --muted-dark: #555;
+  --hover-bg: #eee;
   --blue: #0080ff;
   --blue-text: #0060c0;
   --blue-bg: #dff0ff;
+  --blue-glow: rgba(0,128,255,.6);
   --danger: #c00;
+  --shadow-soft: rgba(0,0,0,.4);
 }
 html,body{height:100%;}
 body{margin:0; font:14px/1.4 Arial, sans-serif; background:var(--bg); color:var(--text); display:flex; flex-direction:column;}
+
+/* ===================== SHARED PATTERNS ===================== */
+/* the pill shape used throughout -- portal buttons, group tiles, contact
+   chips, the segment drag-ghost -- kept to just the one property they
+   actually all share. Each still sets its own size/padding/colors; a pill
+   that also matches --segmentPillHeight (the portal buttons, contact
+   chips, drag-ghost) additionally floors its width at twice that height
+   (each sets its own min-width -- the multiplier's the same, but "twice
+   MY height" isn't expressible as one shared value), so text sizes it
+   from there instead of stretching or cramping a fixed box. .segmentCapsule
+   is deliberately NOT part of this -- it's a half-pill flush against its
+   card's edge (round left, square right), a different shape entirely. */
+.pill{border-radius:999px;}
+/* the ellipsis-on-overflow idiom, repeated identically across toolbar
+   status text, group/contact/source names, and page-control selects --
+   min-width:0 is what actually lets a flex/grid child shrink small enough
+   for the rest to kick in, not just decoration alongside it. */
+.truncate{min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* ===================== END SHARED PATTERNS ===================== */
 
 /* ===================== TOOLBAR ===================== */
 /* three columns, but only the middle one (#portalPanel) is a flexible fr
@@ -68,13 +97,13 @@ header.toolbar h1{font-size:15px; margin:0 14px 0 0; white-space:nowrap;}
    buttons the moment the rest of the bar runs out of room. */
 .toolbarSide{display:flex; flex-wrap:nowrap; align-items:center; gap:10px;}
 .toolbarSideRight{justify-content:flex-end;}
-header.toolbar select, header.toolbar button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer; flex:0 0 auto;}
-header.toolbar button:hover{background:#eee;}
+header.toolbar select, header.toolbar button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid var(--border-dark); background:var(--panel); cursor:pointer; flex:0 0 auto;}
+header.toolbar button:hover{background:var(--hover-bg);}
 label.tool{display:flex; gap:4px; align-items:center; font-size:12px; flex:0 0 auto; white-space:nowrap;}
 /* the one piece of toolbar text allowed to give way under pressure: paper
    size + print stay put at their natural size (flex:0 0 auto above), so
    this is what shrinks and, past that, truncates with an ellipsis first. */
-#dataStatus{font-size:12px; color:#ccc; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+#dataStatus{font-size:12px; color:var(--border-light);}
 
 /* the toolbar's own middle grid column -- one round button per page (see
    renderPortalPanel/wirePortalButton), replacing the old prev/next +
@@ -85,22 +114,23 @@ label.tool{display:flex; gap:4px; align-items:center; font-size:12px; flex:0 0 a
    auto grid column would squeeze the toolbar's own left/right content
    down to fit them all on one line. */
 #portalPanel{display:flex; flex-direction:row; align-items:center; gap:6px; max-width:40vw; overflow-x:auto; overflow-y:hidden; padding:2px 0;}
-/* same height as the drag-and-drop pills (#segmentDragGhost/.segmentCapsule,
-   see the shared --segment* tokens in :root), width about double that --
-   a pill, not a circle, so a two-digit page number still sits comfortably
-   centered instead of getting cramped. */
-#portalPanel .portalBtn{flex:0 0 auto; width:calc(var(--segmentPillHeight) * 2); height:var(--segmentPillHeight); border-radius:999px; background:var(--panel); border:1px solid var(--border-dark); box-shadow:0 1px 3px rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; color:#333; cursor:pointer; user-select:none; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
-#portalPanel .portalBtn:hover{background:#f2f2f2;}
+/* same height as the drag-and-drop pills (.pill, #segmentDragGhost et al,
+   see the shared --segment* tokens in :root); width flexes with the page
+   number's own text (a two-digit page shouldn't get cramped) but never
+   drops below twice the height, so a one-digit page still reads as a
+   pill and not a near-circle. */
+#portalPanel .portalBtn{flex:0 0 auto; min-width:calc(var(--segmentPillHeight) * 2); height:var(--segmentPillHeight); padding:0 10px; background:var(--panel); border:1px solid var(--border-dark); box-shadow:0 1px 3px var(--shadow-soft); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; color:var(--text-soft); cursor:pointer; user-select:none; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
+#portalPanel .portalBtn:hover{background:var(--hover-bg);}
 /* the page(s) currently shown in the viewer -- a plain visual cue, not a
    drop-related state. Falls back to the blue accent only for a page with
    no contacts to take a color from (see colorForPage) -- a normal page
    gets its own department color instead, set inline by renderPortalPanel
    to match whatever color that page's own contacts use everywhere else
    (the group panel tiles/chips, the segment capsules on the card itself). */
-#portalPanel .portalBtn.current{border-color:var(--blue); color:var(--blue-text); box-shadow:0 1px 4px rgba(0,128,255,.6);}
+#portalPanel .portalBtn.current{border-color:var(--blue); color:var(--blue-text); box-shadow:0 1px 4px var(--blue-glow);}
 /* held over mid-drag (see wirePortalButton) -- bigger + brighter so it
    reads as "drag here to jump", distinct from .current */
-#portalPanel .portalBtn.dragOver{background:var(--blue-bg); border-color:var(--blue); color:var(--blue-text); transform:scale(1.2); box-shadow:0 2px 6px rgba(0,128,255,.6);}
+#portalPanel .portalBtn.dragOver{background:var(--blue-bg); border-color:var(--blue); color:var(--blue-text); transform:scale(1.2); box-shadow:0 2px 6px var(--blue-glow);}
 /* ===================== END TOOLBAR ===================== */
 
 /* ===================== MAIN VIEWER ===================== */
@@ -135,7 +165,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 /* shown instead of any page content while there's nothing to display yet
    (no pages exist) -- one message covering the whole viewer, not one
    repeated on every card that would otherwise render */
-#emptyViewerOverlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:40px; font-size:18px; color:#999;}
+#emptyViewerOverlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:40px; font-size:18px; color:var(--border-dark);}
 #emptyViewerOverlay[hidden]{display:none;}
 #emptyViewerOverlay.dragOver{background:var(--blue-bg); color:var(--blue-text);}
 
@@ -190,7 +220,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    right across its surface near the seam, reading as the card's shadow
    landing on something behind and below it, between the card and the
    page background. */
-.page{background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.4), -6px 0 10px -2px rgba(0,0,0,.55); position:relative; z-index:2; flex:0 0 auto;}
+.page{background:var(--panel); box-shadow:0 1px 5px var(--shadow-soft), -6px 0 10px -2px rgba(0,0,0,.55); position:relative; z-index:2; flex:0 0 auto;}
 .page canvas{display:block; width:100%; height:100%; cursor:grab;}
 .page canvas:active{cursor:grabbing;}
 /* ===================== END CARD LAYOUT ===================== */
@@ -224,12 +254,14 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 /* same idea, for a dragged segment capsule (see buildCardEdgeHandles) --
    a horizontal pill in the segment's own color, sized to its text by
    showSegmentDragGhost measuring its own rendered box before setDragImage
-   is called. border-radius:999px rounds a box of any width into a full
-   pill regardless of its (text-dependent) size. font-size/line-height/
-   padding-block share the same --segment* variables as .segmentCapsule
-   (see :root above), so the resting tab and this pill always agree on
-   text size, and the tab's own width equals this pill's rendered height. */
-#segmentDragGhost{position:fixed; top:-999px; left:-999px; padding:var(--segmentPillPadY) 16px; color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); border-radius:999px; white-space:nowrap; pointer-events:none; box-shadow:0 1px 4px rgba(0,0,0,.4);}
+   is called (see .pill for the shape; min-width floors it at twice its
+   own height same as the other pills, though 16px of padding on each
+   side already makes that a no-op for anything but a one-character
+   label). font-size/line-height/padding-block share the same --segment*
+   variables as .segmentCapsule (see :root above), so the resting tab and
+   this pill always agree on text size, and the tab's own width equals
+   this pill's rendered height. */
+#segmentDragGhost{position:fixed; top:-999px; left:-999px; min-width:calc(var(--segmentPillHeight) * 2); padding:var(--segmentPillPadY) 16px; color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); white-space:nowrap; pointer-events:none; box-shadow:0 1px 4px var(--shadow-soft);}
 /* ===================== END SEGMENT TABS / DRAG GHOSTS ===================== */
 
 /* ===================== PER-CARD INFO BAR (viewer) ===================== */
@@ -247,10 +279,10 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 /* always exactly one row: the usage text truncates with an ellipsis
    (title carries the full text) rather than wrapping and pushing Remove
    out of alignment */
-.pageInfoBar .pageInfoHeader span{font-size:11px; font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1 1 auto;}
+.pageInfoBar .pageInfoHeader span{font-size:11px; font-weight:bold; flex:1 1 auto;}
 .pageInfoBar .pageInfoHeader span.full{color:#a00;}
 .pageInfoBar .pageInfoHeader button,
-.pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{font-size:10px; background:#fff; border:1px solid var(--border); border-radius:3px; cursor:pointer;}
+.pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{font-size:10px; background:var(--panel); border:1px solid var(--border); border-radius:3px; cursor:pointer;}
 .pageInfoBar .pageInfoHeader button{flex:0 0 auto; padding:1px 5px;}
 /* red only on hover -- a permanently red-bordered button next to the
    neutral "A-Ö" button read as too loud/alarming */
@@ -261,20 +293,19 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    (e.g. "Slate Gray") from blowing the row back out */
 .pageInfoBar .pageControls{display:flex; flex-wrap:wrap; gap:4px; align-items:center;}
 .pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{padding:2px 3px;}
-.pageInfoBar .pageControls > select{width:76px; min-width:0; text-overflow:ellipsis; overflow:hidden;}
+.pageInfoBar .pageControls > select{width:76px;}
 .pageInfoBar .pageControls label.tool{display:flex; align-items:center; gap:3px; font-size:10px; cursor:pointer; white-space:nowrap;}
 .pageInfoBar .pageControls input[type="file"]{width:100%;}
 /* custom dropdown standing in for a native <select> for the header color
    picker -- see buildSwatchSelect for why (a plain <option> can't carry
    a color swatch next to its label) */
 .pageInfoBar .swatchSelect{position:relative; min-width:0;}
-.pageInfoBar .swatchSelect .swatchBtn{display:flex; align-items:center; gap:5px; width:76px; min-width:0; font-size:10px; padding:2px 5px; border-radius:3px; border:1px solid var(--border); background:#fff; cursor:pointer;}
-.pageInfoBar .swatchSelect .swatchBtn span:last-child{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.pageInfoBar .swatchSelect .swatchBtn{display:flex; align-items:center; gap:5px; width:76px; min-width:0; font-size:10px; padding:2px 5px; border-radius:3px; border:1px solid var(--border); background:var(--panel); cursor:pointer;}
 .pageInfoBar .swatchSelect .swatchBox{width:11px; height:11px; border-radius:2px; border:1px solid rgba(0,0,0,.3); flex:none;}
 /* a plain 4-column grid of color squares (not a list of labeled rows) --
    each .swatchItem cell IS the color; its name only shows as a title
    tooltip on hover, same as a typical OS/app color-grid picker */
-.pageInfoBar .swatchSelect .swatchList{position:absolute; top:100%; left:0; z-index:20; margin-top:2px; background:#fff; border:1px solid var(--border-dark); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.3); padding:6px; display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; max-height:220px; overflow-y:auto;}
+.pageInfoBar .swatchSelect .swatchList{position:absolute; top:100%; left:0; z-index:20; margin-top:2px; background:var(--panel); border:1px solid var(--border-dark); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.3); padding:6px; display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; max-height:220px; overflow-y:auto;}
 .pageInfoBar .swatchSelect .swatchList[hidden]{display:none;}
 /* flips added by positionSwatchList once the popup's real (only-knowable-
    once-visible) size would otherwise run past the viewport's edge */
@@ -315,52 +346,53 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    control cluster, not two different kinds of thing. */
 #groupPanelControls .panelControlsGrid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
 #groupPanelControls .panelControlsGrid > *{font-size:12px; padding:8px 6px; text-align:center; border-radius:5px; min-width:0;}
-#groupPanelControls button{border:1px solid var(--border-dark); background:#fff; cursor:pointer;}
-#groupPanelControls button:hover{background:#eee;}
-#newPageZone{border:1px solid #888; color:#555; transition:background-color .1s, border-color .1s, color .1s;}
+#groupPanelControls button{border:1px solid var(--border-dark); background:var(--panel); cursor:pointer;}
+#groupPanelControls button:hover{background:var(--hover-bg);}
+#newPageZone{border:1px solid var(--border-dark); color:var(--muted-dark); transition:background-color .1s, border-color .1s, color .1s;}
 #newPageZone.dragOver{background:var(--blue-bg); border-color:var(--blue); color:var(--blue-text);}
 #cardRemoveZone{border:1px solid var(--danger); color:var(--danger); transition:background-color .1s, border-color .1s;}
 #cardRemoveZone.dragOver{background:#fde4e4;}
 #groupPanelBody{flex:1 1 auto; overflow-y:auto; padding:10px; font-size:12px;}
-#groupPanel h2{font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#555; margin:0 0 8px;}
+#groupPanel h2{font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted-dark); margin:0 0 8px;}
 /* single column ("Dra till kortet") -- draggable straight onto the card
    itself as well as onto a page below (see wireCardDropTarget; it isn't
    tied to which panel a drag started in, only to PANEL_DRAG_MIME) */
 #groupPanel .groupGrid{display:flex; flex-direction:column; gap:4px; margin-bottom:10px;}
-/* rounded sides like the drag-and-drop pills (#segmentDragGhost et al),
-   but otherwise the same size as before -- unlike .contactChip below,
-   this isn't resized to match the pill's own height, just its shape. */
-#groupPanel .groupTile{background:#fff; border:1px solid #ccc; border-radius:999px; padding:5px 12px; font-size:11px; min-width:0; cursor:grab;}
+/* .pill for the rounded sides -- but otherwise the same size as before,
+   unlike .contactChip below this isn't resized to match the pill's own
+   height, just its shape. */
+#groupPanel .groupTile{background:var(--panel); border:1px solid var(--border-light); padding:5px 12px; font-size:11px; min-width:0; cursor:grab;}
 #groupPanel .groupTile:active{cursor:grabbing;}
 /* a "placed" tile/chip's own background/border color comes inline from
    JS (see renderGroupPanel/buildContactList) -- a light tint of that
    group's own color, same as the drag preview highlight, rather than one
    flat color for every group regardless of which it is. */
 #groupPanel .groupTileNameRow{display:flex; align-items:center; gap:3px; min-width:0;}
-#groupPanel .groupTileName{font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;}
+#groupPanel .groupTileName{font-weight:bold; flex:1;}
 #groupPanel .groupTileCount{color:var(--muted); flex:none; white-space:nowrap; font-size:10px;}
-#groupPanel .groupTileToggle{cursor:pointer; color:#888; font-size:9px; flex:none; user-select:none; padding:0 1px;}
-#groupPanel .groupTileToggle:hover{color:#333;}
-#groupPanel .contactList{display:flex; flex-direction:column; gap:3px; padding:2px 0 4px 6px; margin-top:-2px; border-left:2px solid #eee;}
-/* same shape AND same height as the drag-and-drop pills (#segmentDragGhost
-   et al, see the shared --segment* tokens in :root) -- unlike .groupTile
-   above, an individual contact chip is resized to match exactly, not just
-   reshaped; height replaces the old vertical padding, horizontal padding
-   only, centered by align-items. */
-#groupPanel .contactChip{display:flex; justify-content:space-between; align-items:center; gap:4px; background:#fff; border:1px solid #ddd; border-radius:999px; height:var(--segmentPillHeight); padding:0 8px; font-size:10.5px; cursor:grab; min-width:0;}
+#groupPanel .groupTileToggle{cursor:pointer; color:var(--border-dark); font-size:9px; flex:none; user-select:none; padding:0 1px;}
+#groupPanel .groupTileToggle:hover{color:var(--text-soft);}
+#groupPanel .contactList{display:flex; flex-direction:column; gap:3px; padding:2px 0 4px 6px; margin-top:-2px; border-left:2px solid var(--hover-bg);}
+/* .pill for the shape, same as .groupTile above -- but ALSO resized to
+   match the pill's own height exactly (see :root's --segmentPillHeight),
+   unlike .groupTile, which just keeps its previous size; min-width floors
+   it at twice that height so a short, badge-less name doesn't look
+   squashed, though the 8px of horizontal padding plus a typical name
+   already clears that most of the time. Height replaces the old vertical
+   padding, horizontal padding only, centered by align-items. */
+#groupPanel .contactChip{display:flex; justify-content:space-between; align-items:center; gap:4px; background:var(--panel); border:1px solid var(--border-light); height:var(--segmentPillHeight); min-width:calc(var(--segmentPillHeight) * 2); padding:0 8px; font-size:10.5px; cursor:grab;}
 #groupPanel .contactChip:active{cursor:grabbing;}
-#groupPanel .contactChipName{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;}
 #groupPanel .contactChipPage{font-size:9.5px; flex:none;}
 #groupPanel .emptyNote{color:var(--muted); font-style:italic;}
 /* a multi-use source's tile/chip (or the always-present "Tom rad" spacer):
    dashed border marks it as a reusable template, cloned fresh on every
    drag instead of being moved out of the pool (see buildContactList,
    renderGroupPanel) */
-#groupPanel .groupTile.reusable, #groupPanel .contactChip.reusable{border-style:dashed; border-color:#888;}
+#groupPanel .groupTile.reusable, #groupPanel .contactChip.reusable{border-style:dashed; border-color:var(--border-dark);}
 #groupPanel .sourceSection{margin-bottom:14px;}
-#groupPanel .sourceHeader{display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:5px; padding-bottom:3px; border-bottom:1px solid #ccc;}
-#groupPanel .sourceName{font-weight:bold; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;}
-#groupPanel .sourceMultiUse{display:flex; align-items:center; gap:3px; font-size:10px; color:#555; flex:none; cursor:pointer; user-select:none;}
+#groupPanel .sourceHeader{display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:5px; padding-bottom:3px; border-bottom:1px solid var(--border-light);}
+#groupPanel .sourceName{font-weight:bold; font-size:11px; flex:1;}
+#groupPanel .sourceMultiUse{display:flex; align-items:center; gap:3px; font-size:10px; color:var(--muted-dark); flex:none; cursor:pointer; user-select:none;}
 #groupPanel .sourceMultiUse input{margin:0;}
 /* ===================== END GROUP PANEL ===================== */
 
@@ -381,7 +413,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
        same as before it lived here. -->
   <div id="portalPanel"></div>
   <div class="toolbarSide toolbarSideRight">
-    <span id="dataStatus">Släpp en CSV- eller XLSX-fil för att börja</span>
+    <span id="dataStatus" class="truncate">Släpp en CSV- eller XLSX-fil för att börja</span>
     <!-- everything about a page ITSELF (layout, header color, ...) lives
          on the card in the viewer now, see .pageInfoBar/buildPageInfoBar --
          paper size + print are the only page-wide settings left up here. -->
@@ -416,7 +448,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
            multi-use source's own (see buildContactList/wireDragStart in
            the script), just with no source of its own: every drag creates
            a fresh empty-fields contact instance. -->
-      <div id="emptyRowTile" class="groupTile reusable" draggable="true" title="Tom rad -- kan dras ut flera gånger för att lämna mellanrum mellan grupper">+ Tom rad</div>
+      <div id="emptyRowTile" class="pill groupTile reusable" draggable="true" title="Tom rad -- kan dras ut flera gånger för att lämna mellanrum mellan grupper">+ Tom rad</div>
     </div>
     <div id="groupPanelBody"></div>
   </aside>
@@ -1855,6 +1887,7 @@ function doPrint(){
    populate/set-value/wire-change skeleton with only the options differing */
 function buildSelect(options, value, onChange, title){
   var sel = document.createElement("select");
+  sel.className = "truncate";
   if(title) sel.title = title;
   options.forEach(function(o){ sel.appendChild(el("option", { value:o[0], text:o[1] })); });
   sel.value = value;
@@ -1881,7 +1914,7 @@ function buildSwatchSelect(options, value, onChange, title){
   var btnSwatch = el("span", { class:"swatchBox" });
   btnSwatch.style.background = current ? current[0] : "#000";
   btn.appendChild(btnSwatch);
-  btn.appendChild(el("span", { text: current ? current[1] : "" }));
+  btn.appendChild(el("span", { class:"truncate", text: current ? current[1] : "" }));
   wrap.appendChild(btn);
 
   /* a 4-column grid of plain swatch squares, not a list of labeled rows
@@ -2050,7 +2083,7 @@ function buildPageInfoBar(index){
   var headerText = "Sida " + (index+1)
     + (pageState.layout === "empty" ? ": tom" : ": " + used + "/" + cap + " använda, " + free + " lediga");
   var headerRow = el("div", { class:"pageInfoHeader" });
-  headerRow.appendChild(el("span", { class: free === 0 && pageState.layout !== "empty" ? "full" : "", text:headerText, title:headerText }));
+  headerRow.appendChild(el("span", { class: "truncate" + (free === 0 && pageState.layout !== "empty" ? " full" : ""), text:headerText, title:headerText }));
   /* sorts this page's own contacts alphabetically by name, in place --
      the page is already the one on screen (its info bar sits right on
      it), so there's no separate "jump to this card" button to make room
@@ -2288,7 +2321,7 @@ function showRowDragGhost(e, text){
 var segmentDragGhostEl = null;
 function showSegmentDragGhost(e, text, color){
   if(!segmentDragGhostEl){
-    segmentDragGhostEl = el("div", { id:"segmentDragGhost" });
+    segmentDragGhostEl = el("div", { id:"segmentDragGhost", class:"pill" });
     document.body.appendChild(segmentDragGhostEl);
   }
   segmentDragGhostEl.textContent = text;
@@ -2770,7 +2803,7 @@ function renderPortalPanel(){
   for(var i=0;i<total;i++){
     var isCurrent = i>=visibleStart && i<=visibleEnd;
     var btn = el("div", {
-      class:"portalBtn" + (isCurrent ? " current" : ""),
+      class:"pill portalBtn" + (isCurrent ? " current" : ""),
       text:String(i+1),
       title:"Hoppa till Sida " + (i+1)
     });
@@ -3236,13 +3269,13 @@ function buildContactList(contacts, fromPage, multiUse){
     var pageNums = multiUse ? [] : pageNumbersForContact(c);
     var placed = pageNums.length > 0;
     var chip = el("div", {
-      class: "contactChip" + (placed ? " placed" : "") + (multiUse ? " reusable" : ""),
+      class: "pill contactChip" + (placed ? " placed" : "") + (multiUse ? " reusable" : ""),
       draggable: "true",
       title: multiUse
         ? "Kan dras ut flera gånger -- dra till ett kort eller \"+ Ny sida\" i visaren"
         : (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till ett kort, \"+ Ny sida\" eller \"✕ Ta bort\" i visaren"
     });
-    chip.appendChild(el("span", { class:"contactChipName", text:c.name }));
+    chip.appendChild(el("span", { class:"contactChipName truncate", text:c.name }));
     /* a light tint of this contact's own department color instead of a
        flat "placed" color for every group alike -- same alpha the drag
        preview highlight uses (see applyDragHighlights) for the fill, and
@@ -3284,7 +3317,7 @@ function renderGroupPanel(){
 
     var section = el("div", { class:"sourceSection" });
     var header = el("div", { class:"sourceHeader" });
-    header.appendChild(el("span", { class:"sourceName", text:source.name, title:source.name }));
+    header.appendChild(el("span", { class:"sourceName truncate", text:source.name, title:source.name }));
     var toggleLabel = el("label", {
       class:"sourceMultiUse",
       title:"Tillåt att kontakter härifrån dras ut till flera platser (t.ex. generella supportnummer) -- de ingår då inte längre i \"Fördela\""
@@ -3307,7 +3340,7 @@ function renderGroupPanel(){
       var pageNums = source.multiUse ? [] : pageNumbersForGroup(g);
       var placed = pageNums.length > 0;
       var tile = el("div", {
-        class: "groupTile" + (placed ? " placed" : "") + (source.multiUse ? " reusable" : ""),
+        class: "pill groupTile" + (placed ? " placed" : "") + (source.multiUse ? " reusable" : ""),
         draggable: "true",
         title: source.multiUse
           ? "Kan dras ut flera gånger -- dra till en sida nedan"
@@ -3328,7 +3361,7 @@ function renderGroupPanel(){
         state.expandedGroups[expandKey] = !expanded;
         renderGroupPanel();
       }));
-      nameRow.appendChild(el("span", { class:"groupTileName", text:g.label }));
+      nameRow.appendChild(el("span", { class:"groupTileName truncate", text:g.label }));
       var countSpan = el("span", { class:"groupTileCount", text:g.contacts.length + (placed ? " · s" + pageNums.join(",") : "") });
       if(placed) countSpan.style.color = hexToRgba(tileColor, 0.9);
       nameRow.appendChild(countSpan);
