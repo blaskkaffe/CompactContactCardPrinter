@@ -77,7 +77,15 @@ if (!bgAnimationPaused) {
 
     const canvas = document.createElement('canvas');
     document.getElementById('dreamcast-background').appendChild(canvas);
-    const gl = canvas.getContext('webgl');
+    // premultipliedAlpha:false: the WebGL default expects canvas RGB to
+    // already be premultiplied by alpha for the browser's own compositing
+    // against the page behind it. The sky is a hollow tube seen from
+    // inside, so several of its semi-transparent layers can blend at the
+    // same pixel; with the default true, that stack's final browser-level
+    // composite could blow out toward pure white well past either layer's
+    // own color. False makes the canvas blend against the page the same
+    // straightforward way gl.blendFunc already blends within it.
+    const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false });
 
     // --- tiny mat4 helpers (no library) ---
     function perspective(fovyRad, aspect, near, far) {
@@ -189,7 +197,6 @@ if (!bgAnimationPaused) {
         uniform float uTime;
         varying vec2 vUv;
         varying float vOpacity;
-        varying vec3 vNormal;
 
         float waveHeight(vec2 p) {
             float dist = length(p);
@@ -203,13 +210,7 @@ if (!bgAnimationPaused) {
         }
 
         void main() {
-            float eps = 0.05;
             float h0 = waveHeight(aPosition);
-            float hx = waveHeight(aPosition + vec2(eps, 0.0));
-            float hy = waveHeight(aPosition + vec2(0.0, eps));
-            vec3 tangentX = vec3(eps, 0.0, hx - h0);
-            vec3 tangentY = vec3(0.0, eps, hy - h0);
-            vNormal = normalize(cross(tangentX, tangentY));
 
             vUv = aPosition / vec2(50.0, 30.0) + 0.5;
             vOpacity = clamp(1.0 - length(aPosition) / 20.0, 0.0, 1.0);
@@ -222,14 +223,18 @@ if (!bgAnimationPaused) {
         precision mediump float;
         varying vec2 vUv;
         varying float vOpacity;
-        varying vec3 vNormal;
         uniform sampler2D uTexture;
 
         void main() {
+            // The original never recomputes the plane's vertex normals after
+            // displacing it for the waves, so its lighting stays flat
+            // (facing +Z) everywhere - a CONSTANT term, not shading that
+            // varies with the wave's slope. Matching that: ambient (0.251
+            // from AmbientLight 0x404040) + diffuse from the main light at
+            // (1,1,1) against a fixed +Z normal (NdotL = 1/sqrt(3) ~ 0.577)
+            // + a sliver from the second, near-grazing light.
+            const float lighting = 0.251 + 0.577 + 0.067;
             vec4 tex = texture2D(uTexture, vUv);
-            vec3 lightDir = normalize(vec3(1.0, 1.0, 1.0));
-            float diffuse = max(dot(vNormal, lightDir), 0.0);
-            float lighting = 0.32 + diffuse * 0.45;
             gl_FragColor = vec4(tex.rgb * lighting, tex.a * vOpacity);
         }
     `;
@@ -333,7 +338,12 @@ if (!bgAnimationPaused) {
         // and gives the sky's UV drift a seamless wrap with no shader tricks.
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        // Three.js defaults to mipmapped trilinear filtering; without mipmaps
+        // a minified/distant sample only blends 4 texels of the full-res
+        // texture, which looks noisier and higher-contrast than the smoothed
+        // original. Texture is 64x64 (power-of-two), so mipmaps are safe.
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
         textureReady = true;
     };
     image.src = biosTexture;
@@ -372,6 +382,7 @@ if (!bgAnimationPaused) {
         gl.bindTexture(gl.TEXTURE_2D, texture);
 
         // Ground plane
+        gl.depthMask(true);
         gl.useProgram(program);
         gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
         gl.enableVertexAttribArray(aPosition);
@@ -390,6 +401,14 @@ if (!bgAnimationPaused) {
         const skyModel = multiply(translation(0, 0, 65), multiply(rotationX(skyFixedTilt), rotationY(-time * 0.0625)));
         const skyMvp = multiply(viewProjMatrix, skyModel);
 
+        // The tube is hollow and viewed from inside, so its near and far
+        // walls can both rasterize to the same pixel. With depth WRITES on,
+        // whichever one happened to draw first could block the other from
+        // blending in at all (rather than compositing correctly), which can
+        // push a pixel brighter than either fragment alone - depth test
+        // stays on (so the sky still hides behind the opaque ground) but
+        // writes are off so overlapping sky fragments always blend.
+        gl.depthMask(false);
         gl.useProgram(skyProgram);
         gl.bindBuffer(gl.ARRAY_BUFFER, skyPositionBuffer);
         gl.enableVertexAttribArray(skyAPosition);
