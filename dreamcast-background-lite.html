@@ -257,8 +257,18 @@ if (!bgAnimationPaused) {
         }
 
         void main() {
+            // The original's opacity formula tops out around 0.665, which
+            // barely lightens saturated color when blended over its black
+            // backdrop. Against this page's light gray backdrop the same
+            // formula washes the texture out almost to nothing, so the
+            // ceiling is raised well past what the original needed. A floor
+            // is also added: this approximated tube maps local height to
+            // screen position differently enough from the original's exact
+            // geometry that the formula's near-zero band lands well above
+            // the horizon instead of right at it, leaving a washed-out gap.
             float normalizedY = aPosition.y / 60.0;
-            vOpacity = 1.0 - smoothstepCustom(-0.7, 1.1, normalizedY);
+            float raw = 1.0 - smoothstepCustom(-0.7, 1.1, normalizedY);
+            vOpacity = clamp(max(raw * 3.0, 0.45), 0.0, 1.0);
             vUv = aUv * vec2(2.0, 1.0) + vec2(1.0, 1.0);
             gl_Position = uMvp * vec4(aPosition, 1.0);
         }
