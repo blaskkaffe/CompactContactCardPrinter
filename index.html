@@ -78,7 +78,12 @@ label.tool{display:flex;align-items:center;gap:var(--space-1);flex:0 0 auto;font
 
 /* Viewer */
 main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg);overflow:hidden}
-#viewerContent{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:135px var(--edge-gap) var(--edge-gap) 0}
+/* padding-top is set from JS (see fitVisibleCards/viewerTopClearancePx) --
+   it depends on how tall the currently-visible page(s)' own .pageInfoBar
+   actually renders, which isn't known until after layout. 0 here is only
+   the flash-of-unstyled-content fallback for the instant before that
+   first runs. */
+#viewerContent{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:0 var(--edge-gap) var(--edge-gap) 0}
 #emptyViewerOverlay{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:40px;color:var(--border-dark);font-size:18px;text-align:center}
 #emptyViewerOverlay[hidden]{display:none}
 #emptyViewerOverlay.dragOver{background:var(--blue-bg);color:var(--blue-text)}
@@ -112,7 +117,17 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
 .pageInfoBar .pageControls select,.pageInfoBar .pageControls button,.pageInfoBar .pageControls input{height:30px;padding:0 6px;background:var(--panel);border:1px solid var(--border);border-radius:3px;font-size:var(--small-font);cursor:pointer}
 .pageInfoBar .pageControls>select{width:76px}
 .pageInfoBar .pageControls label.tool{display:flex;align-items:center;gap:3px;font-size:var(--small-font);white-space:nowrap;cursor:pointer}
-.pageInfoBar .pageControls input[type=file]{width:100%}
+/* a compact button standing in for the raw file input -- the browser's
+   own file input renders at whatever width its "no file chosen" text
+   needs (often 200px+), which forced it onto a row of its own (nothing
+   else fit beside it) and made an image-mode page's info bar much taller
+   than every other page's. The real input lives inside this label,
+   visually hidden (not display:none, which some browsers stop forwarding
+   a label click to) rather than shown -- clicking the label's own text
+   still opens the file picker, same as clicking a native file input. */
+.pageInfoBar .pageControls label.fileTrigger{display:inline-flex;align-items:center;height:30px;padding:0 6px;background:var(--panel);border:1px solid var(--border);border-radius:3px;font-size:var(--small-font);white-space:nowrap;cursor:pointer}
+.pageInfoBar .pageControls label.fileTrigger:hover{background:var(--hover-bg)}
+.pageInfoBar .pageControls label.fileTrigger input[type=file]{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .pageInfoBar .pageControls input[type=checkbox]{height:auto;padding:0}
 .pageInfoBar .swatchSelect{position:relative;min-width:0}
 .pageInfoBar .swatchSelect .swatchBtn{display:flex;align-items:center;gap:5px;width:76px;min-width:0;height:30px;padding:0 6px;background:var(--panel);border:1px solid var(--border);border-radius:3px;font-size:var(--small-font);cursor:pointer}
@@ -1765,7 +1780,13 @@ function buildPageControls(index){
         };
         reader.readAsDataURL(f);
       });
-      box.appendChild(fileInput);
+      /* wrapped in a label styled as a normal button (see .fileTrigger)
+         instead of appended bare -- a bare file input renders far wider
+         than any other control here, which used to force it onto its own
+         row and made this page's info bar taller than every other page's. */
+      var fileTrigger = el("label", { class:"fileTrigger", text:pageState.image ? "Byt bild" : "Välj bild", title:"Välj en bildfil" });
+      fileTrigger.appendChild(fileInput);
+      box.appendChild(fileTrigger);
 
       if(pageState.image){
         var fitOptions = [["contain","Behåll proportioner"],["stretch","Sträck ut"]];
@@ -2318,35 +2339,24 @@ function sidesPerView(){
 /* the one distance every floating thing keeps from the window's own edge
    -- must match --edge-gap in the CSS. Reused below both as the viewer's
    own left/right/bottom padding (matching #groupPanel's own edge padding
-   in the CSS) and as the gap PAGE_INFO_BAR_CLEARANCE_PX reserves above
-   the tallest a per-card info bar gets, so nothing built from this
-   constant ever sits closer to a window edge than anything else built
-   from it. */
+   in the CSS) and as the gap kept above the tallest currently-visible
+   per-card info bar, so nothing built from this constant ever sits closer
+   to a window edge than anything else built from it. */
 var WINDOW_EDGE_GAP_PX = 14;
 
-/* must match #viewerContent's own padding-top/padding-bottom in the CSS
-   -- ch below reserves exactly that much real vertical space instead of
-   a blanket percentage, so the fitted card(s) actually fill the space
-   between them with no extra centering slack left over. Without that,
-   flex centering only ever reallocates slack between top/bottom in
-   proportion to the padding difference, which is too subtle to read as
-   "the bottom has more room" -- reserving the exact space makes each
-   padding value the real, visible gap. PAGE_INFO_BAR_CLEARANCE_PX only
-   has to clear each card's own .pageInfoBar strip now -- the nav lives in
-   the toolbar, not over the viewer, so it's no longer part of this budget.
-   Sized for the tallest a bar can actually get, not just the common
-   case, so the bar never sits any closer to the toolbar than the top
-   left menu does -- an "empty" page in image mode, whose file picker and
-   fit-mode select wrap the bar out to its worst case, is ~120px tall
-   (rounded up to 121) with the bar's own 10px padding now matching
-   #groupPanelControls' own padding on every side. WINDOW_EDGE_GAP_PX on
-   top of that is the same gap #groupPanelControls' own box keeps from
-   the toolbar (#groupPanel's own edge padding), so the bar's top edge is
-   never any closer. A smaller clearance left that rare tall bar's top
-   edge rendered underneath the toolbar -- the bug this budget now rules
-   out in every case, common or not -- at the cost of leaving unused
-   headroom above the much more common, shorter v20-style bar (~81px). */
-var PAGE_INFO_BAR_CLEARANCE_PX = 121 + WINDOW_EDGE_GAP_PX;
+/* #viewerContent's own padding-top, kept just tall enough to clear
+   whichever .pageInfoBar is tallest among the page(s) actually on screen
+   right now, plus WINDOW_EDGE_GAP_PX above that -- not a fixed worst-case
+   reservation, since a bar's height varies a lot (a v10 legend is one
+   line; "Tom sida" in image mode wraps its file picker/fit selector out
+   to several) and most pages never come close to the tallest one
+   possible. Recomputed by fitVisibleCards on every render from the real
+   rendered bars, so the card(s) always get to use however much of the
+   viewer's height the CURRENT page(s) actually leave available, with the
+   same WINDOW_EDGE_GAP_PX clearance on every side. Starts at a plain
+   guess (one line's worth) so the very first render has something to
+   size against before any bar has actually been measured. */
+var viewerTopClearancePx = 80 + WINDOW_EDGE_GAP_PX;
 
 /* sizes every currently-rendered .page to fit them all on screen at once,
    side by side, on whichever axis (combined width or height) is tighter
@@ -2357,7 +2367,15 @@ var PAGE_INFO_BAR_CLEARANCE_PX = 121 + WINDOW_EDGE_GAP_PX;
    the 24px gap between page units (both from the CSS) -- so it never
    under-counts the strips (which used to leave rows a bit too wide for
    their own budget, forcing an unwanted wrap into a second row that then
-   overflowed the viewer's own height). */
+   overflowed the viewer's own height).
+   Runs the sizing twice: the first pass applies whatever top clearance is
+   already in effect (carried over from the last render, so usually
+   already close) so the cards reach their real on-screen width -- and so
+   their info bars wrap the way they actually will -- before anything gets
+   measured; the second pass then measures those bars' real rendered
+   height at that real width and narrows viewerTopClearancePx (and so the
+   cards' own size) to match, instead of a fixed guess that's too tall for
+   most pages. */
 function fitVisibleCards(){
   var wrap = $("#viewerContent");
   var pages = wrap.querySelectorAll(".page");
@@ -2382,10 +2400,25 @@ function fitVisibleCards(){
      #viewerContent's own comment on why it carries no padding-left. */
   var availW = wrap.clientWidth - WINDOW_EDGE_GAP_PX - 1;
   var cw = (availW - fixedW) / pages.length;
-  var ch = wrap.clientHeight - PAGE_INFO_BAR_CLEARANCE_PX - WINDOW_EDGE_GAP_PX;
-  var scale = Math.min(cw/dims.w, ch/dims.h);
-  var w = dims.w*scale, h = dims.h*scale;
-  pages.forEach(function(p){ p.style.width = w+"px"; p.style.height = h+"px"; });
+
+  function applySizesFor(topClearancePx){
+    wrap.style.paddingTop = topClearancePx + "px";
+    var ch = wrap.clientHeight - topClearancePx - WINDOW_EDGE_GAP_PX;
+    var scale = Math.min(cw/dims.w, ch/dims.h);
+    var w = dims.w*scale, h = dims.h*scale;
+    pages.forEach(function(p){ p.style.width = w+"px"; p.style.height = h+"px"; });
+  }
+  applySizesFor(viewerTopClearancePx);
+
+  var maxBarH = 0;
+  wrap.querySelectorAll(".pageInfoBar").forEach(function(bar){
+    maxBarH = Math.max(maxBarH, bar.getBoundingClientRect().height);
+  });
+  var neededClearance = Math.ceil(maxBarH) + WINDOW_EDGE_GAP_PX;
+  if(Math.abs(neededClearance - viewerTopClearancePx) > 0.5){
+    viewerTopClearancePx = neededClearance;
+    applySizesFor(viewerTopClearancePx);
+  }
 }
 
 /* a segment capsule's label runs top-to-bottom (writing-mode:vertical-rl,
