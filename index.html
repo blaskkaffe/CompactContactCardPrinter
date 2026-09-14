@@ -173,11 +173,12 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
 /* how many card sides show at once (1/2/4) is purely a function of
    viewport width -- see sidesPerView. */
 main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--bg); overflow:hidden;}
-/* padding-top clears each card's floating .pageInfoBar strip above it;
-   left/right match VIEWER_SIDE_PADDING_PX and #groupPanel's own edge
-   padding in the JS, so a card sits no further from the panel than the
-   panel sits from the window edge. */
-#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:80px 14px 32px;}
+/* padding-top clears each card's floating .pageInfoBar strip above it --
+   must match PAGE_INFO_BAR_CLEARANCE_PX in the JS. left/right match
+   VIEWER_SIDE_PADDING_PX and #groupPanel's own edge padding in the JS,
+   so a card sits no further from the panel than the panel sits from the
+   window edge. */
+#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:106px 14px 32px;}
 
 #emptyViewerOverlay{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:40px; color:var(--border-dark); font-size:18px; text-align:center;}
 #emptyViewerOverlay[hidden]{display:none;}
@@ -257,12 +258,12 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
 .pageInfoBar .pageInfoHeader span.full{color:#a00;}
 .pageInfoBar .pageInfoHeader button,
 .pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{background:var(--panel); border:1px solid var(--border); border-radius:3px; font-size:10px; cursor:pointer;}
-.pageInfoBar .pageInfoHeader button{flex:0 0 auto; padding:1px 5px;}
+.pageInfoBar .pageInfoHeader button{flex:0 0 auto; padding:8px 6px;}
 /* red only on hover -- permanently red next to the neutral A-Ö button
    read as too alarming. */
 .pageInfoBar .pageInfoHeader button.removeBtn:hover{border-color:var(--danger); color:var(--danger);}
 .pageInfoBar .pageControls{display:flex; flex-wrap:wrap; align-items:center; gap:4px;}
-.pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{padding:2px 3px;}
+.pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{padding:8px 6px;}
 .pageInfoBar .pageControls > select{width:76px;}
 .pageInfoBar .pageControls label.tool{display:flex; align-items:center; gap:3px; font-size:10px; white-space:nowrap; cursor:pointer;}
 .pageInfoBar .pageControls input[type="file"]{width:100%;}
@@ -270,7 +271,7 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    <option> can't carry a color swatch next to its label (see
    buildSwatchSelect). */
 .pageInfoBar .swatchSelect{position:relative; min-width:0;}
-.pageInfoBar .swatchSelect .swatchBtn{display:flex; align-items:center; gap:5px; width:76px; min-width:0; padding:2px 5px; background:var(--panel); border:1px solid var(--border); border-radius:3px; font-size:10px; cursor:pointer;}
+.pageInfoBar .swatchSelect .swatchBtn{display:flex; align-items:center; gap:5px; width:76px; min-width:0; padding:8px 6px; background:var(--panel); border:1px solid var(--border); border-radius:3px; font-size:10px; cursor:pointer;}
 .pageInfoBar .swatchSelect .swatchBox{flex:none; width:11px; height:11px; border:1px solid rgba(0,0,0,.3); border-radius:2px;}
 /* a plain color grid, not labeled rows -- each cell IS the color, name
    only on hover. */
@@ -2527,8 +2528,19 @@ function sidesPerView(){
    "the bottom has more room" -- reserving the exact space makes each
    padding value the real, visible gap. PAGE_INFO_BAR_CLEARANCE_PX only
    has to clear each card's own .pageInfoBar strip now -- the nav lives in
-   the toolbar, not over the viewer, so it's no longer part of this budget. */
-var PAGE_INFO_BAR_CLEARANCE_PX = 80;
+   the toolbar, not over the viewer, so it's no longer part of this budget.
+   Sized for the common case, not the tallest a bar can ever get: a v20
+   page's bar (used/free + A-Ö/Ta bort + layout/color) is ~74px tall with
+   the bar's own controls now padded to match the top left menu's buttons,
+   plus its own 6px margin-bottom, plus headroom so it doesn't sit flush
+   against the toolbar. A rarer bar -- an "empty" page in image mode, whose
+   file picker and fit-mode select can wrap it out to ~113px -- isn't fully
+   covered by this budget and can crowd the toolbar slightly; fully
+   covering it would need ~130px, which was measured to shrink every
+   card's rendered size (ch is the binding constraint in fitVisibleCards'
+   Math.min(cw/dims.w, ch/dims.h) at common viewport heights), so that
+   rare case is left as an accepted trade-off instead. */
+var PAGE_INFO_BAR_CLEARANCE_PX = 106;
 var VIEWER_BOTTOM_MARGIN_PX = 32;
 /* must match #viewerContent's own left/right padding in the CSS -- used
    below to size against the actual content box, not the padding along
