@@ -198,7 +198,7 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    this element's own left edge (#mainRow, no gap of its own) -- adding
    another --edge-gap of padding here too would double the gap on that
    one side instead of matching the other three. */
-#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:135px var(--edge-gap) var(--edge-gap) 0;}
+#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:170px var(--edge-gap) var(--edge-gap) 0;}
 
 #emptyViewerOverlay{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:40px; color:var(--border-dark); font-size:18px; text-align:center;}
 #emptyViewerOverlay[hidden]{display:none;}
@@ -2568,17 +2568,20 @@ var WINDOW_EDGE_GAP_PX = 14;
    the toolbar, not over the viewer, so it's no longer part of this budget.
    Sized for the tallest a bar can actually get, not just the common
    case, so the bar never sits any closer to the toolbar than the top
-   left menu does -- an "empty" page in image mode, whose file picker and
-   fit-mode select wrap the bar out to its worst case, is ~120px tall
-   (rounded up to 121) with the bar's own 10px padding now matching
-   #groupPanelControls' own padding on every side. WINDOW_EDGE_GAP_PX on
-   top of that is the same gap #groupPanelControls' own box keeps from
-   the toolbar (#groupPanel's own edge padding), so the bar's top edge is
-   never any closer. A smaller clearance left that rare tall bar's top
-   edge rendered underneath the toolbar -- the bug this budget now rules
-   out in every case, common or not -- at the cost of leaving unused
-   headroom above the much more common, shorter v20-style bar (~81px). */
-var PAGE_INFO_BAR_CLEARANCE_PX = 121 + WINDOW_EDGE_GAP_PX;
+   left menu does -- an "empty" page in image mode WITH an image actually
+   loaded (file picker + the fit-mode select + the rotate button all
+   wrap onto their own lines -- an empty file picker alone only reaches
+   ~120px, but that undercounts the real worst case once an image is
+   there to act on) is ~155px tall, rounded up to 156, with the bar's
+   own 10px padding now matching #groupPanelControls' own padding on
+   every side. WINDOW_EDGE_GAP_PX on top of that is the same gap
+   #groupPanelControls' own box keeps from the toolbar (#groupPanel's
+   own edge padding), so the bar's top edge is never any closer. A
+   smaller clearance left that rare tall bar's top edge rendered
+   underneath the toolbar -- the bug this budget now rules out in every
+   case, common or not -- at the cost of leaving unused headroom above
+   the much more common, shorter v20-style bar (~81px). */
+var PAGE_INFO_BAR_CLEARANCE_PX = 156 + WINDOW_EDGE_GAP_PX;
 
 /* sizes every currently-rendered .page to fit them all on screen at once,
    side by side, on whichever axis (combined width or height) is tighter
