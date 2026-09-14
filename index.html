@@ -34,7 +34,13 @@ header.toolbar select,header.toolbar button:not(.pill){flex:0 0 auto;height:30px
 header.toolbar button:hover{background:var(--hover-bg)}
 #printBtn{flex:0 0 auto;background:var(--panel);border:1px solid var(--border-dark);cursor:pointer}
 label.tool{display:flex;align-items:center;gap:var(--space-1);flex:0 0 auto;font-size:var(--ui-font);white-space:nowrap}
-#portalPanel{display:flex;align-items:center;gap:var(--space-2);max-width:40vw;padding:2px 0;overflow-x:auto;overflow-y:hidden}
+/* no max-width of its own -- header.toolbar's grid track (minmax(52px,1fr))
+   already caps this at whatever's actually left over between the title
+   and the print button, which is normally far more than a flat 40vw
+   would have allowed; overflow-x:auto still scrolls internally once even
+   that real leftover space runs out, instead of clipping a pill mid-way
+   the way the old, tighter cap could. */
+#portalPanel{display:flex;align-items:center;gap:var(--space-2);padding:2px 0;overflow-x:auto;overflow-y:hidden}
 #portalPanel .portalBtn{flex:0 0 auto;justify-content:center;background:var(--panel);border:1px solid var(--border-dark);color:var(--text-soft);font-weight:bold;transition:background-color .1s,border-color .1s,transform .08s,box-shadow .08s}
 #portalPanel .portalBtn:hover{background:var(--hover-bg)}
 #portalPanel .portalBtn.current{background:var(--blue-bg);border-color:var(--blue)}
