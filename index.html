@@ -51,7 +51,7 @@ label.tool{display:flex;align-items:center;gap:var(--space-1);flex:0 0 auto;font
 #groupPanelControls button{background:var(--panel);border:1px solid var(--border-dark);cursor:pointer}
 #groupPanelControls button:hover{background:var(--hover-bg)}
 #newPageZone,#cardRemoveZone{border:1px solid var(--border-dark);transition:background-color .1s,border-color .1s,color .1s}
-#newPageZone{color:var(--muted-dark)}
+#newPageZone{color:var(--muted-dark);cursor:pointer}
 #newPageZone.dragOver{background:var(--blue-bg);border-color:var(--blue);color:var(--blue-text)}
 #cardRemoveZone{border-color:var(--danger);color:var(--danger)}
 #cardRemoveZone.dragOver{background:#fde4e4}
@@ -190,8 +190,9 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
     <div id="groupPanelControls">
       <div class="panelControlsGrid">
         <!-- drop a group/contact here to send it straight to a freshly
-             created page -- see moveGroupToNewPage/moveContactToNewPage. -->
-        <div id="newPageZone" title="Dra hit för att skapa en ny sida">+ Ny sida</div>
+             created page (see moveGroupToNewPage/moveContactToNewPage), or
+             just click it to create a blank one (see createNewPage). -->
+        <div id="newPageZone" title="Klicka eller dra hit för att skapa en ny sida">+ Ny sida</div>
         <!-- a second "remove from page" target for a contact/segment
              dragged off a card's own edge handles (see wireCardRemoveZone). -->
         <div id="cardRemoveZone" title="Dra hit för att ta bort från sidan">✕ Ta bort</div>
@@ -1823,17 +1824,29 @@ function buildPageInfoBar(index){
     + (pageState.layout === "empty" ? ": tom" : ": " + used + "/" + cap + " använda, " + free + " lediga");
   var headerRow = el("div", { class:"pageInfoHeader" });
   headerRow.appendChild(el("span", { class: "truncate" + (free === 0 && pageState.layout !== "empty" ? " full" : ""), text:headerText, title:headerText }));
-  /* sorts this page's own contacts alphabetically by name, in place --
-     the page is already the one on screen (its info bar sits right on
-     it), so there's no separate "jump to this card" button to make room
-     for anymore. */
-  var sortBtn = el("button", { type:"button", text:"A-Ö", title:"Sortera namnen på det här kortet alfabetiskt" });
+  /* sorts this page's own contacts in place -- alphabetically by name on
+     the first click, then toggles to grouped-by-department (chief dept
+     first within each, same order sortContacts gives the initial import)
+     on the next, and back again every click after that. pageState.sortMode
+     remembers which one was last applied so the button always alternates
+     rather than repeating the same sort; starts unset, which resolves to
+     alphabetical first, per how the button's meant to work. The page is
+     already the one on screen (its info bar sits right on it), so there's
+     no separate "jump to this card" button to make room for anymore. */
+  var sortBtn = el("button", { type:"button", text:"A-Ö",
+    title: pageState.sortMode === "alpha" ? "Sortera efter avdelning" : "Sortera alfabetiskt (A-Ö)" });
   sortBtn.addEventListener("click", function(){
-    pageState.contacts.sort(function(a, b){ return (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"}); });
+    if(pageState.sortMode === "alpha"){
+      pageState.contacts = sortContacts(pageState.contacts);
+      pageState.sortMode = "dept";
+    } else {
+      pageState.contacts.sort(function(a, b){ return (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"}); });
+      pageState.sortMode = "alpha";
+    }
     renderViewer();
   });
   headerRow.appendChild(sortBtn);
-  var removeBtn = el("button", { type:"button", class:"removeBtn", text:"×", title:"Ta bort -- gör den här sidan tom" });
+  var removeBtn = el("button", { type:"button", class:"removeBtn", text:"×", title:"Ta bort den här sidan" });
   removeBtn.addEventListener("click", function(){ removePage(index); });
   headerRow.appendChild(removeBtn);
   bar.appendChild(headerRow);
@@ -2585,6 +2598,7 @@ function initEvents(){
   $("#printBtn").addEventListener("click", doPrint);
   wireCardRemoveZone($("#cardRemoveZone"));
   wireDropTarget($("#newPageZone"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage, addTemplatesToNewPage); });
+  $("#newPageZone").addEventListener("click", createNewPage);
   /* the rest of #groupPanelControls (see the HTML) is static -- never
      rebuilt by renderGroupPanel -- so it's wired once here instead of on
      every render, unlike the per-source tiles below it. */
@@ -2840,6 +2854,16 @@ function moveMatchingToNewPage(fromPage, matches){
   reflowFromPage(newIndex);
   renderViewer();
 }
+/* click target for "+ Ny sida" itself (as opposed to dropping a group/
+   contact onto it, see moveGroupToNewPage/moveContactToNewPage above) --
+   just appends an empty DEFAULT_LAYOUT page and jumps the viewer straight
+   to it, same starting point a brand-new page gets from any other path. */
+function createNewPage(){
+  var newIndex = state.pages.length;
+  state.pages.push(blankPage(DEFAULT_LAYOUT));
+  state.currentPage = newIndex;
+  renderViewer();
+}
 /* drop target: takes every matching contact off the page it's on (or,
    dragged from the unplaced pool, off every page it's on) and puts it
    nowhere else -- e.g. dragging IT off page 3 without clearing the rest of
@@ -2895,24 +2919,16 @@ function addTemplatesToNewPage(templates){
 function moveContactToNewPage(fromPage, contactId){ moveMatchingToNewPage(fromPage, contactMatcher(contactId)); }
 function removeContactFromPage(fromPage, contactId){ removeMatchingFromPage(fromPage, contactMatcher(contactId)); }
 
-/* turns this one page blank rather than physically removing it from
-   state.pages -- splicing it out used to shift every later page's own
-   index, and repeatedly doing that down to zero pages fell all the way
-   back to the "drop a CSV/XLSX file" empty-viewer message, which is a
-   jarring thing to land on when contacts are already loaded.
-   Same "switch to empty" move the layout select itself offers (see
-   buildPageControls): its contacts are stashed in savedContacts, not
-   deleted -- switching the layout back to v10/v20 restores them, and
-   they're always still draggable back out of the pool in the meantime.
-   A no-op on a page that's already blank. */
+/* physically removes this page from state.pages -- its contacts aren't
+   deleted, only no longer placed anywhere: every contact also lives in
+   state.contacts regardless of which page (if any) it's on, so the group
+   panel simply shows them as unplaced again, same as before they were
+   ever dragged onto a page. Removing the last remaining page falls back
+   to the "drop a CSV/XLSX file" empty-viewer message, same as "Rensa
+   alla". */
 function removePage(index){
-  var pageState = state.pages[index];
-  if(!pageState || pageState.layout === "empty") return;
-  pageState.savedContacts = pageState.contacts;
-  pageState.contacts = [];
-  pageState.layout = "empty";
-  if(!pageState.emptyMode) pageState.emptyMode = "blank";
-  reflowFromPage(index);
+  if(!state.pages[index]) return;
+  state.pages.splice(index, 1);
   renderViewer();
 }
 
