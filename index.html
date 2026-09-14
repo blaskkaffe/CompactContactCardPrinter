@@ -222,13 +222,18 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 }
 
 /* ===================== GROUP PANEL (department grouping helper) ===================== */
-/* two stacked boxes on the gray aside background, with room around them on
-   every side (top/bottom via the column gap, left via this padding, right
-   because neither box stretches to the aside's own right edge) -- the top
-   one (#groupPanelControls) never scrolls or gets rebuilt, only the
-   bottom one (#groupPanelBody) does (see renderGroupPanel). */
-#groupPanel{flex:0 0 260px; background:#f0f0f0; color:#111; display:flex; flex-direction:column; gap:12px; padding:14px 14px 14px 14px; border-right:1px solid #bbb; overflow:hidden;}
-#groupPanelControls{flex:0 0 auto; background:#fff; border:1px solid #bbb; border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:8px;}
+/* two stacked boxes floating on the plain page background -- no panel-level
+   background/border of its own (same treatment as #portalPanel's own
+   buttons), just room around them: top/bottom via the column gap, left via
+   this padding (matching #portalPanel's own padding exactly, so the boxes
+   sit as far from the left edge as the portals sit from the right one).
+   Still a normal flex sibling of #viewerWrap, not an overlay -- it takes
+   its own slice of width same as before, so a card can never end up
+   underneath it. The top box (#groupPanelControls) never scrolls or gets
+   rebuilt, only the bottom one (#groupPanelBody) does (see
+   renderGroupPanel). */
+#groupPanel{flex:0 0 260px; color:#111; display:flex; flex-direction:column; gap:12px; padding:14px; overflow:hidden;}
+#groupPanelControls{flex:0 0 auto; background:#fff; border:1px solid #bbb; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,.28); padding:10px; display:flex; flex-direction:column; gap:8px;}
 /* the 4 action items share one 2-column grid -- the drop zones and the
    plain buttons are sized identically so the whole row reads as one
    control cluster, not two different kinds of thing. */
@@ -240,7 +245,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #newPageZone.dragOver{background:#dff0ff; border-color:#0080ff; color:#0060c0;}
 #cardRemoveZone{border:1px solid #c00; color:#c00; transition:background-color .1s, border-color .1s;}
 #cardRemoveZone.dragOver{background:#fde4e4;}
-#groupPanelBody{flex:1 1 auto; overflow-y:auto; background:#fff; border:1px solid #bbb; border-radius:8px; padding:10px; font-size:12px;}
+#groupPanelBody{flex:1 1 auto; overflow-y:auto; background:#fff; border:1px solid #bbb; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,.28); padding:10px; font-size:12px;}
 #groupPanel h2{font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#555; margin:0 0 8px;}
 /* single column ("Dra till kortet") -- draggable straight onto the card
    itself as well as onto a page below (see wireCardDropTarget; it isn't
@@ -279,8 +284,10 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    for something floating over the cards (see fitVisibleCards, which no
    longer has to know this exists). Round, shadowed, spaced-out buttons on
    the plain page background read as loose floating objects even though
-   the column itself is laid out normally. */
-#portalPanel{flex:0 0 56px; display:flex; flex-direction:column; align-items:center; gap:10px; padding:16px 8px; overflow-y:auto; overflow-x:hidden;}
+   the column itself is laid out normally. Side padding matches #groupPanel's
+   own exactly, so the portals sit as far from the right edge as the group
+   panel's boxes sit from the left one. */
+#portalPanel{flex:0 0 68px; display:flex; flex-direction:column; align-items:center; gap:10px; padding:14px; overflow-y:auto; overflow-x:hidden;}
 #portalPanel .portalBtn{flex:0 0 auto; width:40px; height:40px; border-radius:50%; background:#fff; border:1px solid #999; box-shadow:0 2px 5px rgba(0,0,0,.28); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold; color:#333; cursor:pointer; user-select:none; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
 #portalPanel .portalBtn:hover{background:#f2f2f2;}
 /* the sheet currently shown in the viewer -- a plain visual cue, not a
