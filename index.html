@@ -6,24 +6,17 @@
 <title>Kompakt kontaktkortsskrivare</title>
 <style>
 *{box-sizing:border-box;}
-/* shared by the segment capsule tab (.cardEdgeHandles) and its drag-ghost
-   pill (#segmentDragGhost) -- one set of numbers so the two always match:
-   same text size, and the tab's width equal to the pill's own rendered
-   height (padding + line box), rather than each sized independently. */
+/* --segment* size the segment capsule tab and its drag-ghost pill from
+   one set of numbers, so they always match. */
 :root{
   --segmentFontSize: 12px;
   --segmentPillPadY: 5px;
   --segmentLineHeight: 1.2;
   --segmentPillHeight: calc(var(--segmentLineHeight) * var(--segmentFontSize) + var(--segmentPillPadY) * 2);
 
-  /* shared design tokens -- the repeated raw colors below (page/panel
-     surfaces, borders, the blue "active/drop-target" accent, the red
-     "danger/remove" accent) collapsed into one name each, so changing one
-     changes it everywhere instead of hunting down every literal hex.
-     Named by role (what it's FOR) except the plain gray scale below,
-     named by value -- those get reused for whatever happens to need that
-     exact shade (a border here, a hover fill there, muted text somewhere
-     else), so a role-based name would just be misleading half the time. */
+  /* design tokens -- one name per repeated color. The plain grays are
+     named by value, not role: they get reused for whatever needs that
+     exact shade (a border here, muted text there). */
   --bg: #e6e6e6;
   --panel: #fff;
   --border: #bbb;
@@ -45,270 +38,155 @@ html,body{height:100%;}
 body{margin:0; font:14px/1.4 Arial, sans-serif; background:var(--bg); color:var(--text); display:flex; flex-direction:column;}
 
 /* ===================== SHARED PATTERNS ===================== */
-/* the pill shape used throughout -- portal buttons, group tiles, contact
-   chips, the segment drag-ghost -- kept to just the one property they
-   actually all share. Each still sets its own size/padding/colors; a pill
-   that also matches --segmentPillHeight (the portal buttons, contact
-   chips, drag-ghost) additionally floors its width at twice that height
-   (each sets its own min-width -- the multiplier's the same, but "twice
-   MY height" isn't expressible as one shared value), so text sizes it
-   from there instead of stretching or cramping a fixed box. .segmentCapsule
-   is deliberately NOT part of this -- it's a half-pill flush against its
-   card's edge (round left, square right), a different shape entirely. */
-.pill{border-radius:999px;}
-/* the ellipsis-on-overflow idiom, repeated identically across toolbar
-   status text, group/contact/source names, and page-control selects --
-   min-width:0 is what actually lets a flex/grid child shrink small enough
-   for the rest to kick in, not just decoration alongside it. */
+/* one pill: portal buttons, group tiles, contact chips -- same size and
+   shape everywhere; only background/border/text color (per use, or set
+   inline per item's own department color) tells them apart. Width floors
+   at 2x height and grows with longer text. #segmentDragGhost isn't a
+   member -- its font/padding are pinned to .segmentCapsule's tab instead
+   (see :root), which would conflict. .segmentCapsule itself is a half
+   round flush against its card, not a free pill. */
+.pill{display:flex; align-items:center; height:var(--segmentPillHeight); min-width:calc(var(--segmentPillHeight) * 2); padding:0 10px; border-radius:999px; font-size:10.5px; cursor:pointer; user-select:none;}
+/* ellipsis-on-overflow, used by half a dozen labels below. */
 .truncate{min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 /* ===================== END SHARED PATTERNS ===================== */
 
 /* ===================== TOOLBAR ===================== */
-/* three columns, but only the middle one (#portalPanel) is a flexible fr
-   track -- left/right are intrinsic (max-content-based) instead, sized to
-   exactly what their own content needs, floored where that content can't
-   shrink. That matters: an fr track on BOTH sides (the previous design)
-   made CSS Grid hand any leftover space to whichever side could still
-   grow -- once the title was hidden at small widths, the left side had
-   nothing left to grow into, so ALL of that freed space flowed to the
-   right column instead of the portal buttons, inflating #dataStatus back
-   to its full, unellipsized width and pushing the print button back off
-   the edge. Making the middle column the only fr track means it's the
-   one that actually absorbs whatever's left over -- "let the portals
-   take that space" -- while left/right only ever take what they need. */
+/* #portalPanel's column is the only flexible (fr) track, so it's the one
+   that absorbs leftover space; title and paper/print size to their own
+   content instead. (An fr track on both sides used to hand freed space
+   to whichever side could still grow -- once the title hid at small
+   widths that meant the paper/print side, inflating #dataStatus back to
+   full width and pushing the print button off the edge.) */
 header.toolbar{flex:0 0 auto; background:#1c1c1c; color:#fff; padding:8px 12px; display:grid; grid-template-columns:max-content minmax(52px, 1fr) minmax(190px, max-content); align-items:center; column-gap:10px;}
 header.toolbar h1{font-size:15px; margin:0 14px 0 0; white-space:nowrap;}
-/* below the width the title, the portal buttons and the paper/print
-   controls can no longer all fit, the title is the one that goes --
-   #dataStatus already yields first (shrinking to an ellipsis, then to
-   nothing) as space tightens above this breakpoint, but once even that
-   isn't enough, dropping the title (rather than letting anything else
-   shrink) is what actually frees enough room to keep the portal buttons
-   and, more importantly, the paper size select + print button -- which
-   never shrink at all, see .toolbarSideRight below -- fully visible
-   without the toolbar ever needing its own horizontal scrollbar. */
+/* below this width the title goes, freeing room for the portal buttons
+   and (more importantly) the paper/print controls, which never shrink. */
 @media (max-width: 560px){
   header.toolbar h1{ display:none; }
 }
-/* deliberately no min-width:0 here (unlike #dataStatus below) -- both
-   sides' real content (the title on the left; the select + print button
-   on the right) must keep protecting their column's true minimum width,
-   or that content bleeds left past its own column edge into the portal
-   buttons the moment the rest of the bar runs out of room. */
 .toolbarSide{display:flex; flex-wrap:nowrap; align-items:center; gap:10px;}
 .toolbarSideRight{justify-content:flex-end;}
 header.toolbar select, header.toolbar button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid var(--border-dark); background:var(--panel); cursor:pointer; flex:0 0 auto;}
 header.toolbar button:hover{background:var(--hover-bg);}
 label.tool{display:flex; gap:4px; align-items:center; font-size:12px; flex:0 0 auto; white-space:nowrap;}
-/* the one piece of toolbar text allowed to give way under pressure: paper
-   size + print stay put at their natural size (flex:0 0 auto above), so
-   this is what shrinks and, past that, truncates with an ellipsis first. */
+/* the one toolbar label allowed to shrink/ellipsize under pressure. */
 #dataStatus{font-size:12px; color:var(--border-light);}
 
-/* the toolbar's own middle grid column -- one round button per page (see
-   renderPortalPanel/wirePortalButton), replacing the old prev/next +
-   "Sida X / Y" indicator entirely: click one to jump straight there, or
-   hold a drag over one to jump while the drag stays active. Capped width
-   with its own horizontal scroll rather than letting the row grow
-   unbounded -- a long roster can mean dozens of pages, and an unbounded
-   auto grid column would squeeze the toolbar's own left/right content
-   down to fit them all on one line. */
+/* one pill per page (see renderPortalPanel) -- click to jump, or hold a
+   drag over one to jump while the drag stays active. Own horizontal
+   scroll, capped width, so a long roster can't squeeze the rest of the
+   toolbar off screen. */
 #portalPanel{display:flex; flex-direction:row; align-items:center; gap:6px; max-width:40vw; overflow-x:auto; overflow-y:hidden; padding:2px 0;}
-/* same height as the drag-and-drop pills (.pill, #segmentDragGhost et al,
-   see the shared --segment* tokens in :root); width flexes with the page
-   number's own text (a two-digit page shouldn't get cramped) but never
-   drops below twice the height, so a one-digit page still reads as a
-   pill and not a near-circle. */
-#portalPanel .portalBtn{flex:0 0 auto; min-width:calc(var(--segmentPillHeight) * 2); height:var(--segmentPillHeight); padding:0 10px; background:var(--panel); border:1px solid var(--border-dark); box-shadow:0 1px 3px var(--shadow-soft); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; color:var(--text-soft); cursor:pointer; user-select:none; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
+#portalPanel .portalBtn{flex:0 0 auto; justify-content:center; background:var(--panel); border:1px solid var(--border-dark); font-weight:bold; color:var(--text-soft); transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
 #portalPanel .portalBtn:hover{background:var(--hover-bg);}
-/* the page(s) currently shown in the viewer -- a plain visual cue, not a
-   drop-related state. Falls back to the blue accent only for a page with
-   no contacts to take a color from (see colorForPage) -- a normal page
-   gets its own department color instead, set inline by renderPortalPanel
-   to match whatever color that page's own contacts use everywhere else
-   (the group panel tiles/chips, the segment capsules on the card itself). */
+/* the page(s) on screen -- falls back to blue only for a page with no
+   contacts to take a color from (see colorForPage); otherwise it's that
+   page's own department color, matching the group panel and the card's
+   own segment capsules. */
 #portalPanel .portalBtn.current{border-color:var(--blue); color:var(--blue-text); box-shadow:0 1px 4px var(--blue-glow);}
-/* held over mid-drag (see wirePortalButton) -- bigger + brighter so it
-   reads as "drag here to jump", distinct from .current */
 #portalPanel .portalBtn.dragOver{background:var(--blue-bg); border-color:var(--blue); color:var(--blue-text); transform:scale(1.2); box-shadow:0 2px 6px var(--blue-glow);}
 /* ===================== END TOOLBAR ===================== */
 
 /* ===================== MAIN VIEWER ===================== */
-/* holds the group panel and page viewer side by side (the portal panel
-   floats independently -- see below -- so it never takes width from these) */
 #mainRow{flex:1 1 auto; display:flex; overflow:hidden;}
 
-/* How many card sides #viewerContent actually shows at once (1, 2 or 4) is
-   purely a function of the viewport's own size -- see sidesPerView -- so
-   there's no separate "view all" mode with its own scrolling grid to keep
-   in sync with this. */
+/* how many card sides show at once (1/2/4) is purely a function of
+   viewport width -- see sidesPerView. */
 main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; background:var(--bg);}
-/* padding-top reserves clearance for each card's own .pageInfoBar strip
-   (see below), which floats above the card -- without it, a short
-   viewport centers the card(s) high enough for that strip to end up
-   pushed above the viewer entirely, out of view. padding-bottom gives the
-   cards some breathing room of their own at the bottom of the viewer
-   (this is just layout padding around the preview -- it has nothing to
-   do with the print grid's own margins, which stay perfectly centered,
-   see blockOriginMm) -- otherwise the top padding alone leaves noticeably
-   less room below than above. Left/right must match VIEWER_SIDE_PADDING_PX,
-   top must match PAGE_INFO_BAR_CLEARANCE_PX, both in the JS -- fitVisibleCards
-   sizes cards against this same content box, not the padding along with it,
-   so a row can never size itself out past this inset or need to wrap.
-   Left kept down to the same 14px #groupPanel already uses for its own
-   edge, rather than a much wider gap, so the first card sits no further
-   from it than #groupPanel itself sits from the window edge; right
-   matches it for symmetry, now that the portal buttons live in the
-   toolbar rather than a side panel of their own. */
+/* padding-top clears each card's floating .pageInfoBar strip above it;
+   left/right match VIEWER_SIDE_PADDING_PX and #groupPanel's own edge
+   padding in the JS, so a card sits no further from the panel than the
+   panel sits from the window edge. */
 #viewerContent{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:80px 14px 32px;}
 
-/* shown instead of any page content while there's nothing to display yet
-   (no pages exist) -- one message covering the whole viewer, not one
-   repeated on every card that would otherwise render */
 #emptyViewerOverlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:40px; font-size:18px; color:var(--border-dark);}
 #emptyViewerOverlay[hidden]{display:none;}
 #emptyViewerOverlay.dragOver{background:var(--blue-bg); color:var(--blue-text);}
 
-/* the block of rows a drag would actually occupy -- one row for a plain
-   contact, or the dragged group's full size for a segment/department --
-   shown on every card the drag reaches, not just the one under the
-   cursor, so a cascade onto a later page is visible there too (see
-   applyDragHighlights). Its top edge is cardRowGeometry's own insertRow
-   boundary (top of the hovered row, or its bottom, depending on
-   belowMidpoint), which is what makes a one-row move actually change the
-   highlight instead of the same row lighting up either way. Colored per
-   department (same palette as the segment capsules, see colorForDeptKey)
-   and split into one block per contiguous department run, so a cascade
-   that pushes a mix of departments onto the next page reads as distinct
-   colored bands matching exactly what lands where -- not one flat color
-   for the whole span. Each page gets its own empty layer div; blocks are
-   added/removed on every dragover/dragleave instead of a single
-   hidden/shown element, since the number of colored bands varies. */
+/* the rows a drag would occupy, shown on every card it reaches (not just
+   the one under the cursor) so a cascade onto a later page is visible
+   there too -- see applyDragHighlights. Split into one colored band per
+   contiguous department run, matching colorForDeptKey. */
 .cardRowHighlightLayer{position:absolute; inset:0; pointer-events:none; z-index:4;}
 .cardRowHighlightLayer .cardRowHighlight{position:absolute; left:0; right:0;}
 /* ===================== END MAIN VIEWER ===================== */
 
 /* ===================== CARD LAYOUT ===================== */
-/* always shown as a front+back pair -- pages are printed in pairs (see
-   partnerPageIndex), so there's never a reason to view one side alone,
-   except the narrowest tier (see sidesPerView), which drops the .page
-   partner but keeps this wrapper for its edge-handle strip. No gap here
-   -- the 12px margin is added selectively below instead, so it lands
-   between the front card and the back card's own edge handles strip
-   (which must sit flush against that card with no gap of its own),
-   rather than uniformly between every child. fitVisibleCards reads this
-   same 12px back out of the DOM, so it doesn't matter which element
-   actually carries the margin. */
+/* front+back pair (pages print in pairs, see partnerPageIndex); the
+   narrowest tier drops the back .page but keeps this wrapper for its
+   edge-handle strip. The 12px gap between front and back sits on the
+   back's own strip (only place fitVisibleCards needs to read it from). */
 .pagePair{display:flex; justify-content:center;}
 .pagePair .page + .cardEdgeHandles{margin-left:12px;}
-/* holds however many pairs sidesPerView decides to show at once (see
-   renderViewer/fitVisibleCards, which set each .page's exact pixel size
-   directly so the row fits in one line by construction). Deliberately
-   nowrap, not wrap: fitVisibleCards' math can still land a hair off its
-   exact budget (subpixel layout rounding, a fractional device pixel
-   ratio, browser zoom), and wrap turned that into the worst possible
-   failure mode -- a hair too wide silently snapping the whole row into
-   an obviously broken 2x2 grid instead of the actual, invisible problem
-   (a sub-pixel overflow that #viewerWrap's own overflow:hidden already
-   clips without anyone noticing). */
+/* however many pairs sidesPerView shows at once, sized by fitVisibleCards
+   to fit one line exactly. nowrap, not wrap: the math can land a hair off
+   its exact budget (subpixel rounding, device pixel ratio, browser zoom),
+   and wrap turned that into a full 2x2 break instead of an invisible
+   sub-pixel overflow that #viewerWrap's own overflow:hidden just clips. */
 .pagesRow{display:flex; justify-content:center; align-items:flex-start; flex-wrap:nowrap; gap:24px;}
 
-/* the second, leftward-biased shadow layer is what actually sells the
-   card sitting in front of its own edge-handle tab (see .cardEdgeHandles,
-   stacked behind via z-index) rather than in the same plane as it -- the
-   tab is flush against this edge with no gap of its own, so this falls
-   right across its surface near the seam, reading as the card's shadow
-   landing on something behind and below it, between the card and the
-   page background. */
+/* the second shadow sells the card sitting in front of its own
+   edge-handle tab rather than in the same plane as it. */
 .page{background:var(--panel); box-shadow:0 1px 5px var(--shadow-soft), -6px 0 10px -2px rgba(0,0,0,.55); position:relative; z-index:2; flex:0 0 auto;}
 .page canvas{display:block; width:100%; height:100%; cursor:grab;}
 .page canvas:active{cursor:grabbing;}
 /* ===================== END CARD LAYOUT ===================== */
 
 /* ===================== SEGMENT TABS / DRAG GHOSTS ===================== */
-/* the group-capsule strip (see buildCardEdgeHandles) -- align-self:stretch
-   (the default; .pagePair sets no align-items) makes it exactly as tall
-   as the card next to it. Per-contact dragging now happens directly on
-   the card itself (see .page canvas, wireCardRowDrag), so this strip only
-   holds the colored segment capsule, flush against the card as a tab
-   extending from it. Always sits on the card's own left -- front and back
-   cards alike -- rather than the previous outer/inner split, so there's
-   only ever one variant of this strip to style. Width and font-size both
-   come from the shared --segment* variables (see :root above) -- the
-   same numbers that size #segmentDragGhost -- so the resting tab always
-   matches the pill it turns into mid-drag, rather than each sized
-   independently. */
+/* one colored capsule per contiguous same-department run, flush against
+   the card's own left edge, front and back alike. Width/font come from
+   the shared --segment* tokens, so the resting tab always matches the
+   pill it turns into mid-drag. */
 .cardEdgeHandles{position:relative; width:var(--segmentPillHeight); flex:0 0 auto; z-index:1;}
-/* right:0 anchors the capsule flush against the card, on the strip's right
-   edge; the tab's free (left) end gets the rounding. Radius is exactly
-   half the strip's own width, so a single-row segment (whose height is at
-   least that width) reads as a true half-circle cap, not just a rounded
-   corner. */
+/* right:0 anchors the capsule flush against the card; the free (left)
+   end gets rounded, radius = half the strip's width for a true half
+   circle cap. */
 .cardEdgeHandles .segmentCapsule{position:absolute; right:0; width:var(--segmentPillHeight); color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none; border-radius:calc(var(--segmentPillHeight)/2) 0 0 calc(var(--segmentPillHeight)/2);}
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
 
-/* custom drag image for a row drag (see wireCardRowDrag) -- positioned
-   off-screen rather than display:none, since setDragImage needs the
-   element actually rendered to snapshot it */
+/* custom drag images (see wireCardRowDrag/showSegmentDragGhost) --
+   positioned off-screen rather than display:none, since setDragImage
+   needs them actually rendered to snapshot. */
 #rowDragGhost{position:fixed; top:-999px; left:-999px; padding:4px 10px; background:#222; color:#fff; font-size:12px; border-radius:4px; white-space:nowrap; pointer-events:none;}
-/* same idea, for a dragged segment capsule (see buildCardEdgeHandles) --
-   a horizontal pill in the segment's own color, sized to its text by
-   showSegmentDragGhost measuring its own rendered box before setDragImage
-   is called (see .pill for the shape; min-width floors it at twice its
-   own height same as the other pills, though 16px of padding on each
-   side already makes that a no-op for anything but a one-character
-   label). font-size/line-height/padding-block share the same --segment*
-   variables as .segmentCapsule (see :root above), so the resting tab and
-   this pill always agree on text size, and the tab's own width equals
-   this pill's rendered height. */
-#segmentDragGhost{position:fixed; top:-999px; left:-999px; min-width:calc(var(--segmentPillHeight) * 2); padding:var(--segmentPillPadY) 16px; color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); white-space:nowrap; pointer-events:none; box-shadow:0 1px 4px var(--shadow-soft);}
+/* font/line-height/padding-block share --segment* with .segmentCapsule,
+   so the resting tab and this pill always agree on text size, and the
+   tab's own width equals this pill's rendered height. Not part of .pill
+   above -- that shared font-size would break this match. */
+#segmentDragGhost{position:fixed; top:-999px; left:-999px; padding:var(--segmentPillPadY) 16px; color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); border-radius:999px; white-space:nowrap; pointer-events:none; box-shadow:0 1px 4px var(--shadow-soft);}
 /* ===================== END SEGMENT TABS / DRAG GHOSTS ===================== */
 
 /* ===================== PER-CARD INFO BAR (viewer) ===================== */
-/* the thin strip floating directly above each card in the viewer -- what
-   used to be the "Sidor" list's own per-page header (used/free count,
-   A-Ö/Ta bort) and selectors (layout, header color, line 2/numbers,
-   empty-page mode), now living right next to the card they actually
-   describe instead of a separate scrolling list (see buildPageInfoBar).
-   Positioned absolutely (bottom:100% of the relatively-positioned .page)
-   so it floats above the card rather than adding to its own in-flow
-   height -- #viewerContent's padding-top leaves room for it above the
-   very top row. */
+/* floats directly above its card (bottom:100%) rather than adding to its
+   own in-flow height -- #viewerContent's padding-top leaves room above
+   the top row. Holds the used/free count, A-Ö/Ta bort, and the layout/
+   color/etc selectors (see buildPageInfoBar). */
 .pageInfoBar{position:absolute; left:0; right:0; bottom:100%; margin-bottom:6px; background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:4px; padding:4px 6px; font-size:11px; box-shadow:0 1px 4px rgba(0,0,0,.25); z-index:2;}
 .pageInfoBar .pageInfoHeader{display:flex; align-items:center; gap:6px; margin-bottom:4px;}
-/* always exactly one row: the usage text truncates with an ellipsis
-   (title carries the full text) rather than wrapping and pushing Remove
-   out of alignment */
 .pageInfoBar .pageInfoHeader span{font-size:11px; font-weight:bold; flex:1 1 auto;}
 .pageInfoBar .pageInfoHeader span.full{color:#a00;}
 .pageInfoBar .pageInfoHeader button,
 .pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{font-size:10px; background:var(--panel); border:1px solid var(--border); border-radius:3px; cursor:pointer;}
 .pageInfoBar .pageInfoHeader button{flex:0 0 auto; padding:1px 5px;}
-/* red only on hover -- a permanently red-bordered button next to the
-   neutral "A-Ö" button read as too loud/alarming */
+/* red only on hover -- permanently red next to the neutral A-Ö button
+   read as too alarming. */
 .pageInfoBar .pageInfoHeader button.removeBtn:hover{color:var(--danger); border-color:var(--danger);}
-/* one compact row: layout select + color controls (+ Line 2/empty-mode
-   select, when shown) all fit together instead of each wrapping onto its
-   own line -- a fixed, small width with ellipsis keeps a long option name
-   (e.g. "Slate Gray") from blowing the row back out */
 .pageInfoBar .pageControls{display:flex; flex-wrap:wrap; gap:4px; align-items:center;}
 .pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{padding:2px 3px;}
 .pageInfoBar .pageControls > select{width:76px;}
 .pageInfoBar .pageControls label.tool{display:flex; align-items:center; gap:3px; font-size:10px; cursor:pointer; white-space:nowrap;}
 .pageInfoBar .pageControls input[type="file"]{width:100%;}
-/* custom dropdown standing in for a native <select> for the header color
-   picker -- see buildSwatchSelect for why (a plain <option> can't carry
-   a color swatch next to its label) */
+/* stands in for a native <select> for the header color picker -- a plain
+   <option> can't carry a color swatch next to its label (see
+   buildSwatchSelect). */
 .pageInfoBar .swatchSelect{position:relative; min-width:0;}
 .pageInfoBar .swatchSelect .swatchBtn{display:flex; align-items:center; gap:5px; width:76px; min-width:0; font-size:10px; padding:2px 5px; border-radius:3px; border:1px solid var(--border); background:var(--panel); cursor:pointer;}
 .pageInfoBar .swatchSelect .swatchBox{width:11px; height:11px; border-radius:2px; border:1px solid rgba(0,0,0,.3); flex:none;}
-/* a plain 4-column grid of color squares (not a list of labeled rows) --
-   each .swatchItem cell IS the color; its name only shows as a title
-   tooltip on hover, same as a typical OS/app color-grid picker */
+/* a plain color grid, not labeled rows -- each cell IS the color, name
+   only on hover. */
 .pageInfoBar .swatchSelect .swatchList{position:absolute; top:100%; left:0; z-index:20; margin-top:2px; background:var(--panel); border:1px solid var(--border-dark); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.3); padding:6px; display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; max-height:220px; overflow-y:auto;}
 .pageInfoBar .swatchSelect .swatchList[hidden]{display:none;}
-/* flips added by positionSwatchList once the popup's real (only-knowable-
-   once-visible) size would otherwise run past the viewport's edge */
+/* flipped by positionSwatchList once the popup's real size would run
+   past the viewport edge. */
 .pageInfoBar .swatchSelect .swatchList.alignRight{left:auto; right:0;}
 .pageInfoBar .swatchSelect .swatchList.openUp{top:auto; bottom:100%; margin-top:0; margin-bottom:2px;}
 .pageInfoBar .swatchSelect .swatchItem{width:28px; height:28px; border-radius:3px; cursor:pointer; border:2px solid #fff; outline:1px solid rgba(0,0,0,.2);}
@@ -323,27 +201,19 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
   body > *:not(#printArea){display:none !important;}
   #printArea{display:block !important;}
   #printArea canvas{display:block;}
-  /* break AFTER every canvas except the last -- page-break-after:always on
-     the last one too adds a trailing blank page */
+  /* break after every canvas but the last, or the last gets a trailing
+     blank page too. */
   #printArea canvas:not(:last-child){page-break-after:always;}
 }
 
 /* ===================== GROUP PANEL (department grouping helper) ===================== */
-/* two stacked boxes floating on the plain page background -- no panel-level
-   background/border of its own, just room around them: top/bottom via the
-   column gap, left via this padding (matching #viewerContent's own side
-   padding, so the boxes sit as far from the left edge as the first card
-   sits from them). Still a normal flex sibling of #viewerWrap, not an
-   overlay -- it takes its own slice of width same as before, so a card
-   can never end up underneath it. The top box (#groupPanelControls) never
-   scrolls or gets rebuilt, only the bottom one (#groupPanelBody) does
-   (see renderGroupPanel). */
+/* two stacked boxes floating on the page background, no panel chrome of
+   its own -- #groupPanelControls never scrolls/rebuilds, #groupPanelBody
+   does (see renderGroupPanel). */
 #groupPanel{flex:0 0 260px; color:var(--text); display:flex; flex-direction:column; gap:12px; padding:14px; overflow:hidden;}
 #groupPanelControls, #groupPanelBody{background:var(--panel); border:1px solid var(--border); border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,.28);}
 #groupPanelControls{flex:0 0 auto; padding:10px; display:flex; flex-direction:column; gap:8px;}
-/* the 4 action items share one 2-column grid -- the drop zones and the
-   plain buttons are sized identically so the whole row reads as one
-   control cluster, not two different kinds of thing. */
+/* drop zones + buttons share one grid so the row reads as one cluster. */
 #groupPanelControls .panelControlsGrid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
 #groupPanelControls .panelControlsGrid > *{font-size:12px; padding:8px 6px; text-align:center; border-radius:5px; min-width:0;}
 #groupPanelControls button{border:1px solid var(--border-dark); background:var(--panel); cursor:pointer;}
@@ -354,40 +224,24 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #cardRemoveZone.dragOver{background:#fde4e4;}
 #groupPanelBody{flex:1 1 auto; overflow-y:auto; padding:10px; font-size:12px;}
 #groupPanel h2{font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted-dark); margin:0 0 8px;}
-/* single column ("Dra till kortet") -- draggable straight onto the card
-   itself as well as onto a page below (see wireCardDropTarget; it isn't
-   tied to which panel a drag started in, only to PANEL_DRAG_MIME) */
 #groupPanel .groupGrid{display:flex; flex-direction:column; gap:4px; margin-bottom:10px;}
-/* .pill for the rounded sides -- but otherwise the same size as before,
-   unlike .contactChip below this isn't resized to match the pill's own
-   height, just its shape. */
-#groupPanel .groupTile{background:var(--panel); border:1px solid var(--border-light); padding:5px 12px; font-size:11px; min-width:0; cursor:grab;}
-#groupPanel .groupTile:active{cursor:grabbing;}
-/* a "placed" tile/chip's own background/border color comes inline from
-   JS (see renderGroupPanel/buildContactList) -- a light tint of that
-   group's own color, same as the drag preview highlight, rather than one
-   flat color for every group regardless of which it is. */
-#groupPanel .groupTileNameRow{display:flex; align-items:center; gap:3px; min-width:0;}
+/* groupTile and contactChip are both .pill -- same size, same shape. A
+   "placed" one's background/border color comes inline from JS (see
+   renderGroupPanel/buildContactList), a light tint of its own group's
+   color, so "placed" always reads in whatever color it landed on. */
+#groupPanel .groupTile, #groupPanel .contactChip{background:var(--panel); border:1px solid var(--border-light); cursor:grab;}
+#groupPanel .groupTile:active, #groupPanel .contactChip:active{cursor:grabbing;}
+#groupPanel .contactChip{justify-content:space-between; gap:4px;}
+#groupPanel .groupTileNameRow{display:flex; align-items:center; gap:3px; flex:1; min-width:0;}
 #groupPanel .groupTileName{font-weight:bold; flex:1;}
 #groupPanel .groupTileCount{color:var(--muted); flex:none; white-space:nowrap; font-size:10px;}
 #groupPanel .groupTileToggle{cursor:pointer; color:var(--border-dark); font-size:9px; flex:none; user-select:none; padding:0 1px;}
 #groupPanel .groupTileToggle:hover{color:var(--text-soft);}
 #groupPanel .contactList{display:flex; flex-direction:column; gap:3px; padding:2px 0 4px 6px; margin-top:-2px; border-left:2px solid var(--hover-bg);}
-/* .pill for the shape, same as .groupTile above -- but ALSO resized to
-   match the pill's own height exactly (see :root's --segmentPillHeight),
-   unlike .groupTile, which just keeps its previous size; min-width floors
-   it at twice that height so a short, badge-less name doesn't look
-   squashed, though the 8px of horizontal padding plus a typical name
-   already clears that most of the time. Height replaces the old vertical
-   padding, horizontal padding only, centered by align-items. */
-#groupPanel .contactChip{display:flex; justify-content:space-between; align-items:center; gap:4px; background:var(--panel); border:1px solid var(--border-light); height:var(--segmentPillHeight); min-width:calc(var(--segmentPillHeight) * 2); padding:0 8px; font-size:10.5px; cursor:grab;}
-#groupPanel .contactChip:active{cursor:grabbing;}
 #groupPanel .contactChipPage{font-size:9.5px; flex:none;}
 #groupPanel .emptyNote{color:var(--muted); font-style:italic;}
-/* a multi-use source's tile/chip (or the always-present "Tom rad" spacer):
-   dashed border marks it as a reusable template, cloned fresh on every
-   drag instead of being moved out of the pool (see buildContactList,
-   renderGroupPanel) */
+/* dashed = reusable template (a multi-use source's tile/chip, or "Tom
+   rad"), cloned fresh on every drag instead of moved out of the pool. */
 #groupPanel .groupTile.reusable, #groupPanel .contactChip.reusable{border-style:dashed; border-color:var(--border-dark);}
 #groupPanel .sourceSection{margin-bottom:14px;}
 #groupPanel .sourceHeader{display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:5px; padding-bottom:3px; border-bottom:1px solid var(--border-light);}
@@ -2321,7 +2175,7 @@ function showRowDragGhost(e, text){
 var segmentDragGhostEl = null;
 function showSegmentDragGhost(e, text, color){
   if(!segmentDragGhostEl){
-    segmentDragGhostEl = el("div", { id:"segmentDragGhost", class:"pill" });
+    segmentDragGhostEl = el("div", { id:"segmentDragGhost" });
     document.body.appendChild(segmentDragGhostEl);
   }
   segmentDragGhostEl.textContent = text;
