@@ -120,7 +120,7 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
    scroll, capped width, so a long roster can't squeeze the rest of the
    toolbar off screen. */
 #portalPanel{display:flex; flex-direction:row; align-items:center; gap:6px; max-width:40vw; padding:2px 0; overflow-x:auto; overflow-y:hidden;}
-#portalPanel .portalBtn{flex:0 0 auto; justify-content:center; background:var(--panel); border:1px solid var(--border-dark); color:var(--text-soft); font-weight:bold; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s, opacity .1s;}
+#portalPanel .portalBtn{flex:0 0 auto; justify-content:center; background:var(--panel); border:1px solid var(--border-dark); color:var(--text-soft); font-weight:bold; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
 #portalPanel .portalBtn:hover{background:var(--hover-bg);}
 /* the one page currently snapped to its resting position in the viewer
    (see updateScrollDerivedState) -- falls back to a flat blue tint only
@@ -132,11 +132,12 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
 #portalPanel .portalBtn.dragOver{background:var(--blue-bg); border-color:var(--blue); box-shadow:0 2px 6px var(--blue-glow); color:var(--blue-text); transform:scale(1.2);}
 /* that page's own card is currently scrolled behind #groupPanel (see
    updateScrollDerivedState) -- pointer-events:none so it's genuinely
-   unreachable (no click-to-jump, no drag-to-drop) rather than just
-   dimmed, since there's nothing visible to jump to or drop onto right
-   now; scrolling it back out from behind the panel (wheel/trackpad/drag
-   the scrollbar) is what brings it back. */
-#portalPanel .portalBtn.inactive{opacity:.35; pointer-events:none;}
+   unreachable (no click-to-jump, no drag-to-drop), but otherwise reads
+   exactly like any other non-current portal (no dimming/graying) --
+   there's no visual "disabled" state here on purpose, just an inert one;
+   scrolling it back out from behind the panel (wheel/trackpad/drag the
+   scrollbar) is what brings it back. */
+#portalPanel .portalBtn.inactive{pointer-events:none;}
 /* ===================== END TOOLBAR ===================== */
 
 /* ===================== GROUP PANEL (department grouping helper) ===================== */
@@ -146,16 +147,20 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
    underneath the toolbar above. Two stacked boxes floating on the page
    background; #groupPanel itself has no panel chrome of its own (that's
    on the two boxes below), just room around them and a background to
-   actually cover the cards passing under it. #groupPanelControls never
-   scrolls/rebuilds, #groupPanelBody does (see renderGroupPanel). Uniform
-   --edge-gap padding on all four sides -- left/top double as the
-   window-edge gap, but the right side does a second job too: it's also
-   the ONLY gap between these boxes and the first card's own edge-handle
-   tabs at rest, since #viewerContent's own scroll padding is sized to
-   this element's full outer width (see --panel-width), not to the
-   visible boxes inside it, so there's no second --edge-gap stacked on
-   top of this one. */
-#groupPanel{position:absolute; top:0; left:0; bottom:0; width:var(--panel-width); z-index:10; display:flex; flex-direction:column; gap:12px; padding:var(--edge-gap); color:var(--text); background:var(--bg); overflow-y:auto; overflow-x:hidden;}
+   actually cover the cards passing under it -- the same --bg as the rest
+   of the page (a card sliding fully behind it should read as "now behind
+   a solid layer", not "now a different color"), but with its own
+   box-shadow on the right edge so that solid layer reads as a distinct
+   frozen pane sitting above the scrolling cards, not just more page
+   background. #groupPanelControls never scrolls/rebuilds, #groupPanelBody
+   does (see renderGroupPanel). Uniform --edge-gap padding on all four
+   sides -- left/top double as the window-edge gap, but the right side
+   does a second job too: it's also the ONLY gap between these boxes and
+   the first card's own edge-handle tabs at rest, since #viewerContent's
+   own scroll padding is sized to this element's full outer width (see
+   --panel-width), not to the visible boxes inside it, so there's no
+   second --edge-gap stacked on top of this one. */
+#groupPanel{position:absolute; top:0; left:0; bottom:0; width:var(--panel-width); z-index:10; display:flex; flex-direction:column; gap:12px; padding:var(--edge-gap); color:var(--text); background:var(--bg); box-shadow:4px 0 12px rgba(0,0,0,.18); overflow-y:auto; overflow-x:hidden;}
 #groupPanelControls, #groupPanelBody{background:var(--panel); border:1px solid var(--border); border-radius:var(--panel-radius); box-shadow:var(--shadow-panel);}
 #groupPanelControls{display:flex; flex-direction:column; gap:8px; flex:0 0 auto; padding:10px;}
 /* drop zones + buttons share one grid so the row reads as one cluster.
@@ -211,25 +216,29 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
    particular count on screen at once. */
 main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--bg); overflow:hidden;}
 /* the horizontal scroller itself -- one flex row, one child per page (see
-   .cardUnit), no wrapping. padding-top clears each card's own
-   .pageInfoBar tab attached above it -- must match
-   PAGE_INFO_BAR_CLEARANCE_PX in the JS (itself built from --edge-gap, via
-   WINDOW_EDGE_GAP_PX, plus the tallest a bar gets). padding-right/bottom
-   reuse --edge-gap directly, same as #groupPanel's own top/left padding,
-   so a card never sits closer to the window's right/bottom edge than the
-   panel sits from the window's own edge. padding-left is --panel-width,
-   not --edge-gap -- #groupPanel now floats OVER this element (see
-   #groupPanel) rather than sharing its width, so the same space it used
-   to occupy in #mainRow's flex layout has to be reserved here instead,
-   as room the first card rests clear of. scroll-padding-left matches
-   that same padding, so scroll-snap (.cardUnit) always settles a card's
-   left edge there, not flush against the scroller's own raw edge -- the
-   space earlier cards scroll into as later ones take that resting spot
-   is exactly the space now hidden under the floating panel, which is the
-   "scrolls smoothly but snaps into place, going under the menu" this was
-   built for (see updateScrollDerivedState, which drives each such
-   card's own portal .inactive state in #portalPanel). */
-#viewerContent{position:absolute; inset:0; display:flex; align-items:center; gap:24px; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; scroll-behavior:smooth; scroll-padding-left:var(--panel-width); scrollbar-width:thin; padding:170px var(--edge-gap) var(--edge-gap) var(--panel-width);}
+   .cardUnit), no wrapping. gap between cards reuses --edge-gap too, the
+   same one universal distance every floating thing keeps everywhere else
+   (see --edge-gap), so card-to-next-card matches window-edge and
+   panel-to-card exactly instead of being its own one-off number.
+   padding-top clears each card's own .pageInfoBar tab attached above it
+   -- must match PAGE_INFO_BAR_CLEARANCE_PX in the JS (itself built from
+   --edge-gap, via WINDOW_EDGE_GAP_PX, plus the tallest a common bar
+   gets). padding-right/bottom reuse --edge-gap directly, same as
+   #groupPanel's own top/left padding, so a card never sits closer to the
+   window's right/bottom edge than the panel sits from the window's own
+   edge. padding-left is --panel-width, not --edge-gap -- #groupPanel now
+   floats OVER this element (see #groupPanel) rather than sharing its
+   width, so the same space it used to occupy in #mainRow's flex layout
+   has to be reserved here instead, as room the first card rests clear
+   of. scroll-padding-left matches that same padding, so scroll-snap
+   (.cardUnit) always settles a card's left edge there, not flush against
+   the scroller's own raw edge -- the space earlier cards scroll into as
+   later ones take that resting spot is exactly the space now hidden
+   under the floating panel, which is the "scrolls smoothly but snaps
+   into place, going under the menu" this was built for (see
+   updateScrollDerivedState, which drives each such card's own portal
+   .inactive state in #portalPanel). */
+#viewerContent{position:absolute; inset:0; display:flex; align-items:center; gap:var(--edge-gap); overflow-x:auto; overflow-y:hidden; scroll-snap-type:x proximity; scroll-behavior:smooth; scroll-padding-left:var(--panel-width); scrollbar-width:thin; padding:95px var(--edge-gap) var(--edge-gap) var(--panel-width);}
 /* a native scrollbar at full OS thickness reads as out of place on a
    snap-scrolling card strip -- thinned down (still fully usable, just
    unobtrusive) rather than hidden outright, so dragging it stays an
@@ -2583,22 +2592,19 @@ var WINDOW_EDGE_GAP_PX = 14;
    padding value the real, visible gap. PAGE_INFO_BAR_CLEARANCE_PX only
    has to clear each card's own .pageInfoBar strip now -- the nav lives in
    the toolbar, not over the viewer, so it's no longer part of this budget.
-   Sized for the tallest a bar can actually get, not just the common
-   case, so the bar never sits any closer to the toolbar than the top
-   left menu does -- an "empty" page in image mode WITH an image actually
-   loaded (file picker + the fit-mode select + the rotate button all
-   wrap onto their own lines -- an empty file picker alone only reaches
-   ~120px, but that undercounts the real worst case once an image is
-   there to act on) is ~155px tall, rounded up to 156, with the bar's
-   own 10px padding now matching #groupPanelControls' own padding on
-   every side. WINDOW_EDGE_GAP_PX on top of that is the same gap
-   #groupPanelControls' own box keeps from the toolbar (#groupPanel's
-   own edge padding), so the bar's top edge is never any closer. A
-   smaller clearance left that rare tall bar's top edge rendered
-   underneath the toolbar -- the bug this budget now rules out in every
-   case, common or not -- at the cost of leaving unused headroom above
-   the much more common, shorter v20-style bar (~81px). */
-var PAGE_INFO_BAR_CLEARANCE_PX = 156 + WINDOW_EDGE_GAP_PX;
+   Sized for the common case (a v20 page's bar, ~81px tall with the bar's
+   own 10px padding matching #groupPanelControls' own padding on every
+   side) plus WINDOW_EDGE_GAP_PX, the same gap #groupPanelControls' own
+   box keeps from the toolbar -- not for the tallest a bar can ever get.
+   Cards now fill every pixel this budget doesn't claim (see
+   fitVisibleCards), so oversizing it for a rare case would shrink every
+   card to guard against something that almost never happens: an "empty"
+   page in image mode with an image actually loaded (file picker + the
+   fit-mode select + the rotate button all wrapped onto their own lines)
+   reaches ~155px and can crowd the toolbar in that one specific
+   combination -- accepted here the same way a v10 page's own extra
+   controls were accepted room-wise elsewhere, rather than sized for. */
+var PAGE_INFO_BAR_CLEARANCE_PX = 81 + WINDOW_EDGE_GAP_PX;
 
 /* sizes every currently-rendered .page to fill #viewerContent's own
    height top to bottom -- every card shares one physical size
@@ -2874,11 +2880,21 @@ function initEvents(){
   /* Ctrl+P (Cmd+P on Mac) must go through doPrint() too, not the browser's
      own print of whatever's on screen -- the visible viewer is a live
      editor (one card at a time, edit overlays, etc), not the print layout;
-     only #printArea (built by doPrint) is meant to ever hit the printer. */
+     only #printArea (built by doPrint) is meant to ever hit the printer.
+     Left/Right steps the viewer one card at a time (same as wheel/goPrev/
+     goNext) -- ignored while a select/input/textarea has focus so it
+     doesn't hijack normal text/option navigation there. */
   document.addEventListener("keydown", function(e){
     if((e.ctrlKey || e.metaKey) && (e.key === "p" || e.key === "P")){
       e.preventDefault();
       doPrint();
+      return;
+    }
+    if(e.key === "ArrowLeft" || e.key === "ArrowRight"){
+      var tag = (e.target && e.target.tagName || "").toLowerCase();
+      if(tag === "input" || tag === "select" || tag === "textarea") return;
+      e.preventDefault();
+      if(e.key === "ArrowLeft") goPrev(); else goNext();
     }
   });
   /* closes any open header-color swatch dropdown (see buildSwatchSelect)
