@@ -173,9 +173,15 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 .pagePair .page + .cardEdgeHandles{margin-left:12px;}
 /* holds however many pairs sidesPerView decides to show at once (see
    renderViewer/fitVisibleCards, which set each .page's exact pixel size
-   directly) -- wraps only as a safety net, since the sizing already fits
-   everything on one line. */
-.pagesRow{display:flex; justify-content:center; align-items:flex-start; flex-wrap:wrap; gap:24px;}
+   directly so the row fits in one line by construction). Deliberately
+   nowrap, not wrap: fitVisibleCards' math can still land a hair off its
+   exact budget (subpixel layout rounding, a fractional device pixel
+   ratio, browser zoom), and wrap turned that into the worst possible
+   failure mode -- a hair too wide silently snapping the whole row into
+   an obviously broken 2x2 grid instead of the actual, invisible problem
+   (a sub-pixel overflow that #viewerWrap's own overflow:hidden already
+   clips without anyone noticing). */
+.pagesRow{display:flex; justify-content:center; align-items:flex-start; flex-wrap:nowrap; gap:24px;}
 
 /* the second, leftward-biased shadow layer is what actually sells the
    card sitting in front of its own edge-handle tab (see .cardEdgeHandles,
@@ -2617,7 +2623,14 @@ function fitVisibleCards(){
   });
   var rowGaps = Math.max(0, pairs.length - 1) * 24;
   var fixedW = stripCount*stripW + pageGapCount*12 + rowGaps;
-  var availW = wrap.clientWidth - VIEWER_SIDE_PADDING_PX*2;
+  /* the 1px below is deliberate slack, not part of the real budget --
+     this math is otherwise exact (solves cw so the row's own width comes
+     out to precisely availW), but "exact" sitting right on the boundary
+     leaves zero room for subpixel layout rounding (fractional device
+     pixel ratios, browser zoom) to tip the actual rendered row a hair
+     over its budget. A pixel of slack costs nothing visible and keeps
+     the row reliably a hair under its budget instead of exactly on it. */
+  var availW = wrap.clientWidth - VIEWER_SIDE_PADDING_PX*2 - 1;
   var cw = (availW - fixedW) / pages.length;
   var ch = wrap.clientHeight - PAGE_INFO_BAR_CLEARANCE_PX - VIEWER_BOTTOM_MARGIN_PX;
   var scale = Math.min(cw/dims.w, ch/dims.h);
