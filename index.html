@@ -37,27 +37,39 @@
   /* the one floating-surface shadow -- group panel boxes, the per-card
      info bar, and the card itself all use exactly this. */
   --shadow-panel: 0 2px 5px rgba(0,0,0,.28);
+  /* the one corner radius every pill-shaped or pill-adjacent thing uses:
+     .pill itself (so #printBtn gets it too, being a .pill -- see SHARED
+     PATTERNS), the segment tab/drag-ghost pair, and the top left menu's
+     4 plain rectangular action buttons, which just borrow the same curve
+     without becoming full pills themselves (their width is nowhere near
+     2x their height). A real number instead of the old
+     border-radius:999px trick (which relies on the browser clamping an
+     oversized radius down to half the box's own height) -- 999 only
+     ever worked because every pill happens to share this exact height,
+     so naming that number directly is the same result with one fewer
+     thing to take on faith. */
+  --pill-radius: calc(var(--segmentPillHeight)/2);
   /* the one floating-MENU corner radius (group panel boxes, the per-card
      info bar -- NOT the card itself, see --shadow-panel for that trio) --
-     a pill's own rendered corner (border-radius:999px clamps to half its
-     height) plus #groupPanelControls' own padding, i.e. as far again
-     past the pill radius as its lowest button (#emptyRowTile) already
-     sits from the menu's outer edge. */
-  --panel-radius: calc(var(--segmentPillHeight)/2 + 10px);
+     --pill-radius plus #groupPanelControls' own padding, i.e. as far
+     again past the pill radius as its lowest button (#emptyRowTile)
+     already sits from the menu's outer edge. */
+  --panel-radius: calc(var(--pill-radius) + 10px);
 }
 html,body{height:100%;}
 body{display:flex; flex-direction:column; margin:0; background:var(--bg); color:var(--text); font:14px/1.4 Arial, sans-serif;}
 
 /* ===================== SHARED PATTERNS ===================== */
-/* one pill: portal buttons, group tiles, contact chips -- same size and
-   shape everywhere. What's inside (a lone number vs. a name+badge row)
-   still drives its own justify-content/gap, but background/border/text
-   color is the only STYLING difference between them. Width floors at 2x
-   height and grows with longer text. #segmentDragGhost isn't a member --
-   its font/padding are pinned to .segmentCapsule's tab instead (see
-   :root), which a shared font-size would break. .segmentCapsule itself
-   is a half round flush against its card, not a free pill. */
-.pill{display:flex; align-items:center; height:var(--segmentPillHeight); min-width:calc(var(--segmentPillHeight) * 2); padding:0 10px; border-radius:999px; font-size:10.5px; cursor:pointer; user-select:none;}
+/* one pill: portal buttons, group tiles, contact chips, #printBtn --
+   same size and shape everywhere. What's inside (a lone number/word vs.
+   a name+badge row) still drives its own justify-content/gap, but
+   background/border/text color is the only STYLING difference between
+   them. Width floors at 2x height and grows with longer text.
+   #segmentDragGhost isn't a member -- its font/padding are pinned to
+   .segmentCapsule's tab instead (see :root), which a shared font-size
+   would break. .segmentCapsule itself is a half round flush against its
+   card, not a free pill. */
+.pill{display:flex; align-items:center; height:var(--segmentPillHeight); min-width:calc(var(--segmentPillHeight) * 2); padding:0 10px; border-radius:var(--pill-radius); font-size:10.5px; cursor:pointer; user-select:none;}
 /* ellipsis-on-overflow, used by 7 labels below. */
 .truncate{min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 /* ===================== END SHARED PATTERNS ===================== */
@@ -114,9 +126,12 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
 #groupPanel{display:flex; flex-direction:column; gap:12px; flex:0 0 260px; padding:14px; color:var(--text); overflow:hidden;}
 #groupPanelControls, #groupPanelBody{background:var(--panel); border:1px solid var(--border); border-radius:var(--panel-radius); box-shadow:var(--shadow-panel);}
 #groupPanelControls{display:flex; flex-direction:column; gap:8px; flex:0 0 auto; padding:10px;}
-/* drop zones + buttons share one grid so the row reads as one cluster. */
+/* drop zones + buttons share one grid so the row reads as one cluster.
+   --pill-radius rounds their corners the same amount as a pill's own --
+   they stay rectangular (nowhere near 2x as wide as tall), just sharing
+   the curve. */
 #groupPanelControls .panelControlsGrid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
-#groupPanelControls .panelControlsGrid > *{min-width:0; padding:8px 6px; border-radius:5px; font-size:12px; text-align:center;}
+#groupPanelControls .panelControlsGrid > *{min-width:0; padding:8px 6px; border-radius:var(--pill-radius); font-size:12px; text-align:center;}
 #groupPanelControls button{background:var(--panel); border:1px solid var(--border-dark); cursor:pointer;}
 #groupPanelControls button:hover{background:var(--hover-bg);}
 #newPageZone{border:1px solid var(--border-dark); color:var(--muted-dark); transition:background-color .1s, border-color .1s, color .1s;}
@@ -207,10 +222,11 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    placed contact chip / group tile (see tintElement). */
 .cardEdgeHandles{position:relative; z-index:1; flex:0 0 auto; width:var(--segmentPillHeight);}
 /* right:0 anchors the capsule flush against the card; the free (left)
-   end gets rounded, radius = half the strip's width for a true half
-   circle cap. border is set with no color here -- tintElement fills in
-   border-color (and background) per department at render time. */
-.cardEdgeHandles .segmentCapsule{position:absolute; right:0; display:flex; justify-content:center; align-items:center; width:var(--segmentPillHeight); border:1px solid; border-radius:calc(var(--segmentPillHeight)/2) 0 0 calc(var(--segmentPillHeight)/2); color:var(--text-soft); font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); text-align:center; writing-mode:vertical-rl; text-orientation:mixed; overflow:hidden; cursor:grab; user-select:none;}
+   end gets rounded with --pill-radius (exactly half the strip's own
+   width) for a true half circle cap. border is set with no color here
+   -- tintElement fills in border-color (and background) per department
+   at render time. */
+.cardEdgeHandles .segmentCapsule{position:absolute; right:0; display:flex; justify-content:center; align-items:center; width:var(--segmentPillHeight); border:1px solid; border-radius:var(--pill-radius) 0 0 var(--pill-radius); color:var(--text-soft); font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); text-align:center; writing-mode:vertical-rl; text-orientation:mixed; overflow:hidden; cursor:grab; user-select:none;}
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
 
 /* custom drag images (see wireCardRowDrag/showSegmentDragGhost) --
@@ -221,7 +237,7 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    so the resting tab and this pill always agree on text size, and the
    tab's own width equals this pill's rendered height. Not part of .pill
    above -- that shared font-size would break this match. */
-#segmentDragGhost{position:fixed; top:-999px; left:-999px; padding:var(--segmentPillPadY) 16px; border-radius:999px; box-shadow:0 1px 4px var(--shadow-soft); color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); white-space:nowrap; pointer-events:none;}
+#segmentDragGhost{position:fixed; top:-999px; left:-999px; padding:var(--segmentPillPadY) 16px; border-radius:var(--pill-radius); box-shadow:0 1px 4px var(--shadow-soft); color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); white-space:nowrap; pointer-events:none;}
 /* ===================== END SEGMENT TABS / DRAG GHOSTS ===================== */
 
 /* ===================== PER-CARD INFO BAR (viewer) ===================== */
