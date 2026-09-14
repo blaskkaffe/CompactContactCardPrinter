@@ -35,31 +35,32 @@ html,body{height:100%;}
 body{margin:0; font:14px/1.4 Arial, sans-serif; background:var(--bg); color:var(--text); display:flex; flex-direction:column;}
 
 /* ===================== TOOLBAR ===================== */
-/* three columns -- left/right take whatever's left over in equal shares
-   (1fr each, auto-minimum) so the middle column (#portalPanel) sizes to
-   its own content (capped, see below) and sits precisely centered on the
-   bar, and (unlike centering it with position:absolute) can never
-   visually collide with the toolbar's own left/right content: grid
-   columns simply don't overlap. Neither side ever wraps to a second
-   line at any width. Everything except #dataStatus keeps its full,
-   unshrunk natural size (the app title; the portal buttons; the
-   paper-size select + print button) -- #dataStatus is the one piece of
-   text allowed to give way, shrinking and then truncating with an
-   ellipsis, so the portal buttons in the middle column stay in one
-   fixed horizontal line, always fully visible, regardless of window
-   size; below the width everything else actually needs, the toolbar
-   scrolls horizontally rather than crowding or hiding any of it. */
-/* the middle track is explicit max-content, not auto -- #portalPanel has
-   its own overflow-x:auto (for the button row's own scroll, see below),
-   and a grid item with non-visible overflow collapses an "auto" track's
-   automatic minimum to 0; that let the flanking columns' real content
-   (esp. the paper-size select + print button on the right, which can't
-   shrink at all) squeeze this track away to nothing the moment space got
-   tight, instead of just capping it -- max-content isn't subject to that
-   collapse, so the column reliably sizes to the button row's real width
-   (still capped by #portalPanel's own max-width below). */
-header.toolbar{flex:0 0 auto; background:#1c1c1c; color:#fff; padding:8px 12px; display:grid; grid-template-columns:1fr max-content 1fr; align-items:center; column-gap:10px;}
+/* three columns, but only the middle one (#portalPanel) is a flexible fr
+   track -- left/right are intrinsic (max-content-based) instead, sized to
+   exactly what their own content needs, floored where that content can't
+   shrink. That matters: an fr track on BOTH sides (the previous design)
+   made CSS Grid hand any leftover space to whichever side could still
+   grow -- once the title was hidden at small widths, the left side had
+   nothing left to grow into, so ALL of that freed space flowed to the
+   right column instead of the portal buttons, inflating #dataStatus back
+   to its full, unellipsized width and pushing the print button back off
+   the edge. Making the middle column the only fr track means it's the
+   one that actually absorbs whatever's left over -- "let the portals
+   take that space" -- while left/right only ever take what they need. */
+header.toolbar{flex:0 0 auto; background:#1c1c1c; color:#fff; padding:8px 12px; display:grid; grid-template-columns:max-content minmax(52px, 1fr) minmax(190px, max-content); align-items:center; column-gap:10px;}
 header.toolbar h1{font-size:15px; margin:0 14px 0 0; white-space:nowrap;}
+/* below the width the title, the portal buttons and the paper/print
+   controls can no longer all fit, the title is the one that goes --
+   #dataStatus already yields first (shrinking to an ellipsis, then to
+   nothing) as space tightens above this breakpoint, but once even that
+   isn't enough, dropping the title (rather than letting anything else
+   shrink) is what actually frees enough room to keep the portal buttons
+   and, more importantly, the paper size select + print button -- which
+   never shrink at all, see .toolbarSideRight below -- fully visible
+   without the toolbar ever needing its own horizontal scrollbar. */
+@media (max-width: 560px){
+  header.toolbar h1{ display:none; }
+}
 /* deliberately no min-width:0 here (unlike #dataStatus below) -- both
    sides' real content (the title on the left; the select + print button
    on the right) must keep protecting their column's true minimum width,
@@ -84,10 +85,18 @@ label.tool{display:flex; gap:4px; align-items:center; font-size:12px; flex:0 0 a
    auto grid column would squeeze the toolbar's own left/right content
    down to fit them all on one line. */
 #portalPanel{display:flex; flex-direction:row; align-items:center; gap:6px; max-width:40vw; overflow-x:auto; overflow-y:hidden; padding:2px 0;}
-#portalPanel .portalBtn{flex:0 0 auto; width:24px; height:24px; border-radius:50%; background:var(--panel); border:1px solid var(--border-dark); box-shadow:0 1px 3px rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; color:#333; cursor:pointer; user-select:none; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
+/* same height as the drag-and-drop pills (#segmentDragGhost/.segmentCapsule,
+   see the shared --segment* tokens in :root), width about double that --
+   a pill, not a circle, so a two-digit page number still sits comfortably
+   centered instead of getting cramped. */
+#portalPanel .portalBtn{flex:0 0 auto; width:calc(var(--segmentPillHeight) * 2); height:var(--segmentPillHeight); border-radius:999px; background:var(--panel); border:1px solid var(--border-dark); box-shadow:0 1px 3px rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; color:#333; cursor:pointer; user-select:none; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
 #portalPanel .portalBtn:hover{background:#f2f2f2;}
 /* the page(s) currently shown in the viewer -- a plain visual cue, not a
-   drop-related state */
+   drop-related state. Falls back to the blue accent only for a page with
+   no contacts to take a color from (see colorForPage) -- a normal page
+   gets its own department color instead, set inline by renderPortalPanel
+   to match whatever color that page's own contacts use everywhere else
+   (the group panel tiles/chips, the segment capsules on the card itself). */
 #portalPanel .portalBtn.current{border-color:var(--blue); color:var(--blue-text); box-shadow:0 1px 4px rgba(0,128,255,.6);}
 /* held over mid-drag (see wirePortalButton) -- bigger + brighter so it
    reads as "drag here to jump", distinct from .current */
@@ -312,7 +321,10 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    itself as well as onto a page below (see wireCardDropTarget; it isn't
    tied to which panel a drag started in, only to PANEL_DRAG_MIME) */
 #groupPanel .groupGrid{display:flex; flex-direction:column; gap:4px; margin-bottom:10px;}
-#groupPanel .groupTile{background:#fff; border:1px solid #ccc; border-radius:5px; padding:5px 7px; font-size:11px; min-width:0; cursor:grab;}
+/* rounded sides like the drag-and-drop pills (#segmentDragGhost et al),
+   but otherwise the same size as before -- unlike .contactChip below,
+   this isn't resized to match the pill's own height, just its shape. */
+#groupPanel .groupTile{background:#fff; border:1px solid #ccc; border-radius:999px; padding:5px 12px; font-size:11px; min-width:0; cursor:grab;}
 #groupPanel .groupTile:active{cursor:grabbing;}
 /* a "placed" tile/chip's own background/border color comes inline from
    JS (see renderGroupPanel/buildContactList) -- a light tint of that
@@ -324,7 +336,12 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .groupTileToggle{cursor:pointer; color:#888; font-size:9px; flex:none; user-select:none; padding:0 1px;}
 #groupPanel .groupTileToggle:hover{color:#333;}
 #groupPanel .contactList{display:flex; flex-direction:column; gap:3px; padding:2px 0 4px 6px; margin-top:-2px; border-left:2px solid #eee;}
-#groupPanel .contactChip{display:flex; justify-content:space-between; align-items:center; gap:4px; background:#fff; border:1px solid #ddd; border-radius:3px; padding:2px 6px; font-size:10.5px; cursor:grab; min-width:0;}
+/* same shape AND same height as the drag-and-drop pills (#segmentDragGhost
+   et al, see the shared --segment* tokens in :root) -- unlike .groupTile
+   above, an individual contact chip is resized to match exactly, not just
+   reshaped; height replaces the old vertical padding, horizontal padding
+   only, centered by align-items. */
+#groupPanel .contactChip{display:flex; justify-content:space-between; align-items:center; gap:4px; background:#fff; border:1px solid #ddd; border-radius:999px; height:var(--segmentPillHeight); padding:0 8px; font-size:10.5px; cursor:grab; min-width:0;}
 #groupPanel .contactChip:active{cursor:grabbing;}
 #groupPanel .contactChipName{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;}
 #groupPanel .contactChipPage{font-size:9.5px; flex:none;}
@@ -2715,6 +2732,20 @@ function goNext(){ scrollToPage(state.currentPage + sidesPerView()); }
    back, and jumping straight to that exact index works there same as
    anywhere else, unlike the old always-jump-to-the-front-of-a-pair
    version. */
+/* the color a page's own portal button uses while current -- its first
+   real contact's department color, same palette entry that contact uses
+   everywhere else (its group tile/chip, its segment capsule on the card
+   itself), so the highlighted portal obviously matches the page it
+   points at. null for a page with no contacts to take a color from (an
+   "empty" spacer page), which leaves the .current CSS rule's blue
+   fallback in place. */
+function colorForPage(pageIndex){
+  var page = state.pages[pageIndex];
+  if(!page || !page.contacts.length) return null;
+  var contact = page.contacts.filter(function(c){ return !c.isEmptyRow; })[0];
+  if(!contact) return null;
+  return colorForDeptKey(deptGroupKey(contact.department));
+}
 function renderPortalPanel(){
   var panel = $("#portalPanel");
   if(!panel) return;
@@ -2724,11 +2755,20 @@ function renderPortalPanel(){
   var visibleStart = state.currentPage;
   var visibleEnd = state.currentPage + Math.max(0, lastVisibleCount-1);
   for(var i=0;i<total;i++){
+    var isCurrent = i>=visibleStart && i<=visibleEnd;
     var btn = el("div", {
-      class:"portalBtn" + (i>=visibleStart && i<=visibleEnd ? " current" : ""),
+      class:"portalBtn" + (isCurrent ? " current" : ""),
       text:String(i+1),
       title:"Hoppa till Sida " + (i+1)
     });
+    if(isCurrent){
+      var color = colorForPage(i);
+      if(color){
+        btn.style.borderColor = color;
+        btn.style.color = color;
+        btn.style.boxShadow = "0 1px 4px " + hexToRgba(color, 0.6);
+      }
+    }
     wirePortalButton(btn, i);
     panel.appendChild(btn);
   }
