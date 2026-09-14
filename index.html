@@ -36,19 +36,44 @@ body{margin:0; font:14px/1.4 Arial, sans-serif; background:var(--bg); color:var(
 
 /* ===================== TOOLBAR ===================== */
 /* three columns -- left/right take whatever's left over in equal shares
-   (1fr each), the middle column (#portalPanel) sizes to its own content
-   (capped, see below) -- so it sits precisely centered on the bar
-   regardless of how long #dataStatus's text is, and (unlike centering it
-   with position:absolute) can never visually collide with the toolbar's
-   own left/right content: grid columns simply don't overlap. */
-header.toolbar{flex:0 0 auto; background:#1c1c1c; color:#fff; padding:8px 12px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; column-gap:10px;}
-header.toolbar h1{font-size:15px; margin:0 14px 0 0;}
-.toolbarSide{display:flex; flex-wrap:wrap; align-items:center; gap:10px; min-width:0;}
+   (1fr each, auto-minimum) so the middle column (#portalPanel) sizes to
+   its own content (capped, see below) and sits precisely centered on the
+   bar, and (unlike centering it with position:absolute) can never
+   visually collide with the toolbar's own left/right content: grid
+   columns simply don't overlap. Neither side ever wraps to a second
+   line at any width. Everything except #dataStatus keeps its full,
+   unshrunk natural size (the app title; the portal buttons; the
+   paper-size select + print button) -- #dataStatus is the one piece of
+   text allowed to give way, shrinking and then truncating with an
+   ellipsis, so the portal buttons in the middle column stay in one
+   fixed horizontal line, always fully visible, regardless of window
+   size; below the width everything else actually needs, the toolbar
+   scrolls horizontally rather than crowding or hiding any of it. */
+/* the middle track is explicit max-content, not auto -- #portalPanel has
+   its own overflow-x:auto (for the button row's own scroll, see below),
+   and a grid item with non-visible overflow collapses an "auto" track's
+   automatic minimum to 0; that let the flanking columns' real content
+   (esp. the paper-size select + print button on the right, which can't
+   shrink at all) squeeze this track away to nothing the moment space got
+   tight, instead of just capping it -- max-content isn't subject to that
+   collapse, so the column reliably sizes to the button row's real width
+   (still capped by #portalPanel's own max-width below). */
+header.toolbar{flex:0 0 auto; background:#1c1c1c; color:#fff; padding:8px 12px; display:grid; grid-template-columns:1fr max-content 1fr; align-items:center; column-gap:10px;}
+header.toolbar h1{font-size:15px; margin:0 14px 0 0; white-space:nowrap;}
+/* deliberately no min-width:0 here (unlike #dataStatus below) -- both
+   sides' real content (the title on the left; the select + print button
+   on the right) must keep protecting their column's true minimum width,
+   or that content bleeds left past its own column edge into the portal
+   buttons the moment the rest of the bar runs out of room. */
+.toolbarSide{display:flex; flex-wrap:nowrap; align-items:center; gap:10px;}
 .toolbarSideRight{justify-content:flex-end;}
-header.toolbar select, header.toolbar button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
+header.toolbar select, header.toolbar button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer; flex:0 0 auto;}
 header.toolbar button:hover{background:#eee;}
-label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
-#dataStatus{font-size:12px; color:#ccc;}
+label.tool{display:flex; gap:4px; align-items:center; font-size:12px; flex:0 0 auto; white-space:nowrap;}
+/* the one piece of toolbar text allowed to give way under pressure: paper
+   size + print stay put at their natural size (flex:0 0 auto above), so
+   this is what shrinks and, past that, truncates with an ellipsis first. */
+#dataStatus{font-size:12px; color:#ccc; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 
 /* the toolbar's own middle grid column -- one round button per page (see
    renderPortalPanel/wirePortalButton), replacing the old prev/next +
