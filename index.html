@@ -2819,17 +2819,22 @@ function groupContactsBySourceAndDepartment(contacts){
   return order.map(function(k){ return byKey.get(k); });
 }
 
+/* Svart is only meant for header text/background choices, not something
+   a department should ever be auto-assigned -- a black segment capsule
+   or drag-highlight tint would be unreadable (white capsule text) and
+   easy to mistake for "no color at all". */
+var DEPT_COLOR_PRESETS = COLOR_PRESETS.filter(function(c){ return c.hex.toLowerCase() !== "#000000"; });
 /* consistent color for a department, shared by the segment capsules
    (buildCardEdgeHandles) and the drag-preview highlight
    (applyDragHighlights) -- same key, same color, so a purple IT capsule
    and a purple highlighted row obviously mean the same department. Order
    comes from computeDepartmentGroups (first-seen in the full roster),
-   cycling through COLOR_PRESETS if there are more departments than
+   cycling through DEPT_COLOR_PRESETS if there are more departments than
    presets. */
 function colorForDeptKey(key){
   var deptOrder = computeDepartmentGroups().map(function(g){ return g.key; });
   var idx = deptOrder.indexOf(key);
-  return COLOR_PRESETS[(idx === -1 ? 0 : idx) % COLOR_PRESETS.length].hex;
+  return DEPT_COLOR_PRESETS[(idx === -1 ? 0 : idx) % DEPT_COLOR_PRESETS.length].hex;
 }
 function hexToRgba(hex, alpha){
   var rgb = hexToRgb(hex);
