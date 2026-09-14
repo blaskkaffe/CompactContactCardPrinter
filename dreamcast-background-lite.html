@@ -7,7 +7,7 @@
     html, body {
         margin: 0;
         height: 100%;
-        background: #000;
+        background: #e6e6e6;
         overflow: hidden;
         font-family: sans-serif;
     }
@@ -33,16 +33,16 @@
         right: 16px;
         z-index: 10;
         padding: 8px 14px;
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.55);
         color: #fff;
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.4);
         border-radius: 6px;
         cursor: pointer;
         font-size: 13px;
     }
 
     #performance-toggle.paused {
-        background: rgba(255, 255, 255, 0.25);
+        background: rgba(0, 0, 0, 0.8);
     }
 </style>
 </head>
@@ -118,6 +118,46 @@ if (!bgAnimationPaused) {
         return out;
     }
 
+    function rotationX(theta) {
+        const c = Math.cos(theta), s = Math.sin(theta);
+        return new Float32Array([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]);
+    }
+
+    function rotationY(theta) {
+        const c = Math.cos(theta), s = Math.sin(theta);
+        return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]);
+    }
+
+    function translation(tx, ty, tz) {
+        return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, tx, ty, tz, 1]);
+    }
+
+    // --- sky dome (approximates the original upside-down LatheGeometry cylinder) ---
+    function buildLathe(segY, height, radius, segPhi) {
+        const positions = [];
+        const uvs = [];
+        for (let iy = 0; iy <= segY; iy++) {
+            const y = height * (iy / segY);
+            const v = iy / segY;
+            for (let j = 0; j <= segPhi; j++) {
+                const phi = (j / segPhi) * Math.PI * 2;
+                positions.push(radius * Math.cos(phi), y, radius * Math.sin(phi));
+                uvs.push(j / segPhi, v);
+            }
+        }
+        const indices = [];
+        const rowSize = segPhi + 1;
+        for (let iy = 0; iy < segY; iy++)
+            for (let j = 0; j < segPhi; j++) {
+                const a = iy * rowSize + j, b = a + 1, c = a + rowSize, d = c + 1;
+                indices.push(a, c, b, b, c, d);
+            }
+        return { positions: new Float32Array(positions), uvs: new Float32Array(uvs), indices: new Uint16Array(indices) };
+    }
+
+    const sky = buildLathe(64, 70, 40, 32);
+    const skyFixedRotationX = Math.PI / 0.655;
+
     // --- plane grid (approximates the original PlaneGeometry(50,30,100,100)) ---
     function buildGrid(segX, segY, width, height) {
         const positions = [];
@@ -191,6 +231,40 @@ if (!bgAnimationPaused) {
         }
     `;
 
+    // Sky dome: same texture, faded by a smoothstep gradient on local height,
+    // matching the original cylinder's onBeforeCompile shader injection.
+    const skyVsSource = `
+        attribute vec3 aPosition;
+        attribute vec2 aUv;
+        uniform mat4 uMvp;
+        varying vec2 vUv;
+        varying float vOpacity;
+
+        float smoothstepCustom(float edge0, float edge1, float x) {
+            float t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+            return t * t * (3.0 - 2.0 * t);
+        }
+
+        void main() {
+            float normalizedY = aPosition.y / 60.0;
+            vOpacity = 1.0 - smoothstepCustom(-0.7, 1.1, normalizedY);
+            vUv = aUv * vec2(2.0, 1.0) + vec2(1.0, 1.0);
+            gl_Position = uMvp * vec4(aPosition, 1.0);
+        }
+    `;
+
+    const skyFsSource = `
+        precision mediump float;
+        varying vec2 vUv;
+        varying float vOpacity;
+        uniform sampler2D uTexture;
+
+        void main() {
+            vec4 tex = texture2D(uTexture, fract(vUv));
+            gl_FragColor = vec4(tex.rgb, tex.a * vOpacity);
+        }
+    `;
+
     function compileShader(type, source) {
         const shader = gl.createShader(type);
         gl.shaderSource(shader, source);
@@ -198,10 +272,15 @@ if (!bgAnimationPaused) {
         return shader;
     }
 
-    const program = gl.createProgram();
-    gl.attachShader(program, compileShader(gl.VERTEX_SHADER, vsSource));
-    gl.attachShader(program, compileShader(gl.FRAGMENT_SHADER, fsSource));
-    gl.linkProgram(program);
+    function createProgram(vs, fs) {
+        const program = gl.createProgram();
+        gl.attachShader(program, compileShader(gl.VERTEX_SHADER, vs));
+        gl.attachShader(program, compileShader(gl.FRAGMENT_SHADER, fs));
+        gl.linkProgram(program);
+        return program;
+    }
+
+    const program = createProgram(vsSource, fsSource);
     gl.useProgram(program);
 
     const positionBuffer = gl.createBuffer();
@@ -213,12 +292,27 @@ if (!bgAnimationPaused) {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, grid.indices, gl.STATIC_DRAW);
 
     const aPosition = gl.getAttribLocation(program, 'aPosition');
-    gl.enableVertexAttribArray(aPosition);
-    gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
-
     const uMvp = gl.getUniformLocation(program, 'uMvp');
     const uTime = gl.getUniformLocation(program, 'uTime');
     const uTexture = gl.getUniformLocation(program, 'uTexture');
+
+    const skyProgram = createProgram(skyVsSource, skyFsSource);
+    const skyPositionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, skyPositionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, sky.positions, gl.STATIC_DRAW);
+
+    const skyUvBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, skyUvBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, sky.uvs, gl.STATIC_DRAW);
+
+    const skyIndexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skyIndexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, sky.indices, gl.STATIC_DRAW);
+
+    const skyAPosition = gl.getAttribLocation(skyProgram, 'aPosition');
+    const skyAUv = gl.getAttribLocation(skyProgram, 'aUv');
+    const skyUMvp = gl.getUniformLocation(skyProgram, 'uMvp');
+    const skyUTexture = gl.getUniformLocation(skyProgram, 'uTexture');
 
     const texture = gl.createTexture();
     let textureReady = false;
@@ -235,9 +329,10 @@ if (!bgAnimationPaused) {
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.enable(gl.DEPTH_TEST);
     gl.clearColor(0, 0, 0, 0);
 
-    let projMatrix, viewMatrix;
+    let viewProjMatrix;
     const eye = [0, -20, 7];
     const target = [0, 100, 0];
     const up = [0, 1, 0];
@@ -247,8 +342,9 @@ if (!bgAnimationPaused) {
         canvas.width = window.innerWidth * dpr;
         canvas.height = window.innerHeight * dpr;
         gl.viewport(0, 0, canvas.width, canvas.height);
-        projMatrix = perspective(75 * Math.PI / 180, canvas.width / canvas.height, 0.1, 1000);
-        viewMatrix = lookAt(eye, target, up);
+        const projMatrix = perspective(75 * Math.PI / 180, canvas.width / canvas.height, 0.1, 1000);
+        const viewMatrix = lookAt(eye, target, up);
+        viewProjMatrix = multiply(projMatrix, viewMatrix);
     }
     window.addEventListener('resize', onResize);
     onResize();
@@ -259,17 +355,37 @@ if (!bgAnimationPaused) {
         if (!textureReady) return;
 
         time += 0.016;
-        gl.clear(gl.COLOR_BUFFER_BIT);
-
-        const mvp = multiply(projMatrix, viewMatrix);
-        gl.uniformMatrix4fv(uMvp, false, mvp);
-        gl.uniform1f(uTime, time);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.uniform1i(uTexture, 0);
 
+        // Ground plane
+        gl.useProgram(program);
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.enableVertexAttribArray(aPosition);
+        gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        gl.uniformMatrix4fv(uMvp, false, viewProjMatrix);
+        gl.uniform1f(uTime, time);
+        gl.uniform1i(uTexture, 0);
         gl.drawElements(gl.TRIANGLES, grid.indices.length, gl.UNSIGNED_SHORT, 0);
+
+        // Sky dome
+        const skyModel = multiply(translation(0, 0, 65), multiply(rotationY(-time * 0.0625), rotationX(skyFixedRotationX)));
+        const skyMvp = multiply(viewProjMatrix, skyModel);
+
+        gl.useProgram(skyProgram);
+        gl.bindBuffer(gl.ARRAY_BUFFER, skyPositionBuffer);
+        gl.enableVertexAttribArray(skyAPosition);
+        gl.vertexAttribPointer(skyAPosition, 3, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, skyUvBuffer);
+        gl.enableVertexAttribArray(skyAUv);
+        gl.vertexAttribPointer(skyAUv, 2, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skyIndexBuffer);
+        gl.uniformMatrix4fv(skyUMvp, false, skyMvp);
+        gl.uniform1i(skyUTexture, 0);
+        gl.drawElements(gl.TRIANGLES, sky.indices.length, gl.UNSIGNED_SHORT, 0);
     }
     animate();
 
