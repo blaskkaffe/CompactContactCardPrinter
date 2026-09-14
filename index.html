@@ -2512,6 +2512,21 @@ var VIEWER_SIDE_PADDING_PX = 32;
    under-counts the strips (which used to leave rows a bit too wide for
    their own budget, forcing an unwanted wrap into a second row that then
    overflowed the viewer's own height). */
+/* the corner drop zones (#newPageZone top-left, #cardRemoveZone top-right)
+   float above the viewer independently of the card row's own centering --
+   sizing the row against only the plain side padding left a zone wider
+   than that padding sitting on top of the nearest card's pageInfoBar/edge
+   strip instead of beside it. Measured live (like stripW below) rather
+   than assumed, so it stays correct if either zone's label ever changes;
+   +8 leaves a visible gap rather than a flush edge. */
+function requiredSideClearancePx(wrapRect){
+  var clearance = VIEWER_SIDE_PADDING_PX;
+  var newZoneRect = $("#newPageZone").getBoundingClientRect();
+  var removeZoneRect = $("#cardRemoveZone").getBoundingClientRect();
+  clearance = Math.max(clearance, newZoneRect.right - wrapRect.left + 8);
+  clearance = Math.max(clearance, wrapRect.right - removeZoneRect.left + 8);
+  return clearance;
+}
 function fitVisibleCards(){
   var wrap = $("#viewerContent");
   var pages = wrap.querySelectorAll(".page");
@@ -2527,7 +2542,8 @@ function fitVisibleCards(){
   });
   var rowGaps = Math.max(0, pairs.length - 1) * 24;
   var fixedW = stripCount*stripW + pageGapCount*12 + rowGaps;
-  var availW = wrap.clientWidth - VIEWER_SIDE_PADDING_PX*2;
+  var sidePad = requiredSideClearancePx(wrap.getBoundingClientRect());
+  var availW = wrap.clientWidth - sidePad*2;
   var cw = (availW - fixedW) / pages.length;
   var ch = wrap.clientHeight - PAGE_INFO_BAR_CLEARANCE_PX - VIEWER_BOTTOM_MARGIN_PX;
   var scale = Math.min(cw/dims.w, ch/dims.h);
