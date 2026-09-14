@@ -178,7 +178,7 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    VIEWER_SIDE_PADDING_PX and #groupPanel's own edge padding in the JS,
    so a card sits no further from the panel than the panel sits from the
    window edge. */
-#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:127px 14px 32px;}
+#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:135px 14px 32px;}
 
 #emptyViewerOverlay{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:40px; color:var(--border-dark); font-size:18px; text-align:center;}
 #emptyViewerOverlay[hidden]{display:none;}
@@ -257,7 +257,7 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    department color to take (see colorForPage) -- tintElement overrides
    both per page to match that page's own portal button, same as a placed
    contact chip/group tile/segmentCapsule. */
-.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; z-index:2; padding:4px 10px; background:var(--panel); border:1px solid var(--border); border-radius:var(--panel-radius) var(--panel-radius) 0 0; font-size:11px;}
+.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; z-index:2; padding:10px; background:var(--panel); border:1px solid var(--border); border-radius:var(--panel-radius) var(--panel-radius) 0 0; font-size:11px;}
 .pageInfoBar .pageInfoHeader{display:flex; align-items:center; gap:6px; margin-bottom:4px;}
 .pageInfoBar .pageInfoHeader span{flex:1 1 auto; font-size:11px; font-weight:bold;}
 .pageInfoBar .pageInfoHeader span.full{color:#a00;}
@@ -2540,16 +2540,17 @@ function sidesPerView(){
    Sized for the tallest a bar can actually get, not just the common
    case, so the bar never sits any closer to the toolbar than the top
    left menu does -- an "empty" page in image mode, whose file picker and
-   fit-mode select wrap the bar out to its worst case, is ~113px tall
-   with the bar's own controls now padded to match the top left menu's
-   buttons; +14 on top of that reuses VIEWER_SIDE_PADDING_PX's own value
-   as the vertical gap too, so the bar's top edge sits exactly as far
-   from the toolbar as #groupPanelControls' own box does (#groupPanel's
-   14px padding). A smaller clearance left that rare tall bar's top edge
-   rendered underneath the toolbar -- the bug this budget now rules out
-   in every case, common or not -- at the cost of leaving unused headroom
-   above the much more common, shorter v20-style bar (~74px). */
-var PAGE_INFO_BAR_CLEARANCE_PX = 127;
+   fit-mode select wrap the bar out to its worst case, is ~120px tall
+   with the bar's own 10px padding now matching #groupPanelControls' own
+   padding on every side, not just left/right; +14 on top of that reuses
+   VIEWER_SIDE_PADDING_PX's own value as the vertical gap too, so the
+   bar's top edge sits exactly as far from the toolbar as
+   #groupPanelControls' own box does (#groupPanel's 14px padding). A
+   smaller clearance left that rare tall bar's top edge rendered
+   underneath the toolbar -- the bug this budget now rules out in every
+   case, common or not -- at the cost of leaving unused headroom above
+   the much more common, shorter v20-style bar (~81px). */
+var PAGE_INFO_BAR_CLEARANCE_PX = 135;
 var VIEWER_BOTTOM_MARGIN_PX = 32;
 /* must match #viewerContent's own left/right padding in the CSS -- used
    below to size against the actual content box, not the padding along
