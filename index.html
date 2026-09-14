@@ -14,9 +14,10 @@
   --segmentLineHeight: 1.2;
   --segmentPillHeight: calc(var(--segmentLineHeight) * var(--segmentFontSize) + var(--segmentPillPadY) * 2);
 
-  /* design tokens -- one name per repeated color. The plain grays are
-     named by value, not role: they get reused for whatever needs that
-     exact shade (a border here, muted text there). */
+  /* design tokens -- one name per repeated color. The plain grays below
+     get reused across whatever property needs that exact shade (e.g.
+     --border-dark shows up as a text color in a few places below),
+     regardless of what the name itself suggests. */
   --bg: #e6e6e6;
   --panel: #fff;
   --border: #bbb;
@@ -35,18 +36,19 @@
   --shadow-soft: rgba(0,0,0,.4);
 }
 html,body{height:100%;}
-body{margin:0; font:14px/1.4 Arial, sans-serif; background:var(--bg); color:var(--text); display:flex; flex-direction:column;}
+body{display:flex; flex-direction:column; margin:0; background:var(--bg); color:var(--text); font:14px/1.4 Arial, sans-serif;}
 
 /* ===================== SHARED PATTERNS ===================== */
 /* one pill: portal buttons, group tiles, contact chips -- same size and
-   shape everywhere; only background/border/text color (per use, or set
-   inline per item's own department color) tells them apart. Width floors
-   at 2x height and grows with longer text. #segmentDragGhost isn't a
-   member -- its font/padding are pinned to .segmentCapsule's tab instead
-   (see :root), which would conflict. .segmentCapsule itself is a half
-   round flush against its card, not a free pill. */
+   shape everywhere. What's inside (a lone number vs. a name+badge row)
+   still drives its own justify-content/gap, but background/border/text
+   color is the only STYLING difference between them. Width floors at 2x
+   height and grows with longer text. #segmentDragGhost isn't a member --
+   its font/padding are pinned to .segmentCapsule's tab instead (see
+   :root), which a shared font-size would break. .segmentCapsule itself
+   is a half round flush against its card, not a free pill. */
 .pill{display:flex; align-items:center; height:var(--segmentPillHeight); min-width:calc(var(--segmentPillHeight) * 2); padding:0 10px; border-radius:999px; font-size:10.5px; cursor:pointer; user-select:none;}
-/* ellipsis-on-overflow, used by half a dozen labels below. */
+/* ellipsis-on-overflow, used by 7 labels below. */
 .truncate{min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 /* ===================== END SHARED PATTERNS ===================== */
 
@@ -57,8 +59,8 @@ body{margin:0; font:14px/1.4 Arial, sans-serif; background:var(--bg); color:var(
    to whichever side could still grow -- once the title hid at small
    widths that meant the paper/print side, inflating #dataStatus back to
    full width and pushing the print button off the edge.) */
-header.toolbar{flex:0 0 auto; background:#1c1c1c; color:#fff; padding:8px 12px; display:grid; grid-template-columns:max-content minmax(52px, 1fr) minmax(190px, max-content); align-items:center; column-gap:10px;}
-header.toolbar h1{font-size:15px; margin:0 14px 0 0; white-space:nowrap;}
+header.toolbar{display:grid; grid-template-columns:max-content minmax(52px, 1fr) minmax(190px, max-content); align-items:center; column-gap:10px; flex:0 0 auto; padding:8px 12px; background:#1c1c1c; color:#fff;}
+header.toolbar h1{margin:0 14px 0 0; font-size:15px; white-space:nowrap;}
 /* below this width the title goes, freeing room for the portal buttons
    and (more importantly) the paper/print controls, which never shrink. */
 @media (max-width: 560px){
@@ -66,40 +68,87 @@ header.toolbar h1{font-size:15px; margin:0 14px 0 0; white-space:nowrap;}
 }
 .toolbarSide{display:flex; flex-wrap:nowrap; align-items:center; gap:10px;}
 .toolbarSideRight{justify-content:flex-end;}
-header.toolbar select, header.toolbar button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid var(--border-dark); background:var(--panel); cursor:pointer; flex:0 0 auto;}
+header.toolbar select, header.toolbar button{flex:0 0 auto; padding:4px 8px; background:var(--panel); border:1px solid var(--border-dark); border-radius:4px; font-size:12px; cursor:pointer;}
 header.toolbar button:hover{background:var(--hover-bg);}
-label.tool{display:flex; gap:4px; align-items:center; font-size:12px; flex:0 0 auto; white-space:nowrap;}
+label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:12px; white-space:nowrap;}
 /* the one toolbar label allowed to shrink/ellipsize under pressure. */
-#dataStatus{font-size:12px; color:var(--border-light);}
+#dataStatus{color:var(--border-light); font-size:12px;}
 
 /* one pill per page (see renderPortalPanel) -- click to jump, or hold a
    drag over one to jump while the drag stays active. Own horizontal
    scroll, capped width, so a long roster can't squeeze the rest of the
    toolbar off screen. */
-#portalPanel{display:flex; flex-direction:row; align-items:center; gap:6px; max-width:40vw; overflow-x:auto; overflow-y:hidden; padding:2px 0;}
-#portalPanel .portalBtn{flex:0 0 auto; justify-content:center; background:var(--panel); border:1px solid var(--border-dark); font-weight:bold; color:var(--text-soft); transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
+#portalPanel{display:flex; flex-direction:row; align-items:center; gap:6px; max-width:40vw; padding:2px 0; overflow-x:auto; overflow-y:hidden;}
+#portalPanel .portalBtn{flex:0 0 auto; justify-content:center; background:var(--panel); border:1px solid var(--border-dark); color:var(--text-soft); font-weight:bold; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
 #portalPanel .portalBtn:hover{background:var(--hover-bg);}
 /* the page(s) on screen -- falls back to blue only for a page with no
    contacts to take a color from (see colorForPage); otherwise it's that
    page's own department color, matching the group panel and the card's
    own segment capsules. */
-#portalPanel .portalBtn.current{border-color:var(--blue); color:var(--blue-text); box-shadow:0 1px 4px var(--blue-glow);}
-#portalPanel .portalBtn.dragOver{background:var(--blue-bg); border-color:var(--blue); color:var(--blue-text); transform:scale(1.2); box-shadow:0 2px 6px var(--blue-glow);}
+#portalPanel .portalBtn.current{border-color:var(--blue); box-shadow:0 1px 4px var(--blue-glow); color:var(--blue-text);}
+#portalPanel .portalBtn.dragOver{background:var(--blue-bg); border-color:var(--blue); box-shadow:0 2px 6px var(--blue-glow); color:var(--blue-text); transform:scale(1.2);}
 /* ===================== END TOOLBAR ===================== */
 
+/* ===================== GROUP PANEL (department grouping helper) ===================== */
+/* the left sidebar, first child of #mainRow -- two stacked boxes
+   floating on the page background; #groupPanel itself has no panel
+   chrome of its own (that's on the two boxes below), just room around
+   them. #groupPanelControls never scrolls/rebuilds, #groupPanelBody does
+   (see renderGroupPanel). */
+#groupPanel{display:flex; flex-direction:column; gap:12px; flex:0 0 260px; padding:14px; color:var(--text); overflow:hidden;}
+#groupPanelControls, #groupPanelBody{background:var(--panel); border:1px solid var(--border); border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,.28);}
+#groupPanelControls{display:flex; flex-direction:column; gap:8px; flex:0 0 auto; padding:10px;}
+/* drop zones + buttons share one grid so the row reads as one cluster. */
+#groupPanelControls .panelControlsGrid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+#groupPanelControls .panelControlsGrid > *{min-width:0; padding:8px 6px; border-radius:5px; font-size:12px; text-align:center;}
+#groupPanelControls button{background:var(--panel); border:1px solid var(--border-dark); cursor:pointer;}
+#groupPanelControls button:hover{background:var(--hover-bg);}
+#newPageZone{border:1px solid var(--border-dark); color:var(--muted-dark); transition:background-color .1s, border-color .1s, color .1s;}
+#newPageZone.dragOver{background:var(--blue-bg); border-color:var(--blue); color:var(--blue-text);}
+#cardRemoveZone{border:1px solid var(--danger); color:var(--danger); transition:background-color .1s, border-color .1s;}
+#cardRemoveZone.dragOver{background:#fde4e4;}
+#groupPanelBody{flex:1 1 auto; padding:10px; font-size:12px; overflow-y:auto;}
+#groupPanel h2{margin:0 0 8px; color:var(--muted-dark); font-size:12px; text-transform:uppercase; letter-spacing:.04em;}
+#groupPanel .groupGrid{display:flex; flex-direction:column; gap:4px; margin-bottom:10px;}
+/* groupTile and contactChip are both .pill -- same size, same shape. A
+   "placed" one's background/border color comes inline from JS (see
+   renderGroupPanel/buildContactList), a light tint of its own group's
+   color, so "placed" always reads in whatever color it landed on. */
+#groupPanel .groupTile, #groupPanel .contactChip{background:var(--panel); border:1px solid var(--border-light); cursor:grab;}
+#groupPanel .groupTile:active, #groupPanel .contactChip:active{cursor:grabbing;}
+#groupPanel .contactChip{justify-content:space-between; gap:4px;}
+#groupPanel .groupTileNameRow{display:flex; align-items:center; gap:3px; flex:1; min-width:0;}
+#groupPanel .groupTileName{flex:1; font-weight:bold;}
+#groupPanel .groupTileCount{flex:none; color:var(--muted); font-size:10px; white-space:nowrap;}
+#groupPanel .groupTileToggle{flex:none; padding:0 1px; color:var(--border-dark); font-size:9px; cursor:pointer; user-select:none;}
+#groupPanel .groupTileToggle:hover{color:var(--text-soft);}
+#groupPanel .contactList{display:flex; flex-direction:column; gap:3px; margin-top:-2px; padding:2px 0 4px 6px; border-left:2px solid var(--hover-bg);}
+#groupPanel .contactChipPage{flex:none; font-size:9.5px;}
+#groupPanel .emptyNote{color:var(--muted); font-style:italic;}
+/* dashed = reusable template (a multi-use source's tile/chip, or "Tom
+   rad"), cloned fresh on every drag instead of moved out of the pool. */
+#groupPanel .groupTile.reusable, #groupPanel .contactChip.reusable{border-style:dashed; border-color:var(--border-dark);}
+#groupPanel .sourceSection{margin-bottom:14px;}
+#groupPanel .sourceHeader{display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:5px; padding-bottom:3px; border-bottom:1px solid var(--border-light);}
+#groupPanel .sourceName{flex:1; font-size:11px; font-weight:bold;}
+#groupPanel .sourceMultiUse{display:flex; align-items:center; gap:3px; flex:none; color:var(--muted-dark); font-size:10px; cursor:pointer; user-select:none;}
+#groupPanel .sourceMultiUse input{margin:0;}
+/* ===================== END GROUP PANEL ===================== */
+
 /* ===================== MAIN VIEWER ===================== */
-#mainRow{flex:1 1 auto; display:flex; overflow:hidden;}
+/* the right side of #mainRow, next to #groupPanel. */
+#mainRow{display:flex; flex:1 1 auto; overflow:hidden;}
 
 /* how many card sides show at once (1/2/4) is purely a function of
    viewport width -- see sidesPerView. */
-main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; background:var(--bg);}
+main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--bg); overflow:hidden;}
 /* padding-top clears each card's floating .pageInfoBar strip above it;
    left/right match VIEWER_SIDE_PADDING_PX and #groupPanel's own edge
    padding in the JS, so a card sits no further from the panel than the
    panel sits from the window edge. */
-#viewerContent{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:80px 14px 32px;}
+#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:80px 14px 32px;}
 
-#emptyViewerOverlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:40px; font-size:18px; color:var(--border-dark);}
+#emptyViewerOverlay{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:40px; color:var(--border-dark); font-size:18px; text-align:center;}
 #emptyViewerOverlay[hidden]{display:none;}
 #emptyViewerOverlay.dragOver{background:var(--blue-bg); color:var(--blue-text);}
 
@@ -107,7 +156,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    the one under the cursor) so a cascade onto a later page is visible
    there too -- see applyDragHighlights. Split into one colored band per
    contiguous department run, matching colorForDeptKey. */
-.cardRowHighlightLayer{position:absolute; inset:0; pointer-events:none; z-index:4;}
+.cardRowHighlightLayer{position:absolute; inset:0; z-index:4; pointer-events:none;}
 .cardRowHighlightLayer .cardRowHighlight{position:absolute; left:0; right:0;}
 /* ===================== END MAIN VIEWER ===================== */
 
@@ -123,11 +172,11 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    its exact budget (subpixel rounding, device pixel ratio, browser zoom),
    and wrap turned that into a full 2x2 break instead of an invisible
    sub-pixel overflow that #viewerWrap's own overflow:hidden just clips. */
-.pagesRow{display:flex; justify-content:center; align-items:flex-start; flex-wrap:nowrap; gap:24px;}
+.pagesRow{display:flex; flex-wrap:nowrap; justify-content:center; align-items:flex-start; gap:24px;}
 
 /* the second shadow sells the card sitting in front of its own
    edge-handle tab rather than in the same plane as it. */
-.page{background:var(--panel); box-shadow:0 1px 5px var(--shadow-soft), -6px 0 10px -2px rgba(0,0,0,.55); position:relative; z-index:2; flex:0 0 auto;}
+.page{position:relative; z-index:2; flex:0 0 auto; background:var(--panel); box-shadow:0 1px 5px var(--shadow-soft), -6px 0 10px -2px rgba(0,0,0,.55);}
 .page canvas{display:block; width:100%; height:100%; cursor:grab;}
 .page canvas:active{cursor:grabbing;}
 /* ===================== END CARD LAYOUT ===================== */
@@ -137,22 +186,22 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    the card's own left edge, front and back alike. Width/font come from
    the shared --segment* tokens, so the resting tab always matches the
    pill it turns into mid-drag. */
-.cardEdgeHandles{position:relative; width:var(--segmentPillHeight); flex:0 0 auto; z-index:1;}
+.cardEdgeHandles{position:relative; z-index:1; flex:0 0 auto; width:var(--segmentPillHeight);}
 /* right:0 anchors the capsule flush against the card; the free (left)
    end gets rounded, radius = half the strip's width for a true half
    circle cap. */
-.cardEdgeHandles .segmentCapsule{position:absolute; right:0; width:var(--segmentPillHeight); color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none; border-radius:calc(var(--segmentPillHeight)/2) 0 0 calc(var(--segmentPillHeight)/2);}
+.cardEdgeHandles .segmentCapsule{position:absolute; right:0; display:flex; justify-content:center; align-items:center; width:var(--segmentPillHeight); border-radius:calc(var(--segmentPillHeight)/2) 0 0 calc(var(--segmentPillHeight)/2); box-shadow:0 1px 2px rgba(0,0,0,.35); color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); text-align:center; writing-mode:vertical-rl; text-orientation:mixed; overflow:hidden; cursor:grab; user-select:none;}
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
 
 /* custom drag images (see wireCardRowDrag/showSegmentDragGhost) --
    positioned off-screen rather than display:none, since setDragImage
    needs them actually rendered to snapshot. */
-#rowDragGhost{position:fixed; top:-999px; left:-999px; padding:4px 10px; background:#222; color:#fff; font-size:12px; border-radius:4px; white-space:nowrap; pointer-events:none;}
+#rowDragGhost{position:fixed; top:-999px; left:-999px; padding:4px 10px; background:#222; border-radius:4px; color:#fff; font-size:12px; white-space:nowrap; pointer-events:none;}
 /* font/line-height/padding-block share --segment* with .segmentCapsule,
    so the resting tab and this pill always agree on text size, and the
    tab's own width equals this pill's rendered height. Not part of .pill
    above -- that shared font-size would break this match. */
-#segmentDragGhost{position:fixed; top:-999px; left:-999px; padding:var(--segmentPillPadY) 16px; color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); border-radius:999px; white-space:nowrap; pointer-events:none; box-shadow:0 1px 4px var(--shadow-soft);}
+#segmentDragGhost{position:fixed; top:-999px; left:-999px; padding:var(--segmentPillPadY) 16px; border-radius:999px; box-shadow:0 1px 4px var(--shadow-soft); color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); white-space:nowrap; pointer-events:none;}
 /* ===================== END SEGMENT TABS / DRAG GHOSTS ===================== */
 
 /* ===================== PER-CARD INFO BAR (viewer) ===================== */
@@ -160,40 +209,41 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    own in-flow height -- #viewerContent's padding-top leaves room above
    the top row. Holds the used/free count, A-Ö/Ta bort, and the layout/
    color/etc selectors (see buildPageInfoBar). */
-.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; margin-bottom:6px; background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:4px; padding:4px 6px; font-size:11px; box-shadow:0 1px 4px rgba(0,0,0,.25); z-index:2;}
+.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; z-index:2; margin-bottom:6px; padding:4px 6px; background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:4px; box-shadow:0 1px 4px rgba(0,0,0,.25); font-size:11px;}
 .pageInfoBar .pageInfoHeader{display:flex; align-items:center; gap:6px; margin-bottom:4px;}
-.pageInfoBar .pageInfoHeader span{font-size:11px; font-weight:bold; flex:1 1 auto;}
+.pageInfoBar .pageInfoHeader span{flex:1 1 auto; font-size:11px; font-weight:bold;}
 .pageInfoBar .pageInfoHeader span.full{color:#a00;}
 .pageInfoBar .pageInfoHeader button,
-.pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{font-size:10px; background:var(--panel); border:1px solid var(--border); border-radius:3px; cursor:pointer;}
+.pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{background:var(--panel); border:1px solid var(--border); border-radius:3px; font-size:10px; cursor:pointer;}
 .pageInfoBar .pageInfoHeader button{flex:0 0 auto; padding:1px 5px;}
 /* red only on hover -- permanently red next to the neutral A-Ö button
    read as too alarming. */
-.pageInfoBar .pageInfoHeader button.removeBtn:hover{color:var(--danger); border-color:var(--danger);}
-.pageInfoBar .pageControls{display:flex; flex-wrap:wrap; gap:4px; align-items:center;}
+.pageInfoBar .pageInfoHeader button.removeBtn:hover{border-color:var(--danger); color:var(--danger);}
+.pageInfoBar .pageControls{display:flex; flex-wrap:wrap; align-items:center; gap:4px;}
 .pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{padding:2px 3px;}
 .pageInfoBar .pageControls > select{width:76px;}
-.pageInfoBar .pageControls label.tool{display:flex; align-items:center; gap:3px; font-size:10px; cursor:pointer; white-space:nowrap;}
+.pageInfoBar .pageControls label.tool{display:flex; align-items:center; gap:3px; font-size:10px; white-space:nowrap; cursor:pointer;}
 .pageInfoBar .pageControls input[type="file"]{width:100%;}
 /* stands in for a native <select> for the header color picker -- a plain
    <option> can't carry a color swatch next to its label (see
    buildSwatchSelect). */
 .pageInfoBar .swatchSelect{position:relative; min-width:0;}
-.pageInfoBar .swatchSelect .swatchBtn{display:flex; align-items:center; gap:5px; width:76px; min-width:0; font-size:10px; padding:2px 5px; border-radius:3px; border:1px solid var(--border); background:var(--panel); cursor:pointer;}
-.pageInfoBar .swatchSelect .swatchBox{width:11px; height:11px; border-radius:2px; border:1px solid rgba(0,0,0,.3); flex:none;}
+.pageInfoBar .swatchSelect .swatchBtn{display:flex; align-items:center; gap:5px; width:76px; min-width:0; padding:2px 5px; background:var(--panel); border:1px solid var(--border); border-radius:3px; font-size:10px; cursor:pointer;}
+.pageInfoBar .swatchSelect .swatchBox{flex:none; width:11px; height:11px; border:1px solid rgba(0,0,0,.3); border-radius:2px;}
 /* a plain color grid, not labeled rows -- each cell IS the color, name
    only on hover. */
-.pageInfoBar .swatchSelect .swatchList{position:absolute; top:100%; left:0; z-index:20; margin-top:2px; background:var(--panel); border:1px solid var(--border-dark); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.3); padding:6px; display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; max-height:220px; overflow-y:auto;}
+.pageInfoBar .swatchSelect .swatchList{position:absolute; top:100%; left:0; z-index:20; display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; max-height:220px; margin-top:2px; padding:6px; background:var(--panel); border:1px solid var(--border-dark); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.3); overflow-y:auto;}
 .pageInfoBar .swatchSelect .swatchList[hidden]{display:none;}
 /* flipped by positionSwatchList once the popup's real size would run
    past the viewport edge. */
 .pageInfoBar .swatchSelect .swatchList.alignRight{left:auto; right:0;}
 .pageInfoBar .swatchSelect .swatchList.openUp{top:auto; bottom:100%; margin-top:0; margin-bottom:2px;}
-.pageInfoBar .swatchSelect .swatchItem{width:28px; height:28px; border-radius:3px; cursor:pointer; border:2px solid #fff; outline:1px solid rgba(0,0,0,.2);}
+.pageInfoBar .swatchSelect .swatchItem{width:28px; height:28px; border:2px solid #fff; border-radius:3px; outline:1px solid rgba(0,0,0,.2); cursor:pointer;}
 .pageInfoBar .swatchSelect .swatchItem:hover, .pageInfoBar .swatchSelect .swatchItem.active{border-color:var(--blue);}
 /* ===================== END PER-CARD INFO BAR ===================== */
 
-#dropOverlay{position:fixed; inset:0; background:rgba(20,20,20,.75); color:#fff; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:bold; z-index:1000; pointer-events:none;}
+/* ===================== OVERLAYS / PRINT ===================== */
+#dropOverlay{position:fixed; inset:0; z-index:1000; display:flex; justify-content:center; align-items:center; background:rgba(20,20,20,.75); color:#fff; font-size:28px; font-weight:bold; pointer-events:none;}
 #dropOverlay[hidden]{display:none;}
 
 #printArea{display:none;}
@@ -205,50 +255,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
      blank page too. */
   #printArea canvas:not(:last-child){page-break-after:always;}
 }
-
-/* ===================== GROUP PANEL (department grouping helper) ===================== */
-/* two stacked boxes floating on the page background, no panel chrome of
-   its own -- #groupPanelControls never scrolls/rebuilds, #groupPanelBody
-   does (see renderGroupPanel). */
-#groupPanel{flex:0 0 260px; color:var(--text); display:flex; flex-direction:column; gap:12px; padding:14px; overflow:hidden;}
-#groupPanelControls, #groupPanelBody{background:var(--panel); border:1px solid var(--border); border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,.28);}
-#groupPanelControls{flex:0 0 auto; padding:10px; display:flex; flex-direction:column; gap:8px;}
-/* drop zones + buttons share one grid so the row reads as one cluster. */
-#groupPanelControls .panelControlsGrid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
-#groupPanelControls .panelControlsGrid > *{font-size:12px; padding:8px 6px; text-align:center; border-radius:5px; min-width:0;}
-#groupPanelControls button{border:1px solid var(--border-dark); background:var(--panel); cursor:pointer;}
-#groupPanelControls button:hover{background:var(--hover-bg);}
-#newPageZone{border:1px solid var(--border-dark); color:var(--muted-dark); transition:background-color .1s, border-color .1s, color .1s;}
-#newPageZone.dragOver{background:var(--blue-bg); border-color:var(--blue); color:var(--blue-text);}
-#cardRemoveZone{border:1px solid var(--danger); color:var(--danger); transition:background-color .1s, border-color .1s;}
-#cardRemoveZone.dragOver{background:#fde4e4;}
-#groupPanelBody{flex:1 1 auto; overflow-y:auto; padding:10px; font-size:12px;}
-#groupPanel h2{font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted-dark); margin:0 0 8px;}
-#groupPanel .groupGrid{display:flex; flex-direction:column; gap:4px; margin-bottom:10px;}
-/* groupTile and contactChip are both .pill -- same size, same shape. A
-   "placed" one's background/border color comes inline from JS (see
-   renderGroupPanel/buildContactList), a light tint of its own group's
-   color, so "placed" always reads in whatever color it landed on. */
-#groupPanel .groupTile, #groupPanel .contactChip{background:var(--panel); border:1px solid var(--border-light); cursor:grab;}
-#groupPanel .groupTile:active, #groupPanel .contactChip:active{cursor:grabbing;}
-#groupPanel .contactChip{justify-content:space-between; gap:4px;}
-#groupPanel .groupTileNameRow{display:flex; align-items:center; gap:3px; flex:1; min-width:0;}
-#groupPanel .groupTileName{font-weight:bold; flex:1;}
-#groupPanel .groupTileCount{color:var(--muted); flex:none; white-space:nowrap; font-size:10px;}
-#groupPanel .groupTileToggle{cursor:pointer; color:var(--border-dark); font-size:9px; flex:none; user-select:none; padding:0 1px;}
-#groupPanel .groupTileToggle:hover{color:var(--text-soft);}
-#groupPanel .contactList{display:flex; flex-direction:column; gap:3px; padding:2px 0 4px 6px; margin-top:-2px; border-left:2px solid var(--hover-bg);}
-#groupPanel .contactChipPage{font-size:9.5px; flex:none;}
-#groupPanel .emptyNote{color:var(--muted); font-style:italic;}
-/* dashed = reusable template (a multi-use source's tile/chip, or "Tom
-   rad"), cloned fresh on every drag instead of moved out of the pool. */
-#groupPanel .groupTile.reusable, #groupPanel .contactChip.reusable{border-style:dashed; border-color:var(--border-dark);}
-#groupPanel .sourceSection{margin-bottom:14px;}
-#groupPanel .sourceHeader{display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:5px; padding-bottom:3px; border-bottom:1px solid var(--border-light);}
-#groupPanel .sourceName{font-weight:bold; font-size:11px; flex:1;}
-#groupPanel .sourceMultiUse{display:flex; align-items:center; gap:3px; font-size:10px; color:var(--muted-dark); flex:none; cursor:pointer; user-select:none;}
-#groupPanel .sourceMultiUse input{margin:0;}
-/* ===================== END GROUP PANEL ===================== */
+/* ===================== END OVERLAYS / PRINT ===================== */
 
 </style>
 <style id="pageSizeStyle"></style>
