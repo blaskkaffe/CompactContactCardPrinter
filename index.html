@@ -63,6 +63,12 @@
      each edge, so nothing ever sits closer to the window than anything
      else does. */
   --edge-gap: 14px;
+  /* #groupPanel's own outer width, now that it floats over the viewer
+     instead of sharing #mainRow's width with it -- must match
+     PANEL_WIDTH_PX in the JS, which uses it to know where the panel's own
+     footprint ends (for the horizontal scroll's resting position and the
+     "behind the panel" inactive check on portal buttons). */
+  --panel-width: 260px;
 }
 html,body{height:100%;}
 body{display:flex; flex-direction:column; margin:0; background:var(--bg); color:var(--text); font:14px/1.4 Arial, sans-serif;}
@@ -114,29 +120,42 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
    scroll, capped width, so a long roster can't squeeze the rest of the
    toolbar off screen. */
 #portalPanel{display:flex; flex-direction:row; align-items:center; gap:6px; max-width:40vw; padding:2px 0; overflow-x:auto; overflow-y:hidden;}
-#portalPanel .portalBtn{flex:0 0 auto; justify-content:center; background:var(--panel); border:1px solid var(--border-dark); color:var(--text-soft); font-weight:bold; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
+#portalPanel .portalBtn{flex:0 0 auto; justify-content:center; background:var(--panel); border:1px solid var(--border-dark); color:var(--text-soft); font-weight:bold; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s, opacity .1s;}
 #portalPanel .portalBtn:hover{background:var(--hover-bg);}
-/* the page(s) on screen -- falls back to a flat blue tint only for a
-   page with no contacts to take a color from (see colorForPage);
+/* the one page currently snapped to its resting position in the viewer
+   (see updateScrollDerivedState) -- falls back to a flat blue tint only
+   for a page with no contacts to take a color from (see colorForPage);
    otherwise tintElement fills in that page's own department color
    (background+border), the same light-tint-plus-border look a placed
    contact chip or group tile uses. */
 #portalPanel .portalBtn.current{background:var(--blue-bg); border-color:var(--blue);}
 #portalPanel .portalBtn.dragOver{background:var(--blue-bg); border-color:var(--blue); box-shadow:0 2px 6px var(--blue-glow); color:var(--blue-text); transform:scale(1.2);}
+/* that page's own card is currently scrolled behind #groupPanel (see
+   updateScrollDerivedState) -- pointer-events:none so it's genuinely
+   unreachable (no click-to-jump, no drag-to-drop) rather than just
+   dimmed, since there's nothing visible to jump to or drop onto right
+   now; scrolling it back out from behind the panel (wheel/trackpad/drag
+   the scrollbar) is what brings it back. */
+#portalPanel .portalBtn.inactive{opacity:.35; pointer-events:none;}
 /* ===================== END TOOLBAR ===================== */
 
 /* ===================== GROUP PANEL (department grouping helper) ===================== */
-/* the left sidebar, first child of #mainRow -- two stacked boxes
-   floating on the page background; #groupPanel itself has no panel
-   chrome of its own (that's on the two boxes below), just room around
-   them. #groupPanelControls never scrolls/rebuilds, #groupPanelBody does
-   (see renderGroupPanel). Uniform --edge-gap padding on all four sides --
-   left/top double as the window-edge gap, but the right side does a
-   second job too: it's also the ONLY gap between these boxes and the
-   first card's own edge-handle tabs, since #viewerContent deliberately
-   carries no padding-left of its own (see #viewerContent) to avoid
-   stacking a second --edge-gap on top of this one. */
-#groupPanel{display:flex; flex-direction:column; gap:12px; flex:0 0 260px; padding:var(--edge-gap); color:var(--text); overflow:hidden;}
+/* floats over #mainRow (which is position:relative for exactly this)
+   instead of sharing its width with the viewer -- the card row behind it
+   spans the full window and scrolls underneath, same as it scrolls
+   underneath the toolbar above. Two stacked boxes floating on the page
+   background; #groupPanel itself has no panel chrome of its own (that's
+   on the two boxes below), just room around them and a background to
+   actually cover the cards passing under it. #groupPanelControls never
+   scrolls/rebuilds, #groupPanelBody does (see renderGroupPanel). Uniform
+   --edge-gap padding on all four sides -- left/top double as the
+   window-edge gap, but the right side does a second job too: it's also
+   the ONLY gap between these boxes and the first card's own edge-handle
+   tabs at rest, since #viewerContent's own scroll padding is sized to
+   this element's full outer width (see --panel-width), not to the
+   visible boxes inside it, so there's no second --edge-gap stacked on
+   top of this one. */
+#groupPanel{position:absolute; top:0; left:0; bottom:0; width:var(--panel-width); z-index:10; display:flex; flex-direction:column; gap:12px; padding:var(--edge-gap); color:var(--text); background:var(--bg); overflow-y:auto; overflow-x:hidden;}
 #groupPanelControls, #groupPanelBody{background:var(--panel); border:1px solid var(--border); border-radius:var(--panel-radius); box-shadow:var(--shadow-panel);}
 #groupPanelControls{display:flex; flex-direction:column; gap:8px; flex:0 0 auto; padding:10px;}
 /* drop zones + buttons share one grid so the row reads as one cluster.
@@ -180,25 +199,45 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
 /* ===================== END GROUP PANEL ===================== */
 
 /* ===================== MAIN VIEWER ===================== */
-/* the right side of #mainRow, next to #groupPanel. */
-#mainRow{display:flex; flex:1 1 auto; overflow:hidden;}
+/* position:relative purely so #groupPanel (position:absolute) has this
+   as its positioning context instead of the whole page -- #viewerWrap is
+   #mainRow's only actual (in-flow) child now that the panel floats. */
+#mainRow{position:relative; display:flex; flex:1 1 auto; overflow:hidden;}
 
-/* how many card sides show at once (1/2/4) is purely a function of
-   viewport width -- see sidesPerView. */
+/* every card fills #viewerWrap's own height top to bottom (see
+   fitVisibleCards) -- width just follows from that at the card's own
+   fixed aspect ratio, so however many fit at that size sit in one
+   horizontally-scrolling strip instead of being shrunk to force a
+   particular count on screen at once. */
 main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--bg); overflow:hidden;}
-/* padding-top clears each card's own .pageInfoBar tab attached above it --
-   must match PAGE_INFO_BAR_CLEARANCE_PX in the JS (itself built from
-   --edge-gap, via WINDOW_EDGE_GAP_PX, plus the tallest a bar gets).
-   right/bottom reuse --edge-gap directly, the same distance #groupPanel
-   keeps from the window on its own top, so a card never sits closer to
-   the window's right/bottom edge than the panel sits from the window's
-   own edge. No padding-left, though: #groupPanel already keeps --edge-gap
-   between its own visible boxes and ITS right edge (part of its own
-   uniform padding, see #groupPanel), and that edge sits flush against
-   this element's own left edge (#mainRow, no gap of its own) -- adding
-   another --edge-gap of padding here too would double the gap on that
-   one side instead of matching the other three. */
-#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:170px var(--edge-gap) var(--edge-gap) 0;}
+/* the horizontal scroller itself -- one flex row, one child per page (see
+   .cardUnit), no wrapping. padding-top clears each card's own
+   .pageInfoBar tab attached above it -- must match
+   PAGE_INFO_BAR_CLEARANCE_PX in the JS (itself built from --edge-gap, via
+   WINDOW_EDGE_GAP_PX, plus the tallest a bar gets). padding-right/bottom
+   reuse --edge-gap directly, same as #groupPanel's own top/left padding,
+   so a card never sits closer to the window's right/bottom edge than the
+   panel sits from the window's own edge. padding-left is --panel-width,
+   not --edge-gap -- #groupPanel now floats OVER this element (see
+   #groupPanel) rather than sharing its width, so the same space it used
+   to occupy in #mainRow's flex layout has to be reserved here instead,
+   as room the first card rests clear of. scroll-padding-left matches
+   that same padding, so scroll-snap (.cardUnit) always settles a card's
+   left edge there, not flush against the scroller's own raw edge -- the
+   space earlier cards scroll into as later ones take that resting spot
+   is exactly the space now hidden under the floating panel, which is the
+   "scrolls smoothly but snaps into place, going under the menu" this was
+   built for (see updateScrollDerivedState, which drives each such
+   card's own portal .inactive state in #portalPanel). */
+#viewerContent{position:absolute; inset:0; display:flex; align-items:center; gap:24px; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; scroll-behavior:smooth; scroll-padding-left:var(--panel-width); scrollbar-width:thin; padding:170px var(--edge-gap) var(--edge-gap) var(--panel-width);}
+/* a native scrollbar at full OS thickness reads as out of place on a
+   snap-scrolling card strip -- thinned down (still fully usable, just
+   unobtrusive) rather than hidden outright, so dragging it stays an
+   option alongside wheel/trackpad/snap navigation. scrollbar-width above
+   is the Firefox equivalent of these three. */
+#viewerContent::-webkit-scrollbar{height:8px;}
+#viewerContent::-webkit-scrollbar-track{background:transparent;}
+#viewerContent::-webkit-scrollbar-thumb{background:var(--border-dark); border-radius:4px;}
 
 #emptyViewerOverlay{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:40px; color:var(--border-dark); font-size:18px; text-align:center;}
 #emptyViewerOverlay[hidden]{display:none;}
@@ -213,18 +252,16 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
 /* ===================== END MAIN VIEWER ===================== */
 
 /* ===================== CARD LAYOUT ===================== */
-/* front+back pair (pages print in pairs, see partnerPageIndex); the
-   narrowest tier drops the back .page but keeps this wrapper for its
-   edge-handle strip. The 12px gap between front and back sits on the
-   back's own strip (only place fitVisibleCards needs to read it from). */
-.pagePair{display:flex; justify-content:center;}
-.pagePair .page + .cardEdgeHandles{margin-left:12px;}
-/* however many pairs sidesPerView shows at once, sized by fitVisibleCards
-   to fit one line exactly. nowrap, not wrap: the math can land a hair off
-   its exact budget (subpixel rounding, device pixel ratio, browser zoom),
-   and wrap turned that into a full 2x2 break instead of an invisible
-   sub-pixel overflow that #viewerWrap's own overflow:hidden just clips. */
-.pagesRow{display:flex; flex-wrap:nowrap; justify-content:center; align-items:flex-start; gap:24px;}
+/* one page's edge-handle strip plus its own card, side by side, flush
+   against each other (no gap of its own -- the strip's capsules already
+   sit flush against the card, see .cardEdgeHandles) -- the uniform gap
+   between one card and the next lives on #viewerContent itself (its
+   own flex `gap`), not here, so every card sits the same distance from
+   its neighbor regardless of which page or printed sheet it belongs to.
+   flex:0 0 auto keeps it from shrinking/growing in the scroll row;
+   scroll-snap-align:start is what makes #viewerContent's scroll-padding
+   actually mean something -- see #viewerContent's own comment. */
+.cardUnit{flex:0 0 auto; display:flex; scroll-snap-align:start;}
 
 /* same floating-surface shadow as the group panel boxes -- see
    --shadow-panel. Its attached .pageInfoBar tab has no shadow of its
@@ -545,7 +582,7 @@ function ptToPx(pt, dpi){ return pt * dpi / 72; }
 /* ================= app state ================= */
 var state = {
   paperSize: "A4",
-  currentPage: 0,              /* 0-indexed; the first of however many card sides are on screen (see sidesPerView) */
+  currentPage: 0,              /* 0-indexed; whichever page is currently snapped to its resting position in the viewer (see updateScrollDerivedState) */
   contacts: [],
   sources: [],   /* [{id, name, multiUse}] -- one entry per imported file, in import order; every contact in `contacts` carries the sourceId of whichever import it came from, so same-named departments from two different files are never treated as one group (see groupContactsBySourceAndDepartment) */
   nextContactId: 1,
@@ -2005,7 +2042,7 @@ function buildPageControls(index){
    N" -- state.pages' own index, 1-based -- with no separate sheet/side
    pairing in the label; two sides sharing a printed sheet (see
    partnerPageIndex) is purely a print-time arrangement, not something
-   the numbering needs to expose (see sidesPerView, buildPagePairEl). */
+   the numbering needs to expose (see buildCardUnitEl). */
 function buildPageInfoBar(index){
   var bar = el("div", { class:"pageInfoBar" });
   var barColor = colorForPage(index);
@@ -2037,10 +2074,12 @@ function buildPageInfoBar(index){
   return bar;
 }
 
-/* one card's worth of preview -- the on-screen unit shown regardless of
-   how many are on screen at once (see sidesPerView). Pages are printed in
-   front/back pairs (see partnerPageIndex): "Sida" is 1 (front, even
-   index) or 2 (back, odd index) within its sheet. */
+/* one card's worth of preview -- printing still pairs pages front/back
+   (see partnerPageIndex, pageGeometryForIndex) as the physical unit that
+   ends up on one printed sheet, but that's purely a print-time
+   arrangement now with no visual echo in the viewer: every page is its
+   own independent, identically-spaced unit in the scroll strip (see
+   buildCardUnitEl), "Sida N" numbered by its own absolute index. */
 function buildPageEl(index){
   var page = el("div", { class:"page", "data-index":String(index) });
   page.appendChild(buildPageInfoBar(index));
@@ -2063,30 +2102,15 @@ function buildPageEl(index){
   return page;
 }
 
-/* one printed sheet's worth of preview: front + back side by side, since
-   that's the actual physical unit -- pages are always printed in pairs
-   (see partnerPageIndex). frontIndex is always even. Every card gets its
-   own strip immediately to its own left, front and back alike (see
-   .cardEdgeHandles), instead of the old outer/inner split -- so this is
-   just the same two steps repeated once per card. */
-function buildPagePairEl(frontIndex){
-  var backIndex = partnerPageIndex(frontIndex);
-  var pair = el("div", { class:"pagePair", "data-index":String(frontIndex) });
-  [frontIndex, backIndex].forEach(function(idx){
-    pair.appendChild(buildCardEdgeHandles(idx));
-    pair.appendChild(buildPageEl(idx));
-  });
-  return pair;
-}
-/* the narrowest tier (sidesPerView===1) shows only one physical side, not
-   its printed partner -- same wrapper/edge-handle strip as a full pair,
-   just missing the second .page, so buildPageEl/fitVisibleCards still
-   work on it unchanged. */
-function buildLonePageEl(index){
-  var pair = el("div", { class:"pagePair", "data-index":String(index) });
-  pair.appendChild(buildCardEdgeHandles(index));
-  pair.appendChild(buildPageEl(index));
-  return pair;
+/* one page's own edge-handle strip plus its own card -- the single
+   repeating unit of the horizontally-scrolling strip (see .cardUnit),
+   one per page, every one the same regardless of which printed sheet
+   (see partnerPageIndex) it happens to share. */
+function buildCardUnitEl(index){
+  var unit = el("div", { class:"cardUnit", "data-index":String(index) });
+  unit.appendChild(buildCardEdgeHandles(index));
+  unit.appendChild(buildPageEl(index));
+  return unit;
 }
 
 /* which row (0-indexed, capacity-based -- one v10 contact block counts as
@@ -2533,25 +2557,18 @@ function currentPageDims(index){
   return pageGeometryForIndex(index).pageDims;
 }
 
-/* how many individual card SIDES (not pairs) show on screen at once,
-   purely a function of the viewer's own width -- no separate view-mode
-   toggle to keep in sync with it. Two full pairs (4 sides) on a large
-   window, one pair (2 sides) on a medium one, and just one lone side on
-   a narrow one: simple width tiers rather than anything more elaborate. */
-var SIDES_LARGE_MIN_PX = 1200;
-var SIDES_MEDIUM_MIN_PX = 640;
-function sidesPerView(){
-  var w = $("#viewerContent").clientWidth;
-  if(w >= SIDES_LARGE_MIN_PX) return 4;
-  if(w >= SIDES_MEDIUM_MIN_PX) return 2;
-  return 1;
-}
+/* #groupPanel's own outer width -- must match --panel-width in the CSS.
+   Used below (updateScrollDerivedState) to know where the floating
+   panel's own footprint ends, both to size #viewerContent's resting
+   scroll position and to decide which cards currently sit behind it. */
+var PANEL_WIDTH_PX = 260;
 
 /* the one distance every floating thing keeps from the window's own edge
    -- must match --edge-gap in the CSS. Reused below both as the viewer's
-   own left/right/bottom padding (matching #groupPanel's own edge padding
-   in the CSS) and as the gap PAGE_INFO_BAR_CLEARANCE_PX reserves above
-   the tallest a per-card info bar gets, so nothing built from this
+   own right/bottom padding (matching #groupPanel's own top padding in
+   the CSS -- its own left uses PANEL_WIDTH_PX instead, see
+   #viewerContent) and as the gap PAGE_INFO_BAR_CLEARANCE_PX reserves
+   above the tallest a per-card info bar gets, so nothing built from this
    constant ever sits closer to a window edge than anything else built
    from it. */
 var WINDOW_EDGE_GAP_PX = 14;
@@ -2583,49 +2600,22 @@ var WINDOW_EDGE_GAP_PX = 14;
    the much more common, shorter v20-style bar (~81px). */
 var PAGE_INFO_BAR_CLEARANCE_PX = 156 + WINDOW_EDGE_GAP_PX;
 
-/* sizes every currently-rendered .page to fit them all on screen at once,
-   side by side, on whichever axis (combined width or height) is tighter
-   -- every card shares one physical size (CARD_W_MM/CARD_H_MM are
-   global), so a single scale computed from the total width covers all of
-   them. Reads the fixed (non-card) width straight from the DOM instead of
-   assuming it -- every edge-handles strip's actual rendered width, the
-   12px gap between a pair's own front/back, and the 24px gap between
-   separate pairs (both from the CSS) -- so it works the same whether
-   renderViewer just built a lone side or several full pairs, and never
-   under-counts the strips (which used to leave rows a bit too wide for
-   their own budget, forcing an unwanted wrap into a second row that then
-   overflowed the viewer's own height). */
+/* sizes every currently-rendered .page to fill #viewerContent's own
+   height top to bottom -- every card shares one physical size
+   (CARD_W_MM/CARD_H_MM are global, and every current layout shares one
+   orientation, see cardDimsForOrientation), so one scale computed from
+   the available height covers all of them; width just follows from that
+   at the card's own fixed aspect ratio. However wide the resulting row
+   actually is no longer matters here -- #viewerContent scrolls
+   horizontally instead of shrinking cards to force a particular count
+   on screen at once (see .cardUnit, #viewerContent). */
 function fitVisibleCards(){
   var wrap = $("#viewerContent");
   var pages = wrap.querySelectorAll(".page");
-  var pairs = wrap.querySelectorAll(".pagePair");
   if(!pages.length) return;
   var dims = pageGeometryForIndex(state.currentPage).cardDims;
-  var stripEl = wrap.querySelector(".cardEdgeHandles");
-  var stripW = stripEl ? stripEl.getBoundingClientRect().width : 0;
-  var stripCount = 0, pageGapCount = 0;
-  pairs.forEach(function(pp){
-    stripCount += pp.querySelectorAll(".cardEdgeHandles").length;
-    pageGapCount += Math.max(0, pp.querySelectorAll(".page").length - 1);
-  });
-  var rowGaps = Math.max(0, pairs.length - 1) * 24;
-  var fixedW = stripCount*stripW + pageGapCount*12 + rowGaps;
-  /* the 1px below is deliberate slack, not part of the real budget --
-     this math is otherwise exact (solves cw so the row's own width comes
-     out to precisely availW), but "exact" sitting right on the boundary
-     leaves zero room for subpixel layout rounding (fractional device
-     pixel ratios, browser zoom) to tip the actual rendered row a hair
-     over its budget. A pixel of slack costs nothing visible and keeps
-     the row reliably a hair under its budget instead of exactly on it.
-     Only one WINDOW_EDGE_GAP_PX subtracted, not two: the right side needs
-     its own (there's nothing else reserving room against the window's
-     right edge), but the left side's gap already comes from #groupPanel's
-     own right-edge padding, outside wrap.clientWidth entirely -- see
-     #viewerContent's own comment on why it carries no padding-left. */
-  var availW = wrap.clientWidth - WINDOW_EDGE_GAP_PX - 1;
-  var cw = (availW - fixedW) / pages.length;
   var ch = wrap.clientHeight - PAGE_INFO_BAR_CLEARANCE_PX - WINDOW_EDGE_GAP_PX;
-  var scale = Math.min(cw/dims.w, ch/dims.h);
+  var scale = ch / dims.h;
   var w = dims.w*scale, h = dims.h*scale;
   pages.forEach(function(p){ p.style.width = w+"px"; p.style.height = h+"px"; });
 }
@@ -2650,12 +2640,6 @@ function fitSegmentCapsuleLabels(){
   });
 }
 
-/* however many card sides renderViewer actually put on screen last time
-   -- lets renderPortalPanel mark every currently-visible page's button
-   .current (a single one, or a range) without recomputing sidesPerView
-   itself. */
-var lastVisibleCount = 0;
-
 function renderViewer(){
   var wrap = $("#viewerContent");
   wrap.innerHTML = "";
@@ -2669,7 +2653,6 @@ function renderViewer(){
       ? "Dra en avdelningsgrupp eller kontakt från panelen till vänster för att skapa en sida"
       : "Släpp en CSV- eller XLSX-fil för att börja";
     overlay.hidden = false;
-    lastVisibleCount = 0;
     renderGroupPanel();
     renderPortalPanel();
     return;
@@ -2677,66 +2660,122 @@ function renderViewer(){
   overlay.hidden = true;
 
   var total = totalPagesCount();
-  var spv = sidesPerView();
+  if(state.currentPage > total-1) state.currentPage = total-1;
+  if(state.currentPage < 0) state.currentPage = 0;
 
-  if(spv === 1){
-    if(state.currentPage > total-1) state.currentPage = total-1;
-    if(state.currentPage < 0) state.currentPage = 0;
-    wrap.appendChild(buildLonePageEl(state.currentPage));
-    lastVisibleCount = 1;
-  } else {
-    /* currentPage always names the FRONT of the leading pair shown --
-       pages are always printed in pairs (see partnerPageIndex), so a
-       multi-side tier only ever shows/steps through whole pairs. */
-    if(state.currentPage % 2 !== 0) state.currentPage -= 1;
-    var pairsToShow = Math.min(spv/2, Math.ceil(total/2));
-    var maxFront = Math.max(0, total - pairsToShow*2);
-    if(state.currentPage > maxFront) state.currentPage = maxFront;
-    if(state.currentPage < 0) state.currentPage = 0;
-    var row = el("div", { class:"pagesRow" });
-    for(var i=0;i<pairsToShow;i++){
-      row.appendChild(buildPagePairEl(state.currentPage + i*2));
-    }
-    wrap.appendChild(row);
-    lastVisibleCount = pairsToShow*2;
+  for(var i=0;i<total;i++){
+    wrap.appendChild(buildCardUnitEl(i));
   }
   fitVisibleCards();
   fitSegmentCapsuleLabels();
   renderGroupPanel();
   renderPortalPanel();
+  /* wrap.innerHTML="" above reset scrollLeft to 0 -- jump (not animate)
+     back to wherever state.currentPage actually rests, so an unrelated
+     edit elsewhere (toggling a checkbox, say) never yanks the viewer
+     sideways with a visible scroll. jumpToPage's own smooth scroll is
+     for user-driven navigation only, see wirePortalButton/goPrev/goNext. */
+  jumpToPage(state.currentPage, false);
+  updateScrollDerivedState();
 }
 
-/* idx names the page to jump to -- the front of its pair in a multi-side
-   tier, or its own lone target in the single-side tier; renderViewer
-   re-aligns/clamps it for whichever tier is actually current. */
-function scrollToPage(idx){
+/* moves the viewer to a given page -- smooth+snapping by default (real
+   user-driven navigation: a portal click, wheel/goPrev/goNext), or an
+   instant jump when animating would be wrong (renderViewer restoring
+   scroll position after a DOM rebuild it didn't ask the user for). Does
+   its own clamping and DOM lookup rather than going through
+   scrollIntoView on some already-known element, since callers only ever
+   have a page INDEX, not a node. Computes the target scrollLeft by hand
+   (getBoundingClientRect deltas) -- the same "align this card's start
+   edge with the panel's own right edge" math scroll-padding-left is
+   meant to express, just explicit -- and hands it to
+   wrap.scrollTo({left, behavior}) so the exact same target works for
+   both the animated (smooth) and instant cases from one shared
+   calculation. Naturally short of a page near either end of the strip:
+   wrap.scrollLeft can never exceed scrollWidth-clientWidth, so a page
+   close to the last one can't always reach the same resting spot a
+   middle page can -- scrollTo clamps to whatever's actually left, same
+   as scrolling any overflowed element past its own end. */
+function jumpToPage(idx, smooth){
   var total = totalPagesCount();
-  state.currentPage = Math.max(0, Math.min(total-1, idx));
-  renderViewer();
+  idx = Math.max(0, Math.min(total-1, idx));
+  var wrap = $("#viewerContent");
+  var unit = wrap.querySelector('.cardUnit[data-index="' + idx + '"]');
+  if(unit){
+    var wrapRect = wrap.getBoundingClientRect();
+    var unitRect = unit.getBoundingClientRect();
+    var target = wrap.scrollLeft + (unitRect.left - wrapRect.left) - PANEL_WIDTH_PX;
+    wrap.scrollTo({ left:target, behavior: smooth ? "smooth" : "auto" });
+  }
+  state.currentPage = idx;
 }
-function goPrev(){ scrollToPage(state.currentPage - sidesPerView()); }
-function goNext(){ scrollToPage(state.currentPage + sidesPerView()); }
+function scrollToPage(idx){ jumpToPage(idx, true); }
+function goPrev(){ scrollToPage(state.currentPage - 1); }
+function goNext(){ scrollToPage(state.currentPage + 1); }
+
+/* keeps #portalPanel in sync with the viewer's own live scroll position
+   -- which page currently rests in the "current" snap position, and
+   which pages currently sit behind #groupPanel (see .portalBtn.inactive)
+   -- without waiting for the next full renderPortalPanel rebuild. Runs
+   on every #viewerContent scroll (rAF-throttled, see onViewerScroll below,
+   wired in initEvents) plus once right after renderViewer settles. */
+function updateScrollDerivedState(){
+  var wrap = $("#viewerContent");
+  var units = wrap.querySelectorAll(".cardUnit");
+  if(!units.length) return;
+  var wrapRect = wrap.getBoundingClientRect();
+  var panelRight = wrapRect.left + PANEL_WIDTH_PX;
+  var anchorX = panelRight;
+  var closestIdx = 0, closestDist = Infinity;
+  units.forEach(function(unit){
+    var idx = parseInt(unit.dataset.index, 10);
+    var r = unit.getBoundingClientRect();
+    var portal = document.querySelector('.portalBtn[data-index="' + idx + '"]');
+    if(portal) portal.classList.toggle("inactive", r.left < panelRight - 1);
+    var dist = Math.abs(r.left - anchorX);
+    if(dist < closestDist){ closestDist = dist; closestIdx = idx; }
+  });
+  state.currentPage = closestIdx;
+  document.querySelectorAll(".portalBtn").forEach(function(b){
+    var isCurrent = parseInt(b.dataset.index, 10) === closestIdx;
+    b.classList.toggle("current", isCurrent);
+    if(isCurrent){
+      var color = colorForPage(closestIdx);
+      if(color) tintElement(b, color); else { b.style.background = ""; b.style.borderColor = ""; }
+    } else {
+      b.style.background = "";
+      b.style.borderColor = "";
+    }
+  });
+}
+
+/* #viewerContent's own scroll fires continuously through a drag/wheel/
+   momentum scroll -- rAF-batched so updateScrollDerivedState's DOM reads
+   (getBoundingClientRect on every card) run at most once per frame
+   instead of once per scroll event. */
+var scrollUpdateQueued = false;
+function onViewerScroll(){
+  if(scrollUpdateQueued) return;
+  scrollUpdateQueued = true;
+  requestAnimationFrame(function(){ scrollUpdateQueued = false; updateScrollDerivedState(); });
+}
 
 /* one round button per page ("Sida N") in #portalPanel -- lets a drag
-   reach a card that isn't on screen right now without the scroll wheel,
+   reach a card that isn't currently in view without the scroll wheel,
    which Firefox on Windows never delivers while a native drag is held
    (an OS-level limitation of that drag loop, not something a page can
    work around by listening harder). Held over during a drag, a portal
-   jumps the viewer straight to its page while the drag stays active --
-   a native drag session isn't tied to any particular DOM node staying
-   put, so rebuilding the whole viewer under it (renderViewer, same as
-   any other page turn) doesn't interrupt it; dragover just keeps firing
-   on whatever's now under the cursor once the target page is on screen,
-   ready to drop onto. Also a plain click-to-jump button even with
-   nothing being dragged.
+   scroll-snaps the viewer straight to its page while the drag stays
+   active -- dragover just keeps firing on whatever's now under the
+   cursor once the target page has scrolled into place, ready to drop
+   onto. Also a plain click-to-jump button even with nothing being
+   dragged. A page currently scrolled behind #groupPanel has its own
+   portal go inactive instead (pointer-events:none in the CSS) -- there's
+   nothing visible to jump to or drop onto while it's hidden there, see
+   updateScrollDerivedState.
    One button per page, not per printed sheet -- two sides sharing a
    sheet (see partnerPageIndex) is purely a print-time arrangement, not
-   something the portals need to know about, and addressing pages
-   directly is what actually fixes a portal being unreachable in the
-   narrowest tier: sidesPerView()===1 shows exactly one page, front or
-   back, and jumping straight to that exact index works there same as
-   anywhere else, unlike the old always-jump-to-the-front-of-a-pair
-   version. */
+   something the portals need to know about. */
 /* the color a page's own portal button (while current) and its own
    .pageInfoBar both use -- its first real contact's department color,
    same palette entry that contact uses everywhere else (its group
@@ -2757,13 +2796,12 @@ function renderPortalPanel(){
   panel.innerHTML = "";
   if(!state.pages.length) return;
   var total = totalPagesCount();
-  var visibleStart = state.currentPage;
-  var visibleEnd = state.currentPage + Math.max(0, lastVisibleCount-1);
   for(var i=0;i<total;i++){
-    var isCurrent = i>=visibleStart && i<=visibleEnd;
+    var isCurrent = i === state.currentPage;
     var btn = el("div", {
       class:"pill portalBtn" + (isCurrent ? " current" : ""),
       text:String(i+1),
+      "data-index":String(i),
       title:"Hoppa till Sida " + (i+1)
     });
     if(isCurrent){
@@ -2780,9 +2818,7 @@ function wirePortalButton(btn, pageIndex){
     if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
     e.preventDefault();
     btn.classList.add("dragOver");
-    var visibleStart = state.currentPage;
-    var visibleEnd = state.currentPage + Math.max(0, lastVisibleCount-1);
-    if(pageIndex < visibleStart || pageIndex > visibleEnd) scrollToPage(pageIndex);
+    if(pageIndex !== state.currentPage) scrollToPage(pageIndex);
   });
   btn.addEventListener("dragleave", function(){ btn.classList.remove("dragOver"); });
   /* not a real drop target -- dropping here just leaves whatever was
@@ -2791,14 +2827,17 @@ function wirePortalButton(btn, pageIndex){
   btn.addEventListener("drop", function(e){ e.preventDefault(); btn.classList.remove("dragOver"); });
 }
 
-var wheelCooldown = false;
+/* translates vertical wheel input into horizontal scroll -- a plain
+   mouse wheel only ever reports deltaY, and #viewerContent's overflow is
+   horizontal-only, so without this a wheel gesture would do nothing (a
+   trackpad's native two-finger horizontal swipe already reports deltaX
+   directly and needs no help). No cooldown/step-by-one logic needed
+   here anymore -- CSS scroll-snap-type (.cardUnit) settles the row into
+   place on its own once the gesture ends, same as a manual scrollbar
+   drag, so this just has to move scrollLeft, not decide where it stops. */
 function onWheel(e){
   e.preventDefault();
-  if(wheelCooldown) return;
-  if(e.deltaY > 15) { wheelCooldown = true; goNext(); }
-  else if(e.deltaY < -15) { wheelCooldown = true; goPrev(); }
-  else return;
-  setTimeout(function(){ wheelCooldown = false; }, 350);
+  $("#viewerContent").scrollLeft += e.deltaX + e.deltaY;
 }
 
 function populatePaperSizes(){
@@ -2848,16 +2887,22 @@ function initEvents(){
      render */
   document.addEventListener("click", closeOpenSwatchLists);
   $("#viewerWrap").addEventListener("wheel", onWheel, { passive:false });
-  /* a resize can cross a sidesPerView tier (needing a full rebuild, since
-     a different number of pairs/sides now fit) just as easily as it can
-     leave the tier alone and only change the pixel size of what's
-     already showing -- always going through renderViewer covers both
-     without needing to tell them apart. Debounced so a window dragged by
-     its edge doesn't rebuild on every intermediate frame. */
+  $("#viewerContent").addEventListener("scroll", onViewerScroll, { passive:true });
+  /* a resize only ever changes the pixel size of what's already showing
+     now (every page renders at once, see renderViewer) -- fitVisibleCards
+     alone covers that without rebuilding every card's own canvas from
+     scratch. jumpToPage re-settles the resized row on whatever page was
+     current, since a size change shifts what scrollLeft that page's own
+     resting position needs. Debounced so a window dragged by its edge
+     doesn't redo this on every intermediate frame. */
   var resizeTimer = null;
   window.addEventListener("resize", function(){
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(renderViewer, 80);
+    resizeTimer = setTimeout(function(){
+      fitVisibleCards();
+      jumpToPage(state.currentPage, false);
+      updateScrollDerivedState();
+    }, 80);
   });
   setupDropZone();
 }
