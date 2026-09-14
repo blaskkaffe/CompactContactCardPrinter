@@ -272,10 +272,7 @@ if (!bgAnimationPaused) {
 
         void main() {
             vec4 tex = texture2D(uTexture, vUv);
-            // The original never blows out to pure white here (its brightest
-            // sampled areas stay under ~0.92) - clamp highlights instead of
-            // dimming everything, so mid-tones keep their original punch.
-            gl_FragColor = vec4(min(tex.rgb, vec3(0.9)), tex.a * vOpacity);
+            gl_FragColor = vec4(tex.rgb, tex.a * vOpacity);
         }
     `;
 
