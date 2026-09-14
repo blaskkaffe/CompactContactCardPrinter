@@ -5,295 +5,196 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kompakt kontaktkortsskrivare</title>
 <style>
-*{box-sizing:border-box;}
-html,body{height:100%;}
-body{margin:0; font:14px/1.4 Arial, sans-serif; background:#e6e6e6; color:#111; display:flex; flex-direction:column;}
-
-header.toolbar{flex:0 0 auto; background:#1c1c1c; color:#fff; padding:8px 12px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
-header.toolbar h1{font-size:15px; margin:0 14px 0 0;}
-/* paper size + print, pinned to the top-right of the bar via .spacer below */
-header.toolbar select, header.toolbar button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
-header.toolbar button:hover{background:#eee;}
-#pageIndicator{font-size:16px; font-weight:bold; min-width:90px; text-align:center;}
-.spacer{flex:1 1 auto;}
-label.tool{display:flex; gap:4px; align-items:center; font-size:12px;}
-#dataStatus, #gridInfo{font-size:12px; color:#ccc;}
-
-/* holds the group panel and page viewer side by side (the config panel
-   floats independently -- see below -- so it never takes width from these) */
-#mainRow{flex:1 1 auto; display:flex; overflow:hidden;}
-
-/* viewerWrap itself never scrolls -- #viewerNav (prev/next/print) is a
-   permanent overlay pinned to the top-center of the viewer (centered over
-   the same area the cards are centered in, clear of the card itself
-   thanks to #viewerContent's padding-top below), and #viewerContent (the
-   actual content renderViewer() rebuilds) fills the rest, so the nav
-   always stays in place. How many card sides #viewerContent actually
-   shows at once (1, 2 or 4) is purely a function of the viewport's own
-   size -- see sidesPerView -- so there's no separate "view all" mode with
-   its own scrolling grid to keep in sync with this. */
-main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; background:#e6e6e6;}
-/* padding-top reserves clearance below #viewerNav for each card's own
-   .pageInfoBar strip (see below), which floats above the card -- without
-   it, a short viewport centers the card(s) high enough for that strip to
-   end up directly under #viewerNav, hidden behind its buttons.
-   padding-bottom gives the cards some breathing room of their own at the
-   bottom of the viewer (this is just layout padding around the preview --
-   it has nothing to do with the print grid's own margins, which stay
-   perfectly centered, see blockOriginMm) -- otherwise the top padding
-   alone leaves noticeably less room below than above. Must match
-   VIEWER_NAV_CLEARANCE_PX in the JS. */
-#viewerContent{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:150px 24px 32px;}
-
-#viewerNav{position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:10; display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.94); padding:6px 8px; border-radius:6px; box-shadow:0 1px 5px rgba(0,0,0,.3);}
-#viewerNav button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
-#viewerNav button:hover{background:#eee;}
-
-/* shown instead of any page content while there's nothing to display yet
-   (no pages exist) -- one message covering the whole viewer, not one
-   repeated on every card that would otherwise render */
-#emptyViewerOverlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:40px; font-size:18px; color:#999;}
-#emptyViewerOverlay[hidden]{display:none;}
-#emptyViewerOverlay.dragOver{background:#dff0ff; color:#0060c0;}
-
-/* the block of rows a drag would actually occupy -- one row for a plain
-   contact, or the dragged group's full size for a segment/department --
-   shown on every card the drag reaches, not just the one under the
-   cursor, so a cascade onto a later page is visible there too (see
-   applyDragHighlights). Its top edge is cardRowGeometry's own insertRow
-   boundary (top of the hovered row, or its bottom, depending on
-   belowMidpoint), which is what makes a one-row move actually change the
-   highlight instead of the same row lighting up either way. Colored per
-   department (same palette as the segment capsules, see colorForDeptKey)
-   and split into one block per contiguous department run, so a cascade
-   that pushes a mix of departments onto the next page reads as distinct
-   colored bands matching exactly what lands where -- not one flat color
-   for the whole span. Each page gets its own empty layer div; blocks are
-   added/removed on every dragover/dragleave instead of a single
-   hidden/shown element, since the number of colored bands varies. */
-.cardRowHighlightLayer{position:absolute; inset:0; pointer-events:none; z-index:4;}
-.cardRowHighlightLayer .cardRowHighlight{position:absolute; left:0; right:0;}
-
-/* the group-capsule strip (see buildCardEdgeHandles) -- align-self:stretch
-   (the default; .pagePair sets no align-items) makes it exactly as tall
-   as the card next to it. Per-contact dragging now happens directly on
-   the card itself (see .page canvas, wireCardRowDrag), so this strip only
-   holds the colored segment capsule, flush against the card as a tab
-   extending from it. Always sits on the card's own left -- front and back
-   cards alike -- rather than the previous outer/inner split, so there's
-   only ever one variant of this strip to style. Width and font-size are
-   both in em, sized off font-size set on the .pagePair ancestor (see
-   scaleEdgeHandles) rather than a fixed px value, so the same strip reads
-   correctly whatever size sidesPerView ends up fitting on screen. */
-.cardEdgeHandles{position:relative; width:2em; flex:0 0 auto; z-index:3;}
-/* right:0 anchors the capsule flush against the card, on the strip's right
-   edge; the tab's free (left) end gets the rounding. Radius is exactly
-   half the strip's own width, so a single-row segment (whose height is at
-   least that width) reads as a true half-circle cap, not just a rounded
-   corner. */
-.cardEdgeHandles .segmentCapsule{position:absolute; right:0; width:2em; color:#fff; font-size:1em; font-weight:bold; line-height:1.15; display:flex; align-items:center; justify-content:center; text-align:center; writing-mode:vertical-rl; text-orientation:mixed; cursor:grab; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none; border-radius:1em 0 0 1em;}
-.cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
-
-/* a second "ta bort" drop target beside the cards (see wireCardRemoveZone) */
-#cardRemoveZone{position:absolute; left:12px; bottom:12px; z-index:10; padding:8px 12px; font-size:12px; text-align:center; border:2px dashed #c00; border-radius:6px; color:#c00; background:rgba(255,255,255,.94); transition:background-color .1s, border-color .1s;}
-#cardRemoveZone.dragOver{background:#fde4e4; border-color:#c00; color:#c00;}
-
-/* always shown as a front+back pair -- pages are printed in pairs (see
-   partnerPageIndex), so there's never a reason to view one side alone,
-   except the narrowest tier (see sidesPerView), which drops the .page
-   partner but keeps this wrapper for its edge-handle strip. No gap here
-   -- the 12px margin is added selectively below instead, so it lands
-   between the front card and the back card's own edge handles strip
-   (which must sit flush against that card with no gap of its own),
-   rather than uniformly between every child. fitVisibleCards reads this
-   same 12px back out of the DOM, so it doesn't matter which element
-   actually carries the margin. */
-.pagePair{display:flex; justify-content:center;}
-.pagePair .page + .cardEdgeHandles{margin-left:12px;}
-/* holds however many pairs sidesPerView decides to show at once (see
-   renderViewer/fitVisibleCards, which set each .page's exact pixel size
-   directly) -- wraps only as a safety net, since the sizing already fits
-   everything on one line. */
-.pagesRow{display:flex; justify-content:center; align-items:flex-start; flex-wrap:wrap; gap:24px;}
-
-.page{background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.4); position:relative; flex:0 0 auto;}
-.page canvas{display:block; width:100%; height:100%; cursor:grab;}
-.page canvas:active{cursor:grabbing;}
-/* custom drag image for a row drag (see wireCardRowDrag) -- positioned
-   off-screen rather than display:none, since setDragImage needs the
-   element actually rendered to snapshot it */
-#rowDragGhost{position:fixed; top:-999px; left:-999px; padding:4px 10px; background:#222; color:#fff; font-size:12px; border-radius:4px; white-space:nowrap; pointer-events:none;}
-/* same idea, for a dragged segment capsule (see buildCardEdgeHandles) --
-   a horizontal pill in the segment's own color, sized to its text by
-   showSegmentDragGhost measuring its own rendered box before setDragImage
-   is called. border-radius:999px rounds a box of any width into a full
-   pill regardless of its (text-dependent) size. */
-#segmentDragGhost{position:fixed; top:-999px; left:-999px; padding:5px 16px; color:#fff; font-size:12px; font-weight:bold; border-radius:999px; white-space:nowrap; pointer-events:none; box-shadow:0 1px 4px rgba(0,0,0,.4);}
-
-/* ===================== PER-CARD INFO BAR (viewer) ===================== */
-/* the thin strip floating directly above each card in the viewer -- what
-   used to be the "Sidor" list's own per-page header (used/free count,
-   Visa/Ta bort) and selectors (layout, header color, chain/line 2/numbers,
-   empty-page mode), now living right next to the card they actually
-   describe instead of a separate scrolling list (see buildPageInfoBar).
-   Positioned absolutely (bottom:100% of the relatively-positioned .page)
-   so it floats above the card rather than adding to its own in-flow
-   height -- #viewerContent's padding-top leaves room for it above the
-   very top row. */
-/* z-index above #viewerNav's own 10: fitVisibleCards can, at some in-
-   between viewport widths, size a multi-pair row a hair wider than
-   actually fits (a height-bound scale doesn't recheck the row's own
-   width budget), wrapping a second pair's info bar up behind the nav --
-   keeping this above it means Visa/Ta bort stay clickable even then,
-   rather than getting trapped under the nav's own buttons. */
-.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; margin-bottom:6px; background:rgba(255,255,255,.96); border:1px solid #bbb; border-radius:4px; padding:4px 6px; font-size:11px; box-shadow:0 1px 4px rgba(0,0,0,.25); z-index:11;}
-.pageInfoBar .pageInfoHeader{display:flex; align-items:center; gap:6px; margin-bottom:4px;}
-/* always exactly one row: the usage text truncates with an ellipsis
-   (title carries the full text) rather than wrapping and pushing Remove
-   out of alignment */
-.pageInfoBar .pageInfoHeader span{font-size:11px; font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1 1 auto;}
-.pageInfoBar .pageInfoHeader span.full{color:#a00;}
-.pageInfoBar .pageInfoHeader button{font-size:10px; padding:1px 5px; cursor:pointer; flex:0 0 auto; border-radius:3px; border:1px solid #bbb; background:#fff;}
-/* red only on hover -- a permanently red-bordered button next to the
-   neutral "Visa" button read as too loud/alarming */
-.pageInfoBar .pageInfoHeader button.removeBtn:hover{color:#c00; border-color:#c00;}
-/* one compact row: layout select + color controls (+ Line 2/empty-mode
-   select, when shown) all fit together instead of each wrapping onto its
-   own line -- a fixed, small width with ellipsis keeps a long option name
-   (e.g. "Slate Gray") from blowing the row back out */
-.pageInfoBar .pageControls{display:flex; flex-wrap:wrap; gap:4px; align-items:center;}
-.pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{font-size:10px; padding:2px 3px; border-radius:3px; border:1px solid #bbb; background:#fff; cursor:pointer;}
-.pageInfoBar .pageControls > select{width:76px; min-width:0; text-overflow:ellipsis; overflow:hidden;}
-.pageInfoBar .pageControls label.tool{display:flex; align-items:center; gap:3px; font-size:10px; cursor:pointer; white-space:nowrap;}
-.pageInfoBar .pageControls input[type="file"]{width:100%;}
-.pageInfoBar .colorControls{display:flex; gap:3px; align-items:center; min-width:0;}
-.pageInfoBar .colorControls button{padding:2px 6px;}
-/* custom dropdown standing in for a native <select> for the header color
-   picker -- see buildSwatchSelect for why (a plain <option> can't carry
-   a color swatch next to its label) */
-.pageInfoBar .swatchSelect{position:relative; min-width:0;}
-.pageInfoBar .swatchSelect .swatchBtn{display:flex; align-items:center; gap:5px; width:76px; min-width:0; font-size:10px; padding:2px 5px; border-radius:3px; border:1px solid #bbb; background:#fff; cursor:pointer;}
-.pageInfoBar .swatchSelect .swatchBtn span:last-child{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-.pageInfoBar .swatchSelect .swatchBox{width:11px; height:11px; border-radius:2px; border:1px solid rgba(0,0,0,.3); flex:none;}
-/* a plain 4-column grid of color squares (not a list of labeled rows) --
-   each .swatchItem cell IS the color; its name only shows as a title
-   tooltip on hover, same as a typical OS/app color-grid picker */
-.pageInfoBar .swatchSelect .swatchList{position:absolute; top:100%; left:0; z-index:20; margin-top:2px; background:#fff; border:1px solid #999; border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.3); padding:6px; display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; max-height:220px; overflow-y:auto;}
-.pageInfoBar .swatchSelect .swatchList[hidden]{display:none;}
-.pageInfoBar .swatchSelect .swatchItem{width:28px; height:28px; border-radius:3px; cursor:pointer; border:2px solid #fff; outline:1px solid rgba(0,0,0,.2);}
-.pageInfoBar .swatchSelect .swatchItem:hover, .pageInfoBar .swatchSelect .swatchItem.active{border-color:#0080ff;}
-.pageInfoBar .rgbBox{display:flex; gap:3px; flex-basis:100%; margin-top:2px;}
-.pageInfoBar .rgbBox input{width:34px;}
-/* ===================== END PER-CARD INFO BAR ===================== */
-
-#dropOverlay{position:fixed; inset:0; background:rgba(20,20,20,.75); color:#fff; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:bold; z-index:1000; pointer-events:none;}
-#dropOverlay[hidden]{display:none;}
-
-#printArea{display:none;}
-@media print{
-  body > *:not(#printArea){display:none !important;}
-  #printArea{display:block !important;}
-  #printArea canvas{display:block;}
-  /* break AFTER every canvas except the last -- page-break-after:always on
-     the last one too adds a trailing blank page */
-  #printArea canvas:not(:last-child){page-break-after:always;}
+*{box-sizing:border-box}
+:root{
+  --bg:#e6e6e6; --panel:#fff; --border:#bbb; --border-dark:#999; --border-light:#ccc;
+  --text:#111; --text-soft:#333; --muted:#777; --muted-dark:#555; --hover-bg:#eee;
+  --blue:#0080ff; --blue-text:#0060c0; --blue-bg:#dff0ff; --blue-glow:rgba(0,128,255,.6); --danger:#c00;
+  --shadow-panel:0 2px 5px rgba(0,0,0,.28); --shadow-soft:rgba(0,0,0,.4);
+  --space-1:4px; --space-2:6px; --space-3:8px; --space-4:10px; --space-5:12px;
+  --edge-gap:14px; --panel-radius:calc(var(--pill-radius) + var(--space-4));
+  --ui-font:12px; --small-font:10px; --title-font:15px;
+  --segmentFontSize:12px; --segmentPillPadY:5px; --segmentLineHeight:1.2;
+  --segmentPillHeight:calc(var(--segmentLineHeight)*var(--segmentFontSize) + var(--segmentPillPadY)*2);
+  --pill-radius:calc(var(--segmentPillHeight)/2);
 }
+html,body{height:100%}
+body{display:flex;flex-direction:column;margin:0;background:var(--bg);color:var(--text);font:14px/1.4 Arial,sans-serif}
 
-/* ===================== GROUP PANEL (department grouping helper) ===================== */
-#groupPanel{flex:0 0 260px; background:#f0f0f0; color:#111; display:flex; flex-direction:column; border-right:1px solid #bbb;}
-#groupPanelBody{flex:1 1 auto; overflow-y:auto; padding:10px; font-size:12px;}
-#groupPanel h2{font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#555; margin:0 0 8px;}
-/* single column ("Dra till kortet") -- draggable straight onto the card
-   itself as well as onto a page below (see wireCardDropTarget; it isn't
-   tied to which panel a drag started in, only to PANEL_DRAG_MIME) */
-#groupPanel .groupGrid{display:flex; flex-direction:column; gap:4px; margin-bottom:10px;}
-#groupPanel .groupTile{background:#fff; border:1px solid #ccc; border-radius:5px; padding:5px 7px; font-size:11px; min-width:0; cursor:grab;}
-#groupPanel .groupTile:active{cursor:grabbing;}
-#groupPanel .groupTile.placed, #groupPanel .contactChip.placed{border-color:#c98a2e; background:#fff8ee;}
-#groupPanel .groupTileNameRow{display:flex; align-items:center; gap:3px; min-width:0;}
-#groupPanel .groupTileName{font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;}
-#groupPanel .groupTileCount{color:#777; flex:none; white-space:nowrap; font-size:10px;}
-#groupPanel .groupTile.placed .groupTileCount{color:#a60;}
-#groupPanel .groupTileToggle{cursor:pointer; color:#888; font-size:9px; flex:none; user-select:none; padding:0 1px;}
-#groupPanel .groupTileToggle:hover{color:#333;}
-#groupPanel .contactList{display:flex; flex-direction:column; gap:3px; padding:2px 0 4px 6px; margin-top:-2px; border-left:2px solid #eee;}
-#groupPanel .contactChip{display:flex; justify-content:space-between; align-items:center; gap:4px; background:#fff; border:1px solid #ddd; border-radius:3px; padding:2px 6px; font-size:10.5px; cursor:grab; min-width:0;}
-#groupPanel .contactChip:active{cursor:grabbing;}
-/* dragging a v10 list row over another one to reorder -- see wireReorderTarget */
-#groupPanel .contactChip.dragOver{background:#dff0ff; border-color:#0080ff;}
-#groupPanel .contactChipName{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;}
-#groupPanel .contactChipPage{color:#a60; font-size:9.5px; flex:none;}
-#groupPanel .pageCard{background:#fff; border:1px solid #ccc; border-radius:4px; padding:6px 8px; margin-bottom:6px; transition:background-color .1s;}
-#groupPanel .pageCard.dragOver{background:#dff0ff; border-color:#0080ff;}
-/* whichever page(s) are actually on screen right now (see renderGroupPanel's
-   own isShown), so "Visa" (its button now lives on the card itself, see
-   .pageInfoBar) has a visible "you are here" to jump away from */
-#groupPanel .pageCard.activePage{border-color:#0080ff; box-shadow:0 0 0 1px #0080ff;}
-/* the chain-note "too many members" warning (see renderGroupPanel) is the
-   only thing still using this color inside the group panel -- the used/
-   free count's own "full" state lives on the card now, see .pageInfoBar */
-#groupPanel .full{color:#a00;}
-/* minimal per-page heading -- just enough to tell this chip list apart
-   from its neighbors now that the used/free count, Visa/Ta bort, and
-   every selector live on the card itself (see .pageInfoBar and
-   buildPageInfoBar) */
-#groupPanel .pageCardLabel{font-size:11px; font-weight:bold; color:#555; margin-bottom:4px;}
-#groupPanel .pageGroupList{display:flex; flex-wrap:wrap; gap:4px;}
-#groupPanel .pageGroupChip{display:flex; align-items:center; gap:2px; background:#eef3fb; border:1px solid #9bbde0; border-radius:3px; padding:2px 6px; font-size:11px; cursor:grab;}
-#groupPanel .pageGroupChip:active{cursor:grabbing;}
-#groupPanel .pageActionZone{display:flex; gap:6px; margin-bottom:8px;}
-#groupPanel .dropZone{flex:1 1 0; text-align:center; font-size:11px; padding:8px 4px; border:2px dashed #aaa; border-radius:4px; color:#666; transition:background-color .1s, border-color .1s;}
-#groupPanel .dropZone.dragOver{background:#dff0ff; border-color:#0080ff; color:#0060c0;}
-/* red only once something is actually dragged over it, like every other
-   drop zone -- permanently red at rest was too loud sitting right next
-   to the neutral "+ Ny sida" zone in the same row. */
-#groupPanel .deleteZone.dragOver{background:#fde4e4; border-color:#c00; color:#c00;}
-#groupPanel .emptyNote{color:#777; font-style:italic;}
-/* ===================== END GROUP PANEL ===================== */
+/* Shared UI */
+.pill{display:flex;align-items:center;height:var(--segmentPillHeight);min-width:calc(var(--segmentPillHeight)*2);padding:0 var(--space-4);border-radius:var(--pill-radius);font-size:10.5px;cursor:pointer;user-select:none}
+.truncate{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Toolbar */
+header.toolbar{display:grid;grid-template-columns:max-content minmax(52px,1fr) minmax(190px,max-content);align-items:center;column-gap:var(--space-4);flex:0 0 auto;padding:var(--space-3) var(--space-4);background:#1c1c1c;color:#fff}
+header.toolbar h1{margin:0 var(--space-4) 0 0;font-size:var(--title-font);white-space:nowrap}
+.toolbarSide{display:flex;flex-wrap:nowrap;align-items:center;gap:var(--space-4)}
+.toolbarSideRight{justify-content:flex-end}
+header.toolbar select,header.toolbar button:not(.pill){flex:0 0 auto;height:30px;padding:0 var(--space-3);background:var(--panel);border:1px solid var(--border-dark);border-radius:4px;font-size:var(--ui-font);cursor:pointer}
+header.toolbar button:hover{background:var(--hover-bg)}
+#printBtn{flex:0 0 auto;background:var(--panel);border:1px solid var(--border-dark);cursor:pointer}
+label.tool{display:flex;align-items:center;gap:var(--space-1);flex:0 0 auto;font-size:var(--ui-font);white-space:nowrap}
+#dataStatus{color:var(--border-light);font-size:var(--ui-font)}
+#portalPanel{display:flex;align-items:center;gap:var(--space-2);max-width:40vw;padding:2px 0;overflow-x:auto;overflow-y:hidden}
+#portalPanel .portalBtn{flex:0 0 auto;justify-content:center;background:var(--panel);border:1px solid var(--border-dark);color:var(--text-soft);font-weight:bold;transition:background-color .1s,border-color .1s,transform .08s,box-shadow .08s}
+#portalPanel .portalBtn:hover{background:var(--hover-bg)}
+#portalPanel .portalBtn.current{background:var(--blue-bg);border-color:var(--blue)}
+#portalPanel .portalBtn.dragOver{background:var(--blue-bg);border-color:var(--blue);box-shadow:0 2px 6px var(--blue-glow);color:var(--blue-text);transform:scale(1.2)}
+
+/* Group panel */
+#mainRow{display:flex;flex:1 1 auto;overflow:hidden}
+#groupPanel{display:flex;flex-direction:column;gap:var(--space-5);flex:0 0 260px;padding:var(--edge-gap);color:var(--text);overflow:hidden}
+#groupPanelControls,#groupPanelBody{background:var(--panel);border:1px solid var(--border);border-radius:var(--panel-radius);box-shadow:var(--shadow-panel)}
+#groupPanelControls{display:flex;flex-direction:column;gap:var(--space-3);flex:0 0 auto;padding:var(--space-4)}
+#groupPanelControls .panelControlsGrid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)}
+#groupPanelControls .panelControlsGrid>*{min-width:0;padding:8px 6px;border-radius:var(--pill-radius);font-size:var(--ui-font);text-align:center}
+#groupPanelControls button{background:var(--panel);border:1px solid var(--border-dark);cursor:pointer}
+#groupPanelControls button:hover{background:var(--hover-bg)}
+#newPageZone,#cardRemoveZone{border:1px solid var(--border-dark);transition:background-color .1s,border-color .1s,color .1s}
+#newPageZone{color:var(--muted-dark)}
+#newPageZone.dragOver{background:var(--blue-bg);border-color:var(--blue);color:var(--blue-text)}
+#cardRemoveZone{border-color:var(--danger);color:var(--danger)}
+#cardRemoveZone.dragOver{background:#fde4e4}
+#groupPanelBody{flex:1 1 auto;padding:var(--space-4);font-size:var(--ui-font);overflow-y:auto}
+#groupPanel h2{margin:0 0 var(--space-3);color:var(--muted-dark);font-size:var(--ui-font);text-transform:uppercase;letter-spacing:.04em}
+#groupPanel .groupGrid{display:flex;flex-direction:column;gap:var(--space-1);margin-bottom:var(--space-4)}
+#groupPanel .groupTile,#groupPanel .contactChip{background:var(--panel);border:1px solid var(--border-light);cursor:grab}
+#groupPanel .groupTile:active,#groupPanel .contactChip:active{cursor:grabbing}
+#groupPanel .contactChip{justify-content:space-between;gap:var(--space-1)}
+#groupPanel .groupTileNameRow{display:flex;align-items:center;gap:3px;flex:1;min-width:0}
+#groupPanel .groupTileName{flex:1;font-weight:bold}
+#groupPanel .groupTileCount{flex:none;color:var(--muted);font-size:var(--small-font);white-space:nowrap}
+#groupPanel .groupTileToggle{flex:none;padding:0 1px;color:var(--border-dark);font-size:9px;cursor:pointer;user-select:none}
+#groupPanel .groupTileToggle:hover{color:var(--text-soft)}
+#groupPanel .contactList{display:flex;flex-direction:column;gap:3px;margin-top:-2px;padding:2px 0 var(--space-1) var(--space-2);border-left:2px solid var(--hover-bg)}
+#groupPanel .contactChipPage{flex:none;font-size:9.5px}
+#groupPanel .emptyNote{color:var(--muted);font-style:italic}
+#groupPanel .groupTile.reusable,#groupPanel .contactChip.reusable{border-style:dashed;border-color:var(--border-dark)}
+#groupPanel .sourceSection{margin-bottom:14px}
+#groupPanel .sourceHeader{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid var(--border-light)}
+#groupPanel .sourceName{flex:1;font-size:11px;font-weight:bold}
+#groupPanel .sourceMultiUse{display:flex;align-items:center;gap:3px;flex:none;color:var(--muted-dark);font-size:var(--small-font);cursor:pointer;user-select:none}
+#groupPanel .sourceMultiUse input{margin:0}
+
+/* Viewer */
+main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg);overflow:hidden}
+#viewerContent{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:135px var(--edge-gap) var(--edge-gap) 0}
+#emptyViewerOverlay{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:40px;color:var(--border-dark);font-size:18px;text-align:center}
+#emptyViewerOverlay[hidden]{display:none}
+#emptyViewerOverlay.dragOver{background:var(--blue-bg);color:var(--blue-text)}
+.cardRowHighlightLayer{position:absolute;inset:0;z-index:4;pointer-events:none}
+.cardRowHighlightLayer .cardRowHighlight{position:absolute;left:0;right:0}
+
+/* Card layout */
+.pagePair{display:flex;justify-content:center}
+.pagePair .page+.cardEdgeHandles{margin-left:12px}
+.pagesRow{display:flex;flex-wrap:nowrap;justify-content:center;align-items:flex-start;gap:24px}
+.page{position:relative;z-index:2;flex:0 0 auto;background:var(--panel);box-shadow:var(--shadow-panel)}
+.page canvas{display:block;width:100%;height:100%;cursor:grab}
+.page canvas:active{cursor:grabbing}
+
+/* Segment tabs / drag ghosts */
+.cardEdgeHandles{position:relative;z-index:1;flex:0 0 auto;width:var(--segmentPillHeight)}
+.cardEdgeHandles .segmentCapsule{position:absolute;right:0;display:flex;justify-content:center;align-items:center;width:var(--segmentPillHeight);border:1px solid;border-radius:var(--pill-radius) 0 0 var(--pill-radius);color:var(--text-soft);font-size:var(--segmentFontSize);font-weight:bold;line-height:var(--segmentLineHeight);text-align:center;writing-mode:vertical-rl;text-orientation:mixed;overflow:hidden;cursor:grab;user-select:none}
+.cardEdgeHandles .segmentCapsule:active{cursor:grabbing}
+.cardEdgeHandles .segmentCapsule.emptyRowCapsule{background:var(--hover-bg);border-color:var(--border-dark)}
+#rowDragGhost{position:fixed;top:-999px;left:-999px;padding:4px var(--space-4);background:#222;border-radius:4px;color:#fff;font-size:var(--ui-font);white-space:nowrap;pointer-events:none}
+#segmentDragGhost{position:fixed;top:-999px;left:-999px;padding:var(--segmentPillPadY) 16px;border-radius:var(--pill-radius);box-shadow:0 1px 4px var(--shadow-soft);color:#fff;font-size:var(--segmentFontSize);font-weight:bold;line-height:var(--segmentLineHeight);white-space:nowrap;pointer-events:none}
+
+/* Per-card info bar */
+.pageInfoBar{position:absolute;left:0;right:0;bottom:100%;z-index:2;padding:var(--space-4);background:var(--panel);border:1px solid var(--border);border-radius:var(--panel-radius) var(--panel-radius) 0 0;font-size:11px}
+.pageInfoBar .pageInfoHeader{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-1)}
+.pageInfoBar .pageInfoHeader span{flex:1 1 auto;font-size:11px;font-weight:bold}
+.pageInfoBar .pageInfoHeader span.full{color:#a00}
+.pageInfoBar .pageInfoHeader button{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:var(--segmentPillHeight);height:var(--segmentPillHeight);padding:0;background:var(--panel);border:1px solid var(--border);border-radius:var(--pill-radius);font-size:9px;font-weight:bold;cursor:pointer}
+.pageInfoBar .pageInfoHeader button.removeBtn{font-size:13px}
+.pageInfoBar .pageInfoHeader button.removeBtn:hover{border-color:var(--danger);color:var(--danger)}
+.pageInfoBar .pageControls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1)}
+.pageInfoBar .pageControls select,.pageInfoBar .pageControls button,.pageInfoBar .pageControls input{height:30px;padding:0 6px;background:var(--panel);border:1px solid var(--border);border-radius:3px;font-size:var(--small-font);cursor:pointer}
+.pageInfoBar .pageControls>select{width:76px}
+.pageInfoBar .pageControls label.tool{display:flex;align-items:center;gap:3px;font-size:var(--small-font);white-space:nowrap;cursor:pointer}
+.pageInfoBar .pageControls input[type=file]{width:100%}
+.pageInfoBar .pageControls input[type=checkbox]{height:auto;padding:0}
+.pageInfoBar .swatchSelect{position:relative;min-width:0}
+.pageInfoBar .swatchSelect .swatchBtn{display:flex;align-items:center;gap:5px;width:76px;min-width:0;height:30px;padding:0 6px;background:var(--panel);border:1px solid var(--border);border-radius:3px;font-size:var(--small-font);cursor:pointer}
+.pageInfoBar .swatchSelect .swatchBox{flex:none;width:11px;height:11px;border:1px solid rgba(0,0,0,.3);border-radius:2px}
+.pageInfoBar .swatchSelect .swatchList{position:absolute;top:100%;left:0;z-index:20;display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-1);max-height:220px;margin-top:2px;padding:6px;background:var(--panel);border:1px solid var(--border-dark);border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3);overflow-y:auto}
+.pageInfoBar .swatchSelect .swatchList[hidden]{display:none}
+.pageInfoBar .swatchSelect .swatchList.alignRight{left:auto;right:0}
+.pageInfoBar .swatchSelect .swatchList.openUp{top:auto;bottom:100%;margin-top:0;margin-bottom:2px}
+.pageInfoBar .swatchSelect .swatchItem{width:28px;height:28px;border:2px solid #fff;border-radius:3px;outline:1px solid rgba(0,0,0,.2);cursor:pointer}
+.pageInfoBar .swatchSelect .swatchItem:hover,.pageInfoBar .swatchSelect .swatchItem.active{border-color:var(--blue)}
+
+/* Overlays / print */
+#dropOverlay{position:fixed;inset:0;z-index:1000;display:flex;justify-content:center;align-items:center;background:rgba(20,20,20,.75);color:#fff;font-size:28px;font-weight:bold;pointer-events:none}
+#dropOverlay[hidden]{display:none}
+#printArea{display:none}
+@media(max-width:560px){header.toolbar h1{display:none}}
+@media print{
+  body>*:not(#printArea){display:none!important}
+  #printArea{display:block!important}
+  #printArea canvas{display:block}
+  #printArea canvas:not(:last-child){page-break-after:always}
+}
 </style>
 <style id="pageSizeStyle"></style>
 </head>
 <body>
 
 <header class="toolbar">
-  <h1>Kompakt kontaktkortsskrivare</h1>
-  <span id="gridInfo"></span>
-  <div class="spacer"></div>
-  <span id="dataStatus">Släpp en CSV- eller XLSX-fil för att börja</span>
-  <!-- paper size + print, pinned to the top-right of the bar by the spacer
-       above -- everything about a page ITSELF (layout, header color, ...)
-       lives on the card in the viewer now, see .pageInfoBar/buildPageInfoBar -->
-  <label class="tool">Papper:
-    <select id="paperSize"></select>
-  </label>
-  <button id="printBtn">Skriv ut</button>
+  <div class="toolbarSide">
+    <h1>Kompakt kontaktkortsskrivare</h1>
+  </div>
+  <!-- one round button per page ("Sida N"), centered on the bar (see
+       header.toolbar's grid in the CSS) -- the whole nav, now that prev/
+       next and the indicator are gone: click one to jump straight there,
+       or hold a drag over one to jump while the drag stays active (see
+       wirePortalButton). Rebuilt by renderPortalPanel on every render,
+       same as before it lived here. -->
+  <div id="portalPanel"></div>
+  <div class="toolbarSide toolbarSideRight">
+    <span id="dataStatus" class="truncate">Släpp en CSV- eller XLSX-fil för att börja</span>
+    <!-- everything about a page ITSELF (layout, header color, ...) lives
+         on the card in the viewer now, see .pageInfoBar/buildPageInfoBar --
+         paper size + print are the only page-wide settings left up here. -->
+    <label class="tool">Papper:
+      <select id="paperSize"></select>
+    </label>
+    <button id="printBtn" class="pill">Skriv ut</button>
+  </div>
 </header>
 
 <div id="mainRow">
-  <!-- GROUP PANEL: the unplaced-contacts pool ("Dra till kortet") plus each
-       page's own drag-reorderable content list -- everything about a page
-       ITSELF (used/free count, Visa/Ta bort, layout/color/etc selectors)
-       lives on the card in the viewer instead, see .pageInfoBar. -->
+  <!-- GROUP PANEL: two stacked boxes -- #groupPanelControls (static, never
+       rebuilt) holds the drop zones and the buttons that act on the whole
+       roster; #groupPanelBody (rebuilt by renderGroupPanel) is the
+       scrollable unplaced-contacts pool ("Dra till kortet"), one section
+       per imported source. Everything about a page ITSELF (used/free
+       count, A-Ö/Ta bort, layout/color/etc selectors) lives on the card in
+       the viewer instead, see .pageInfoBar. -->
   <aside id="groupPanel">
+    <div id="groupPanelControls">
+      <div class="panelControlsGrid">
+        <!-- drop a group/contact here to send it straight to a freshly
+             created page -- see moveGroupToNewPage/moveContactToNewPage. -->
+        <div id="newPageZone" title="Dra hit för att skapa en ny sida">+ Ny sida</div>
+        <!-- a second "remove from page" target for a contact/segment
+             dragged off a card's own edge handles (see wireCardRemoveZone). -->
+        <div id="cardRemoveZone" title="Dra hit för att ta bort från sidan">✕ Ta bort</div>
+        <button id="clearAllBtn" type="button">Rensa alla</button>
+        <button id="populateBtn" type="button" title="Fyll sidorna automatiskt med alla inlästa kontakter (flergångskällor undantagna) -- kör om samma fördelning efter att fler filer lästs in">Fördela kontakter</button>
+      </div>
+      <!-- always-available blank spacer row -- a "template" tile like a
+           multi-use source's own (see buildContactList/wireDragStart in
+           the script), just with no source of its own: every drag creates
+           a fresh empty-fields contact instance. -->
+      <div id="emptyRowTile" class="pill groupTile reusable" draggable="true" title="Tom rad -- kan dras ut flera gånger för att lämna mellanrum mellan grupper">+ Tom rad</div>
+    </div>
     <div id="groupPanelBody"></div>
   </aside>
-  <!-- #viewerNav (prev/next/the "Kort X / Y" indicator) floats over the
-       top-center of the viewer and is never wiped by renderViewer(),
-       which only touches #viewerContent -- see the CSS block above for
-       how it stays pinned there. Always shown: however many card sides
-       are visible at once (see sidesPerView), Prev/Next always steps to
-       the next batch of that same size. -->
   <main id="viewerWrap">
-    <div id="viewerNav">
-      <button id="prevBtn">&larr; Föreg.</button>
-      <span id="pageIndicator"></span>
-      <button id="nextBtn">Nästa &rarr;</button>
-    </div>
     <div id="viewerContent"></div>
     <div id="emptyViewerOverlay" hidden></div>
-    <!-- a second "remove from page" target for a contact/segment dragged
-         off a card's own edge handles (see wireCardRemoveZone). -->
-    <div id="cardRemoveZone" title="Dra hit för att ta bort från sidan">✕ Ta bort</div>
   </main>
 </div>
 
@@ -327,16 +228,19 @@ const FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
 
 /* -- font sizes (pt) -- */
 const HEADER_FONT_PT = 9;
-const NAME_FONT_PT = 7;
+/* one notch smaller than the other row text (phone/dept) so the name (and
+   the line-2 custom field, at the same size) gets more characters before
+   truncateText has to start cutting it -- names are the one field where
+   more visible text matters more than a slightly bigger glyph. */
+const NAME_FONT_PT = 6;
 /* v20's name column shares its row with a department column and only a
    single phone, so it's the tightest layout on a 54mm-wide card -- it gets
-   its own (smaller) name font, independent of NAME_FONT_PT (used by v10,
-   which has room to spare and shouldn't shrink just because v20 needs
-   to). Small enough that a long name like "Roberto von Hemansson
-   III" fits without truncation alongside a department and a full phone
-   number. */
-const NAME_FONT_PT_TIGHT = 7;
-const EMAIL_FONT_PT = 7;   /* the 10-contact layout's email line only -- independent of NAME_FONT_PT */
+   its own name font, independent of NAME_FONT_PT (used by v10, which has
+   room to spare and shouldn't shrink just because v20 needs to). Small
+   enough that a long name like "Roberto von Hemansson III" fits without
+   truncation alongside a department and a full phone number. */
+const NAME_FONT_PT_TIGHT = 6;
+const EMAIL_FONT_PT = 6;   /* the 10-contact layout's line-2 custom field (email/username/department) -- independent of NAME_FONT_PT, but kept equal to it */
 const PHONE_FONT_PT = 7;
 const DEPT_FONT_PT = 6;
 
@@ -402,24 +306,34 @@ const LAYOUTS = {
    its own dropdown is how you change it afterward, same as any page */
 const DEFAULT_LAYOUT = "v20";
 
-/* -- header background presets -- each hue taken from the Dracula
-   terminal theme's real accent colors (draculatheme.com/spec: Red
-   #FF5555, Orange #FFB86C, Yellow #F1FA8C, Green #50FA7B, Cyan #8BE9FD,
-   Purple #BD93F9, Pink #FF79C6), boosted to a high, even saturation and
-   then darkened just enough to hold >=8:1 WCAG contrast against white
-   text -- Dracula's own colors are pastel/neon, made for light text on a
-   DARK background, so they can't be used at their original lightness
-   here without the header text becoming unreadable. The hue is the only
-   thing carried over unchanged; that's what still reads as "Dracula" at
-   a glance despite every swatch being much darker than the source. */
+/* -- header background presets, exactly 16 (one full 4x4 grid, no overflow
+   row) -- Svart first since it's the default new-page color, the rest
+   hues evenly spaced around the wheel (24° apart). Bold/near-fully
+   saturated (92%) rather than muted -- distinct, easy-to-print colors
+   were the actual goal, and desaturating every hue toward gray (an
+   earlier version of this palette) made them all read as similar murky
+   browns/olives instead. Each still lands close to the same ~4.8:1
+   contrast against the white header text drawn on top of it (headerColor,
+   see drawCard) -- true bright yellow can't hit that and still be legible
+   under fixed white text, so Gul reads as a dark gold/olive rather than a
+   light canary yellow; every other hue stays clearly primary/secondary. */
 const COLOR_PRESETS = [
-  { name:"Röd",    hex:"#da2424" },
-  { name:"Orange", hex:"#f77622" },
-  { name:"Gul",    hex:"#ecab11" },
-  { name:"Grön",   hex:"#43bd35" },
-  { name:"Cyan",   hex:"#124e89" },
-  { name:"Lila",   hex:"#3d083b" },
-  { name:"Rosa",   hex:"#5a7088" }
+  { name:"Svart",    hex:"#000000" },
+  { name:"Röd",      hex:"#e40909" },
+  { name:"Orange",   hex:"#be5108" },
+  { name:"Gul",      hex:"#896f06" },
+  { name:"Oliv",     hex:"#637a05" },
+  { name:"Lime",     hex:"#378205" },
+  { name:"Grön",     hex:"#068506" },
+  { name:"Smaragd",  hex:"#068438" },
+  { name:"Turkos",   hex:"#058168" },
+  { name:"Cyan",     hex:"#067c99" },
+  { name:"Azur",     hex:"#0b69f5" },
+  { name:"Blå",      hex:"#2323f6" },
+  { name:"Indigo",   hex:"#7723f6" },
+  { name:"Lila",     hex:"#bc0ae9" },
+  { name:"Magenta",  hex:"#d109a9" },
+  { name:"Cerise",   hex:"#e0095f" }
 ];
 
 /* ================= shared utilities ================= */
@@ -441,6 +355,9 @@ var state = {
   paperSize: "A4",
   currentPage: 0,              /* 0-indexed; the first of however many card sides are on screen (see sidesPerView) */
   contacts: [],
+  sources: [],   /* [{id, name, multiUse}] -- one entry per imported file, in import order; every contact in `contacts` carries the sourceId of whichever import it came from, so same-named departments from two different files are never treated as one group (see groupContactsBySourceAndDepartment) */
+  nextContactId: 1,
+  nextSourceId: 1,
   pages: [], /* [{layout, contacts, emptyMode, image, headerColor, headerLegend, savedContacts}] -- one entry per generated page */
   expandedGroups: {},     /* group panel UI only: which pool department tiles are expanded to show individual contacts, keyed by group key */
   expandedPageGroups: {}  /* same, for a page card's own department chips, keyed by "pageIndex:groupKey" */
@@ -570,83 +487,18 @@ function sortContacts(list){
   });
 }
 
-/* ---------------- v10 "chains" -- named, manually-ordered contact lists,
-   independent of department (see IMPORT_HEADER_ALIASES.lists) ---------------- */
-function listKey(name){ return (name||"").trim().toLowerCase(); }
-/* every distinct chain name found across all contacts, in first-seen
-   order -- populates the per-page Chain select the same way COLOR_PRESETS
-   populates the color select */
-function computeChainNames(){
-  var seen = {}, names = [];
-  state.contacts.forEach(function(c){
-    (c.lists||[]).forEach(function(name){
-      var key = listKey(name);
-      if(!key || seen[key]) return;
-      seen[key] = true;
-      names.push(name);
-    });
-  });
-  return names;
-}
-/* a chain's members, in the order they appeared in the imported file --
-   id is assigned in that order at import time, before sortContacts()
-   reorders state.contacts itself, so sorting by id recovers it here
-   without needing to track file order separately. */
-function contactsForChain(chainName){
-  var key = listKey(chainName);
-  return state.contacts
-    .filter(function(c){ return (c.lists||[]).some(function(name){ return listKey(name) === key; }); })
-    .sort(function(a,b){ return a.id - b.id; });
-}
-/* orders `contacts` by pageState.chainOrder (an array of contact ids,
-   manually set by dragging within a chain page's list -- see
-   reorderWithinPage) when present; a member not yet in that list keeps
-   its place relative to the other not-yet-ordered members (stable sort),
-   so a newly tagged member just appears in its natural chain-file-order
-   slot until the page's own order is touched. */
-function applyCustomOrder(contacts, orderIds){
-  if(!orderIds) return contacts;
-  return contacts.slice().sort(function(a, b){
-    var ia = orderIds.indexOf(a.id), ib = orderIds.indexOf(b.id);
-    if(ia === -1) ia = Infinity;
-    if(ib === -1) ib = Infinity;
-    return ia - ib;
-  });
-}
-/* what a v10 page with an active chain actually shows: chain membership
-   truncated to the layout's own row capacity, then reordered per
-   pageState.chainOrder if set. Never touches pageState.contacts -- it's
-   a computed view, so clearing the chain back to "None" leaves whatever
-   was manually placed there untouched. */
+/* a v10 page's contacts are just pageState.contacts, same as any other
+   layout -- the manual, drag-reorderable array is the only source of
+   truth for what's on a page. */
 function contactsForPage(pageState){
-  if(pageState.layout === "v10" && pageState.chain){
-    var members = contactsForChain(pageState.chain).slice(0, layoutRows("v10"));
-    return applyCustomOrder(members, pageState.chainOrder);
-  }
   return pageState.contacts;
 }
 /* moves one contact to sit just before (or, insertAfter, just after)
-   another within the same v10 page's own displayed order -- used by
-   dragging a name onto a sibling name in the page's contact list.
-   Manual pages reorder pageState.contacts directly; a chain page has no
-   contacts array of its own to reorder (it's computed from the chain
-   every render -- see contactsForPage), so it keeps a standalone
-   chainOrder id list instead, seeded from the current display order the
-   first time a drag actually reorders anything. */
+   another within the same page's own displayed order -- used by dragging
+   a name onto a sibling name in the page's contact list. */
 function reorderWithinPage(pageIndex, contactId, targetId, insertAfter){
   var pageState = state.pages[pageIndex];
   if(!pageState || contactId === targetId) return;
-
-  if(pageState.layout === "v10" && pageState.chain){
-    var ids = (pageState.chainOrder || contactsForPage(pageState).map(function(c){ return c.id; }))
-      .filter(function(id){ return id !== contactId; });
-    var chainIdx = ids.indexOf(targetId);
-    if(chainIdx === -1) return;
-    ids.splice(insertAfter ? chainIdx+1 : chainIdx, 0, contactId);
-    pageState.chainOrder = ids;
-    renderViewer();
-    return;
-  }
 
   var byId = {};
   pageState.contacts.forEach(function(c){ byId[c.id] = c; });
@@ -671,12 +523,7 @@ const IMPORT_HEADER_ALIASES = {
   phone2:     ["phone2","phone 2"],
   label1:     ["label1","label 1","type1","type 1","number type"],
   label2:     ["label2","label 2","type2","type 2"],
-  email:      ["email","e-mail"],
-  /* comma-separated tag(s) placing a contact on one or more "chained"
-     v10 lists -- independent of department, and orthogonal to it: a
-     contact keeps its normal department grouping for v20 AND can carry
-     any number of these tags for v10 (see pageState.chain). */
-  lists:      ["list","lists","chain","v10 list"]
+  email:      ["email","e-mail"]
 };
 
 function parseCSV(text){
@@ -792,26 +639,34 @@ function headerIndex(headers, names){
   }
   return -1;
 }
-function rowsToContacts(rows){
+function rowsToContacts(rows, sourceId){
   if(!rows.length) return [];
   var headers = rows[0];
   var idx = {};
   Object.keys(IMPORT_HEADER_ALIASES).forEach(function(k){ idx[k] = headerIndex(headers, IMPORT_HEADER_ALIASES[k]); });
   var out = [];
-  var nextId = 1; /* per-import contact identity, so a single contact (not just its department) can be dragged and tracked across pages -- also doubles as this contact's original row order, since it's assigned before sortContacts() reorders the array (see contactsForChain) */
   for(var r=1;r<rows.length;r++){
     var row = rows[r];
     var get = function(i){ return i===-1 || row[i]==null ? "" : String(row[i]).trim(); };
     var name = get(idx.name) || (get(idx.firstName) + " " + get(idx.lastName)).trim();
     if(!name) continue;
-    var lists = get(idx.lists).split(",").map(function(s){ return s.trim(); }).filter(Boolean);
     out.push({
-      id:nextId++,
+      id:state.nextContactId++, sourceId:sourceId,
       name:name, department:get(idx.department), phone:get(idx.phone), phone2:get(idx.phone2),
-      label1:get(idx.label1), label2:get(idx.label2), email:get(idx.email), lists:lists
+      label1:get(idx.label1), label2:get(idx.label2), email:get(idx.email)
     });
   }
   return out;
+}
+
+/* a blank spacer row -- not a real imported contact, so it has no
+   sourceId/department and never appears in state.contacts; dragged out of
+   the group panel's own always-present tile via the same clone-on-drop
+   "template" mechanism a multi-use source's contacts use (see
+   wireDragStart's template payload), so every drag creates a fresh
+   instance instead of moving a single shared one around. */
+function emptyRowTemplate(){
+  return { name:"", department:"", phone:"", phone2:"", label1:"", label2:"", email:"", isEmptyRow:true };
 }
 
 /* ---------------- page generation ---------------- */
@@ -837,7 +692,7 @@ function blankPage(layout, contacts){
 function packContactsIntoPages(contacts, capacity){
   if(capacity <= 0) return [];
   var items = [];
-  groupContactsByDepartment(contacts).forEach(function(g){
+  groupContactsBySourceAndDepartment(contacts).forEach(function(g){
     if(g.contacts.length <= capacity){
       items.push(g.contacts.slice());
     } else {
@@ -859,9 +714,17 @@ function packContactsIntoPages(contacts, capacity){
   return bins.map(function(b){ return b.contacts; });
 }
 
+/* every source not flagged multi-use -- a multi-use source (generic
+   support numbers, and the like) is meant to be dragged out by hand
+   wherever it's needed, potentially more than once, so it never takes
+   part in the automatic distribution below. */
+function populatableContacts(){
+  var multiUseIds = new Set(state.sources.filter(function(s){ return s.multiUse; }).map(function(s){ return s.id; }));
+  return state.contacts.filter(function(c){ return !multiUseIds.has(c.sourceId); });
+}
 function regeneratePages(){
   var capacity = layoutRows(DEFAULT_LAYOUT);
-  var pages = packContactsIntoPages(state.contacts, capacity).map(function(c){ return blankPage(DEFAULT_LAYOUT, c); });
+  var pages = packContactsIntoPages(populatableContacts(), capacity).map(function(c){ return blankPage(DEFAULT_LAYOUT, c); });
   if(pages.length && pages.length % 2 !== 0){
     pages.push(blankPage(DEFAULT_LAYOUT));
   }
@@ -904,6 +767,16 @@ function reflowFromPage(index){
 }
 
 /* ---------------- file drop handling ---------------- */
+/* every file dropped becomes its own source in the group panel's pool
+   (state.sources), and its contacts are ADDED to the existing roster
+   rather than replacing it -- so a second/third file's numbers show up
+   alongside the first's instead of wiping it out, each kept in its own
+   section so a department name repeated across files is never merged
+   with another file's (see groupContactsBySourceAndDepartment). Only the
+   very first file dropped auto-fills the pages, matching the previous
+   single-file behavior; anything dropped after that just joins the pool
+   until "Fördela" (see renderGroupPanel) is clicked to redo the automatic
+   distribution across everything collected so far. */
 async function handleFile(file){
   try{
     var rows;
@@ -912,16 +785,26 @@ async function handleFile(file){
     } else {
       rows = parseCSV(await file.text());
     }
-    var contacts = rowsToContacts(rows);
+    var sourceId = "src" + (state.nextSourceId++);
+    var contacts = rowsToContacts(rows, sourceId);
     if(!contacts.length){ setStatus("Inga kontakter hittades i \""+file.name+"\" (behöver en Namn-kolumn)"); return; }
-    state.contacts = sortContacts(contacts);
-    state.currentPage = 0;
-    regeneratePages();
-    setStatus(state.contacts.length + " kontakter inlästa från " + file.name);
+    var firstImport = state.sources.length === 0;
+    state.sources.push({ id:sourceId, name:file.name, multiUse:false });
+    state.contacts = state.contacts.concat(sortContacts(contacts));
+    if(firstImport){
+      state.currentPage = 0;
+      regeneratePages();
+      setStatus(contacts.length + " kontakter inlästa från " + file.name);
+    } else {
+      setStatus(contacts.length + " kontakter tillagda från " + file.name + " -- klicka \"Fördela\" för att fylla sidorna med allt");
+    }
     renderViewer();
   } catch(err){
     setStatus("Kunde inte läsa \""+file.name+"\": " + err.message);
   }
+}
+async function handleFiles(files){
+  for(var i=0;i<files.length;i++){ await handleFile(files[i]); }
 }
 function setStatus(text){ $("#dataStatus").textContent = text; }
 
@@ -956,12 +839,12 @@ function setupDropZone(){
     counter = 0;
     $("#dropOverlay").hidden = true;
     var dt = e.dataTransfer;
-    var file = dt && dt.files && dt.files[0];
-    if(!file){
+    var files = dt && dt.files;
+    if(!files || !files.length){
       setStatus("Släppet innehöll ingen fil som webbläsaren kunde läsa -- om du drog den från en chatt-/webbilaga, spara den till disk först och dra den från filhanteraren istället.");
       return;
     }
-    handleFile(file);
+    handleFiles(files);
   }, opts);
 }
 
@@ -1046,26 +929,22 @@ function formatPhoneNumber(raw){
   return digits || (raw||"").trim();
 }
 
-/* v10 line 2's wide column is a per-page choice (pageState.line2Mode), not
-   auto-detected -- see the Line 2 select in buildPageControls (its options
-   show these labels directly, with no "Rad 2:" prefix -- the select's
-   title attribute carries that context instead):
+/* v10 line 2's 2a box (its wide/custom field) is a per-page choice
+   (pageState.line2Mode), not auto-detected -- see the Line 2 select in
+   buildPageControls (its options show these labels directly, with no
+   "Rad 2:" prefix -- the select's title attribute carries that context
+   instead). 2b (contact.phone2Label) and 2c (phone2) are ordinary fields,
+   independent of line2Mode -- every mode carries the same six boxes (see
+   layoutDoubleRowColumns):
      "email"      -- always the email field (blank if there isn't one)
      "empty"      -- always blank, and not editable (no field backs it)
      "username"   -- always label2, repurposed here as a free-text handle/
                      username rather than a phone-type tag; independent of
-                     label1, which still tags phone1 on line 1 as always.
-                     This mode also draws a small contact.phone2Label
-                     column right before phone2 (see layoutDoubleRowColumns),
-                     so line 2 gets the same kind of phone-type tag line 1
-                     always has, without losing the username text -- the
-                     two fields are independently editable.
+                     label1, which still tags phone1 on line 1 as always
      "department" -- the contact's department/group, same field v20 shows
                      (v10 otherwise never shows department -- showDept is
                      false for its LAYOUTS entry -- so this is the only way
-                     to surface it on a v10 card). Shown in full (v10's wide
-                     column has much more room than v20's dedicated,
-                     character-capped department column), not truncated.
+                     to surface it on a v10 card)
    Shared by drawCard and getEditableRegions so a click always edits
    whichever field is actually on screen. */
 var LINE2_MODES = { email:"E-post", empty:"Tom", username:"Användarnamn", department:"Grupp" };
@@ -1135,25 +1014,32 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
   return cols;
 }
 
-/* the 10-contact double-row layout: line 1 (name/label1/phone1) always
-   keeps its small label column. Line 2 normally has no label of its own
-   -- which number is "work" vs "home" is shown once, structurally, via
-   the card's header legend (top row = phone1, bottom row = phone2), so
-   line 2 hands that whole column back to the email address instead.
-
-   showLine2Label (true only for line2Mode "username" -- see
-   pickLine2Field) adds a matching small label column before phone2 too,
-   sized and positioned exactly like line 1's, so "Rad 2: Användarnamn"
-   can tag phone2 (via contact.phone2Label) the same way label1 tags
-   phone1, independently editable, without losing the username text.
+/* the 10-contact double-row layout, six boxes per contact:
+     line 1: 1a name          | 1b label1 (phone1's type tag) | 1c phone1
+     line 2: 2a custom field  | 2b phone2Label                | 2c phone2
+   (2a's value depends on pageState.line2Mode -- see pickLine2Field --
+   but 2b/2c are ordinary fields regardless of it, same as 1b/1c always
+   are). A label column (1b/2b) only actually earns its keep when that
+   ROW's own label has text -- a contact with no phone2Label, say, gets
+   its 2a field drawn the full width up to phone2 instead of reserving a
+   column for a label that isn't there. Since that's a per-contact,
+   per-render decision (not a fixed per-card one), this returns BOTH
+   column sets for each line -- "Normal" (3 boxes, label shown) and
+   "Wide" (2 boxes, label-less) -- and drawCard/getEditableRegions pick
+   between them per row, per line, based on that row's own data.
 
    showNumbers (pageState.showNumbers -- an optional per-page toggle)
    reserves a small gutter at the very left, ahead of every other column
    on both lines, for an optional running contact number (see drawCard) --
    it isn't a column here since it's drawn once per CONTACT (vertically
    centered across both its lines), not once per line, but every other
-   column still needs to shift right to make room for it, on both lines. */
-function layoutDoubleRowColumns(ctx, wPx, dpi, showLine2Label, showNumbers){
+   column still needs to shift right to make room for it, on both lines.
+   Its own padding (numberPad) is tighter than a normal cell's and equal
+   on both sides of it -- between the card's own left edge and the number,
+   and between the number and the name -- so the gutter costs the name as
+   little width as possible instead of the number's box and the gap after
+   it adding up to more than the number itself really needs. */
+function layoutDoubleRowColumns(ctx, wPx, dpi, showNumbers){
   var pad = mmToPx(CELL_PADDING_MM, dpi);
   var gap = pad/2;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
@@ -1161,31 +1047,30 @@ function layoutDoubleRowColumns(ctx, wPx, dpi, showLine2Label, showNumbers){
   /* "10." is the widest a v10 row number ever gets (capacity is fixed at
      ROWS_V10) -- allowOneOver is false here since row numbers are drawn
      directly, never routed through capChars's one-over forgiveness */
-  var numberW = showNumbers ? measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, 2, false, false) + pad*0.5 : 0;
+  var numberPad = pad * 0.15;
+  var numberW = showNumbers ? measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, 2, false, false) + numberPad*2 : 0;
+  var x0 = showNumbers ? numberW + numberPad : pad;
 
-  var nameW = Math.max(0, wPx - numberW - pad*2 - phoneW - middleW - gap*2);
-  var x1 = numberW + pad;
-  var name = { x:x1, w:nameW, pt:NAME_FONT_PT }; x1 += nameW + gap;
-  var mid = { x:x1, w:middleW, pt:DEPT_FONT_PT }; x1 += middleW + gap;
-  var phone1 = { x:x1, w:phoneW, pt:PHONE_FONT_PT };
+  var narrowW = Math.max(0, wPx - x0 - pad - phoneW - middleW - gap*2);
+  var wideW = Math.max(0, wPx - x0 - pad - phoneW - gap);
 
-  var line2;
-  if(showLine2Label){
-    var wideW2 = Math.max(0, wPx - numberW - pad*2 - phoneW - middleW - gap*2);
-    var x2 = numberW + pad;
-    var wide2 = { x:x2, w:wideW2, pt:EMAIL_FONT_PT }; x2 += wideW2 + gap;
-    var mid2 = { x:x2, w:middleW, pt:DEPT_FONT_PT }; x2 += middleW + gap;
-    var phone2 = { x:x2, w:phoneW, pt:PHONE_FONT_PT };
-    line2 = [wide2, mid2, phone2];
-  } else {
-    var emailW = Math.max(0, wPx - numberW - pad*2 - phoneW - gap);
-    var x2b = numberW + pad;
-    var email = { x:x2b, w:emailW, pt:EMAIL_FONT_PT }; x2b += emailW + gap;
-    var phone2b = { x:x2b, w:phoneW, pt:PHONE_FONT_PT };
-    line2 = [email, phone2b];
+  function normalCols(fontPt){
+    var x = x0;
+    var wide = { x:x, w:narrowW, pt:fontPt }; x += narrowW + gap;
+    var mid = { x:x, w:middleW, pt:DEPT_FONT_PT }; x += middleW + gap;
+    return [wide, mid, { x:x, w:phoneW, pt:PHONE_FONT_PT }];
+  }
+  function wideCols(fontPt){
+    return [{ x:x0, w:wideW, pt:fontPt }, { x:x0 + wideW + gap, w:phoneW, pt:PHONE_FONT_PT }];
   }
 
-  return { line1:[name, mid, phone1], line2:line2, numberW:numberW };
+  return {
+    numberW: numberW,
+    line1Normal: normalCols(NAME_FONT_PT),
+    line1Wide: wideCols(NAME_FONT_PT),
+    line2Normal: normalCols(EMAIL_FONT_PT),
+    line2Wide: wideCols(EMAIL_FONT_PT)
+  };
 }
 
 /* ---------------- card drawing ---------------- */
@@ -1291,8 +1176,7 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
 
   if(layout.doubleRow){
     var subRowH = bodyH / (capacity*2);
-    var showLine2Label = line2Mode === "username";
-    var colSet = layoutDoubleRowColumns(ctx, wPx, dpi, showLine2Label, showNumbers);
+    var colSet = layoutDoubleRowColumns(ctx, wPx, dpi, showNumbers);
     for(var i=0;i<capacity;i++){
       var top1 = bodyY + subRowH*2*i;
       var top2 = top1 + subRowH;
@@ -1311,11 +1195,19 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
         ctx.fillText((i+1) + ".", xPx + colSet.numberW/2, top1 + subRowH);
         ctx.restore();
       }
-      drawGenericRow(ctx, xPx, top1, wPx, subRowH, dpi, colSet.line1, [c.name, formatLabelForRow(c.label1), formatPhoneNumber(c.phone)]);
-      var line2Values = showLine2Label
-        ? [pickLine2Field(c, line2Mode).value, formatLabelForRow(c.phone2Label), formatPhoneNumber(c.phone2)]
-        : [pickLine2Field(c, line2Mode).value, formatPhoneNumber(c.phone2)];
-      drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, colSet.line2, line2Values);
+      /* 1b/2b only actually get a column when THIS contact's own label
+         has text -- see layoutDoubleRowColumns -- so 1a/2a can use the
+         width a blank label doesn't need instead of leaving it empty. */
+      var label1 = formatLabelForRow(c.label1);
+      var cols1 = label1 ? colSet.line1Normal : colSet.line1Wide;
+      var values1 = label1 ? [c.name, label1, formatPhoneNumber(c.phone)] : [c.name, formatPhoneNumber(c.phone)];
+      drawGenericRow(ctx, xPx, top1, wPx, subRowH, dpi, cols1, values1);
+
+      var label2 = formatLabelForRow(c.phone2Label);
+      var cols2 = label2 ? colSet.line2Normal : colSet.line2Wide;
+      var custom2 = pickLine2Field(c, line2Mode).value;
+      var values2 = label2 ? [custom2, label2, formatPhoneNumber(c.phone2)] : [custom2, formatPhoneNumber(c.phone2)];
+      drawGenericRow(ctx, xPx, top2, wPx, subRowH, dpi, cols2, values2);
     }
   } else {
     var rowH = bodyH / capacity;
@@ -1532,24 +1424,27 @@ function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts, line2Mode, sho
   regions.push({ contactIndex:-1, field:"headerLegend", x:dateW, y:0, w:wPx-dateW, h:headerH, pt:HEADER_FONT_PT });
   if(layout.doubleRow){
     var subRowH = bodyH / (capacity*2);
-    var showLine2Label = line2Mode === "username";
-    var colSet = layoutDoubleRowColumns(ctx, wPx, dpi, showLine2Label, showNumbers);
-    var fieldsLine1 = ["name","label1","phone"];
+    var colSet = layoutDoubleRowColumns(ctx, wPx, dpi, showNumbers);
     for(var i=0;i<capacity;i++){
       var top1 = bodyY + subRowH*2*i, top2 = top1 + subRowH;
-      /* line 2's wide field depends on the page's line2Mode (see
-         pickLine2Field) -- the edit target must match exactly what's drawn
-         there. "empty" mode has no field backing it, so that column isn't
-         clickable at all (nothing to edit into). "username" mode also
-         draws a small phone2Label column (see layoutDoubleRowColumns),
-         independently editable from the wide username field. */
       var contact = contacts && contacts[i];
+      /* must match drawCard's own per-row Normal/Wide choice exactly, so
+         a click always edits whichever field is actually on screen */
+      var hasLabel1 = contact && formatLabelForRow(contact.label1);
+      var cols1 = hasLabel1 ? colSet.line1Normal : colSet.line1Wide;
+      var fields1 = hasLabel1 ? ["name","label1","phone"] : ["name","phone"];
+      cols1.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fields1[ci], x:col.x, y:top1, w:col.w, h:subRowH, pt:col.pt }); });
+
+      /* 2a's field depends on the page's line2Mode (see pickLine2Field) --
+         "empty" mode has no field backing it, so that column isn't
+         clickable at all (nothing to edit into). */
+      var hasLabel2 = contact && formatLabelForRow(contact.phone2Label);
+      var cols2 = hasLabel2 ? colSet.line2Normal : colSet.line2Wide;
       var wideKey = contact ? pickLine2Field(contact, line2Mode).key : "email";
-      var fieldsLine2 = showLine2Label ? [wideKey, "phone2Label", "phone2"] : [wideKey, "phone2"];
-      colSet.line1.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fieldsLine1[ci], x:col.x, y:top1, w:col.w, h:subRowH, pt:col.pt }); });
-      colSet.line2.forEach(function(col, ci){
-        if(fieldsLine2[ci] == null) return;
-        regions.push({ contactIndex:i, field:fieldsLine2[ci], x:col.x, y:top2, w:col.w, h:subRowH, pt:col.pt });
+      var fields2 = hasLabel2 ? [wideKey, "phone2Label", "phone2"] : [wideKey, "phone2"];
+      cols2.forEach(function(col, ci){
+        if(fields2[ci] == null) return;
+        regions.push({ contactIndex:i, field:fields2[ci], x:col.x, y:top2, w:col.w, h:subRowH, pt:col.pt });
       });
     }
   } else {
@@ -1732,6 +1627,7 @@ function doPrint(){
    populate/set-value/wire-change skeleton with only the options differing */
 function buildSelect(options, value, onChange, title){
   var sel = document.createElement("select");
+  sel.className = "truncate";
   if(title) sel.title = title;
   options.forEach(function(o){ sel.appendChild(el("option", { value:o[0], text:o[1] })); });
   sel.value = value;
@@ -1758,7 +1654,7 @@ function buildSwatchSelect(options, value, onChange, title){
   var btnSwatch = el("span", { class:"swatchBox" });
   btnSwatch.style.background = current ? current[0] : "#000";
   btn.appendChild(btnSwatch);
-  btn.appendChild(el("span", { text: current ? current[1] : "" }));
+  btn.appendChild(el("span", { class:"truncate", text: current ? current[1] : "" }));
   wrap.appendChild(btn);
 
   /* a 4-column grid of plain swatch squares, not a list of labeled rows
@@ -1776,18 +1672,31 @@ function buildSwatchSelect(options, value, onChange, title){
     });
     list.appendChild(item);
   });
+
   wrap.appendChild(list);
 
   btn.addEventListener("click", function(e){
     e.stopPropagation();
     closeOpenSwatchLists();
     list.hidden = !list.hidden;
+    if(!list.hidden) positionSwatchList(list);
   });
 
   return wrap;
 }
+/* keeps the color-swatch popup fully on screen: it opens right/down by
+   default (see the CSS), but a card's own swatch button can sit close
+   enough to the viewer's edge that the popup's real size -- unknowable
+   while it was still hidden -- would run past it, so this measures the
+   now-visible popup and flips it to whichever side actually has room. */
+function positionSwatchList(list){
+  list.classList.remove("alignRight", "openUp");
+  var rect = list.getBoundingClientRect();
+  if(rect.right > window.innerWidth) list.classList.add("alignRight");
+  if(rect.bottom > window.innerHeight) list.classList.add("openUp");
+}
 function closeOpenSwatchLists(){
-  document.querySelectorAll(".pageInfoBar .swatchList").forEach(function(l){ l.hidden = true; });
+  document.querySelectorAll(".pageInfoBar .swatchList").forEach(function(l){ l.hidden = true; l.classList.remove("alignRight", "openUp"); });
 }
 
 function pageLayoutOptionsSelect(currentKey, onChange){
@@ -1800,50 +1709,13 @@ function hexToRgb(hex){
   return { r:parseInt(hex.slice(0,2),16)||0, g:parseInt(hex.slice(2,4),16)||0, b:parseInt(hex.slice(4,6),16)||0 };
 }
 
-/* per-page header color: 15 preset swatches (all pre-verified for good
-   contrast with white text) plus a button revealing R/G/B number inputs
-   for an arbitrary custom color -- contrast with white is the picker's
-   own responsibility there, unlike the vetted presets */
+/* per-page header color: exactly the 16 preset swatches, nothing else --
+   a headerColor that doesn't match one (from before the custom R/G/B row
+   was removed, say) just falls back to showing the first preset (Svart)
+   as current, same as buildSwatchSelect does for any unmatched value. */
 function buildHeaderColorControls(pageState){
-  var wrap = el("div", { class:"colorControls" });
-
   var options = COLOR_PRESETS.map(function(c){ return [c.hex, c.name]; });
-  var isPreset = COLOR_PRESETS.some(function(c){ return c.hex.toLowerCase() === (pageState.headerColor||"").toLowerCase(); });
-  if(!isPreset) options.push([pageState.headerColor, "Anpassad"]);
-  var sel = buildSwatchSelect(options, pageState.headerColor, function(v){ pageState.headerColor = v; renderViewer(); }, "Rubrikfärg");
-  wrap.appendChild(sel);
-
-  var customBtn = el("button", { type:"button", text:"RGB", title:"Anpassad RGB-färg" });
-  wrap.appendChild(customBtn);
-
-  /* one "Apply" action reads all three fields at once -- applying on each
-     individual field's change would trigger a full re-render (this app
-     rebuilds page DOM on every state change) that collapses this box
-     before the other two fields could be set. Its own row (flex-basis via
-     .rgbBox) so it drops to a second line only when actually opened. */
-  var rgbBox = el("div", { class:"rgbBox", style:"display:none;" });
-  var startColor = isPreset ? { r:0,g:0,b:0 } : hexToRgb(pageState.headerColor);
-  var inputs = ["R","G","B"].map(function(ch, idx){
-    var input = document.createElement("input");
-    input.type = "number"; input.min = "0"; input.max = "255";
-    input.title = ch;
-    input.value = [startColor.r, startColor.g, startColor.b][idx];
-    rgbBox.appendChild(input);
-    return input;
-  });
-  var applyBtn = el("button", { type:"button", text:"Använd" });
-  applyBtn.addEventListener("click", function(){
-    var vals = inputs.map(function(inp){ return Math.max(0, Math.min(255, parseInt(inp.value,10)||0)); });
-    var hex = "#" + vals.map(function(v){ return v.toString(16).padStart(2,"0"); }).join("");
-    pageState.headerColor = hex;
-    renderViewer();
-  });
-  rgbBox.appendChild(applyBtn);
-  customBtn.addEventListener("click", function(){
-    rgbBox.style.display = rgbBox.style.display === "none" ? "flex" : "none";
-  });
-  wrap.appendChild(rgbBox);
-  return wrap;
+  return buildSwatchSelect(options, pageState.headerColor, function(v){ pageState.headerColor = v; renderViewer(); }, "Rubrikfärg");
 }
 
 function buildPageControls(index){
@@ -1875,17 +1747,6 @@ function buildPageControls(index){
   }
 
   if(pageState.layout === "v10"){
-    /* named "chain" -- shows that list's contacts (see contactsForChain),
-       in file order, instead of whatever's been manually dragged onto this
-       page. "None" (the default) leaves manual placement in charge. */
-    var chainNames = computeChainNames();
-    var chainOptions = [["", "Kedja: Ingen"]].concat(chainNames.map(function(name){ return [name, "Kedja: " + name]; }));
-    if(pageState.chain && !chainNames.some(function(n){ return listKey(n) === listKey(pageState.chain); })){
-      chainOptions.push([pageState.chain, "Kedja: " + pageState.chain + " (hittades inte)"]);
-    }
-    box.appendChild(buildSelect(chainOptions, pageState.chain || "", function(v){ pageState.chain = v || null; renderViewer(); },
-      "Kedja (en namngiven V10-lista från den importerade filen)"));
-
     /* line 2's wide field (name row's second line) -- a per-page choice
        instead of auto-detected, see pickLine2Field(). Options show just
        the mode name (no "Rad 2:" prefix); the select's title carries
@@ -1945,30 +1806,37 @@ function buildPageControls(index){
 
 /* the thin control strip floating directly above a card in the viewer --
    what used to be a "Sidor" list entry's own header (used/free count,
-   Visa/Ta bort) and selectors (layout, header color, chain/line 2/numbers,
+   A-Ö/Ta bort) and selectors (layout, header color, line 2/numbers,
    empty-page mode -- see buildPageControls, reused unchanged), now living
    right next to the card it actually describes instead of a separate
-   scrolling list. The label always names both "Kort N" (the sheet) and
-   "Sida M" (front/back within it) -- unambiguous whether one side or
-   several pairs are showing at once (see sidesPerView). */
+   scrolling list. Every physical side is its own plainly numbered "Sida
+   N" -- state.pages' own index, 1-based -- with no separate sheet/side
+   pairing in the label; two sides sharing a printed sheet (see
+   partnerPageIndex) is purely a print-time arrangement, not something
+   the numbering needs to expose (see sidesPerView, buildPagePairEl). */
 function buildPageInfoBar(index){
   var bar = el("div", { class:"pageInfoBar" });
+  var barColor = colorForPage(index);
+  if(barColor) tintElement(bar, barColor);
   var pageState = state.pages[index];
   if(!pageState) return bar; /* no data yet -- nothing to show/control */
 
-  var sidaNum = index % 2 === 0 ? 1 : 2;
   var cap = layoutRows(pageState.layout), used = contactsForPage(pageState).length, free = Math.max(0, cap-used);
-  var headerText = "Kort " + (Math.floor(index/2)+1) + " Sida " + sidaNum
+  var headerText = "Sida " + (index+1)
     + (pageState.layout === "empty" ? ": tom" : ": " + used + "/" + cap + " använda, " + free + " lediga");
   var headerRow = el("div", { class:"pageInfoHeader" });
-  headerRow.appendChild(el("span", { class: free === 0 && pageState.layout !== "empty" ? "full" : "", text:headerText, title:headerText }));
-  /* jumps the viewer straight to this page's pair -- otherwise the only
-     way to reach a card several pairs away is stepping through every one
-     in between with Föreg./Nästa */
-  var viewBtn = el("button", { type:"button", text:"Visa", title:"Hoppa till detta kort i visaren" });
-  viewBtn.addEventListener("click", function(){ scrollToPage(index - (index % 2)); });
-  headerRow.appendChild(viewBtn);
-  var removeBtn = el("button", { type:"button", class:"removeBtn", text:"Ta bort" });
+  headerRow.appendChild(el("span", { class: "truncate" + (free === 0 && pageState.layout !== "empty" ? " full" : ""), text:headerText, title:headerText }));
+  /* sorts this page's own contacts alphabetically by name, in place --
+     the page is already the one on screen (its info bar sits right on
+     it), so there's no separate "jump to this card" button to make room
+     for anymore. */
+  var sortBtn = el("button", { type:"button", text:"A-Ö", title:"Sortera namnen på det här kortet alfabetiskt" });
+  sortBtn.addEventListener("click", function(){
+    pageState.contacts.sort(function(a, b){ return (a.name||"").localeCompare(b.name||"", undefined, {sensitivity:"base"}); });
+    renderViewer();
+  });
+  headerRow.appendChild(sortBtn);
+  var removeBtn = el("button", { type:"button", class:"removeBtn", text:"×", title:"Ta bort -- gör den här sidan tom" });
   removeBtn.addEventListener("click", function(){ removePage(index); });
   headerRow.appendChild(removeBtn);
   bar.appendChild(headerRow);
@@ -2005,10 +1873,8 @@ function buildPageEl(index){
 
 /* one printed sheet's worth of preview: front + back side by side, since
    that's the actual physical unit -- pages are always printed in pairs
-   (see partnerPageIndex). frontIndex is always even. The strip scales
-   down with the card (see scaleEdgeHandles) so it still reads at
-   whatever size sidesPerView ends up fitting on screen. Every card gets
-   its own strip immediately to its own left, front and back alike (see
+   (see partnerPageIndex). frontIndex is always even. Every card gets its
+   own strip immediately to its own left, front and back alike (see
    .cardEdgeHandles), instead of the old outer/inner split -- so this is
    just the same two steps repeated once per card. */
 function buildPagePairEl(frontIndex){
@@ -2022,8 +1888,8 @@ function buildPagePairEl(frontIndex){
 }
 /* the narrowest tier (sidesPerView===1) shows only one physical side, not
    its printed partner -- same wrapper/edge-handle strip as a full pair,
-   just missing the second .page, so buildPageEl/fitVisibleCards/
-   scaleEdgeHandles all still work on it unchanged. */
+   just missing the second .page, so buildPageEl/fitVisibleCards still
+   work on it unchanged. */
 function buildLonePageEl(index){
   var pair = el("div", { class:"pagePair", "data-index":String(index) });
   pair.appendChild(buildCardEdgeHandles(index));
@@ -2037,9 +1903,7 @@ function buildLonePageEl(index){
    drop handler so they always agree on the same row. Returns null for a
    page with nothing to drop onto (no data yet, or "empty" layout).
    belowMidpoint says whether the point falls in the row's bottom half
-   (used to decide insertAfter for a reorder landing on an occupied row,
-   the same "top half/bottom half" convention wireReorderTarget already
-   uses for v10's own sidebar reorder list). */
+   (used to decide insertAfter for a reorder landing on an occupied row). */
 /* built on rowFractionsForLayout's own fraction math (below) rather than
    recomputing headerH/rowH in pixels itself -- computeHeaderH is a pure
    ratio of hPx, so the fractions it derives at an arbitrary unit apply
@@ -2081,14 +1945,19 @@ function rowFractionsForLayout(layout){
    order -- e.g. if Sales sits at rows 3-5 with IT at rows 0-2 and 6-8,
    this returns three segments (IT, Sales, IT again), not two -- the
    repeat is exactly the thing the segment capsules (see
-   buildCardEdgeHandles) are meant to make visible via a shared color. */
+   buildCardEdgeHandles) are meant to make visible via a shared color.
+   "Tom rad" spacers (isEmptyRow) get their own reserved key rather than
+   sharing deptGroupKey("")'s "(ingen avdelning)" bucket with a real
+   contact whose department field is just blank -- the two mean
+   different things, and buildCardEdgeHandles renders them differently
+   (a spacer's capsule carries no label and no department color). */
 function contiguousDeptSegments(contacts){
   var segments = [];
   contacts.forEach(function(c, i){
-    var key = deptGroupKey(c.department);
+    var key = c.isEmptyRow ? "__emptyRow__" : deptGroupKey(c.department);
     var last = segments[segments.length-1];
     if(last && last.key === key) last.length++;
-    else segments.push({ key:key, label:deptDisplayLabel(c.department), startIdx:i, length:1 });
+    else segments.push({ key:key, label: c.isEmptyRow ? "" : deptDisplayLabel(c.department), isEmptyRow: !!c.isEmptyRow, startIdx:i, length:1 });
   });
   return segments;
 }
@@ -2156,7 +2025,7 @@ function removeSegmentFromPage(pageIndex, startIdx, length){
 function wireCardRowDrag(canvas, pageIndex){
   canvas.addEventListener("dragstart", function(e){
     var pageState = state.pages[pageIndex];
-    if(!pageState || pageState.layout === "empty" || (pageState.layout === "v10" && pageState.chain)){
+    if(!pageState || pageState.layout === "empty"){
       e.preventDefault(); return;
     }
     var geo = rowFractionsForLayout(pageGeometryForIndex(pageIndex).layout);
@@ -2222,7 +2091,12 @@ function resolveDraggedContacts(data){
     var fromPageState = state.pages[data.fromPage];
     return fromPageState ? contactsForPage(fromPageState).slice(data.startIdx, data.startIdx + data.length) : [];
   }
-  if(data.type === "group") return state.contacts.filter(function(c){ return deptGroupKey(c.department) === data.groupKey; });
+  if(data.type === "group") return state.contacts.filter(function(c){ return c.sourceId === data.sourceId && deptGroupKey(c.department) === data.groupKey; });
+  /* a multi-use source's contact/group, or the "Tom rad" spacer -- these
+     are cloned fresh on drop (see instantiateTemplates) rather than moved
+     out of the pool, so there's no existing contact object to look up;
+     the payload already carries everything the preview needs. */
+  if(data.type === "template") return data.templates || [];
   var contact = state.contacts.find(function(c){ return c.id === data.contactId; });
   return contact ? [contact] : [];
 }
@@ -2411,8 +2285,9 @@ function wireCardDropTarget(canvas, index){
        moveMatchingBetweenPagesAt), opening a new one at DEFAULT_LAYOUT
        ("v20") if it needs to, instead of being refused. */
     handlePanelDrop(data,
-      function(fromPage, groupKey){ moveMatchingBetweenPagesAt(fromPage, index, groupMatcher(groupKey), geom.insertRow); },
-      function(fromPage, contactId){ moveMatchingBetweenPagesAt(fromPage, index, contactMatcher(contactId), geom.insertRow); });
+      function(fromPage, groupKey, sourceId){ moveMatchingBetweenPagesAt(fromPage, index, groupMatcher(sourceId, groupKey), geom.insertRow); },
+      function(fromPage, contactId){ moveMatchingBetweenPagesAt(fromPage, index, contactMatcher(contactId), geom.insertRow); },
+      function(templates){ addTemplatesAt(index, geom.insertRow, templates); });
   });
 }
 
@@ -2423,27 +2298,25 @@ function wireCardDropTarget(canvas, index){
    row-by-row (see wireCardRowDrag) -- so this strip only ever holds group
    capsules now. Always sits on the card's own left, front and back
    alike -- there's no longer an outer/inner distinction to pick a side
-   for. Not shown for a chain-driven v10 page: its order comes from the
-   chain/chainOrder, already reorderable from the sidebar's own numbered
-   list. */
+   for. */
 function buildCardEdgeHandles(pageIndex){
   var strip = el("div", { class:"cardEdgeHandles" });
   var pageState = state.pages[pageIndex];
   if(!pageState || pageState.layout === "empty") return strip;
-  if(pageState.layout === "v10" && pageState.chain) return strip;
   var layout = pageGeometryForIndex(pageIndex).layout;
   var geo = rowFractionsForLayout(layout);
   if(geo.capacity <= 0) return strip;
   var contacts = contactsForPage(pageState);
 
   contiguousDeptSegments(contacts).forEach(function(seg){
-    var color = colorForDeptKey(seg.key);
-    var capsule = el("div", { class:"segmentCapsule", draggable:"true", text:seg.label,
-      title:seg.label + " -- dra för att flytta hela gruppen (inom sidan eller till en annan sida)" });
-    capsule.style.background = color;
+    var color = seg.isEmptyRow ? null : colorForDeptKey(seg.key);
+    var capsule = el("div", { class:"segmentCapsule" + (seg.isEmptyRow ? " emptyRowCapsule" : ""), draggable:"true", text:seg.label,
+      "data-full-label":seg.label,
+      title:(seg.isEmptyRow ? "Tom rad" : seg.label) + " -- dra för att flytta hela gruppen (inom sidan eller till en annan sida)" });
+    if(color) tintElement(capsule, color);
     capsule.style.top = ((geo.headerFrac + seg.startIdx*geo.rowFrac) * 100) + "%";
     capsule.style.height = ((seg.length*geo.rowFrac) * 100) + "%";
-    capsule.addEventListener("dragstart", function(e){ showSegmentDragGhost(e, seg.label, color); });
+    capsule.addEventListener("dragstart", function(e){ showSegmentDragGhost(e, seg.label, color || "#999"); });
     wireDragStart(capsule, { type:"segment", fromPage:pageIndex, startIdx:seg.startIdx, length:seg.length });
     strip.appendChild(capsule);
   });
@@ -2451,12 +2324,10 @@ function buildCardEdgeHandles(pageIndex){
   return strip;
 }
 
-/* a second "remove from page" drop target, right next to the cards -- the
-   sidebar's own "Ta bort från sida" zone still works too (same
-   handlePanelDrop/removeGroupFromPage/removeContactFromPage), this just
-   saves the trip back to it while dragging a contact/segment straight
-   off a card. Bottom-left of the viewer, per request. Reuses
-   wireDropTarget's own dragover/dragleave/drop wiring instead of
+/* a "remove from page" drop target for a contact/segment dragged straight
+   off a card's own edge handles -- lives in #groupPanelControls, next to
+   #newPageZone (its opposite-action counterpart), not over the viewer.
+   Reuses wireDropTarget's own dragover/dragleave/drop wiring instead of
    repeating it. */
 function wireCardRemoveZone(zone){
   wireDropTarget(zone, function(data){
@@ -2484,6 +2355,15 @@ function sidesPerView(){
   return 1;
 }
 
+/* the one distance every floating thing keeps from the window's own edge
+   -- must match --edge-gap in the CSS. Reused below both as the viewer's
+   own left/right/bottom padding (matching #groupPanel's own edge padding
+   in the CSS) and as the gap PAGE_INFO_BAR_CLEARANCE_PX reserves above
+   the tallest a per-card info bar gets, so nothing built from this
+   constant ever sits closer to a window edge than anything else built
+   from it. */
+var WINDOW_EDGE_GAP_PX = 14;
+
 /* must match #viewerContent's own padding-top/padding-bottom in the CSS
    -- ch below reserves exactly that much real vertical space instead of
    a blanket percentage, so the fitted card(s) actually fill the space
@@ -2491,49 +2371,94 @@ function sidesPerView(){
    flex centering only ever reallocates slack between top/bottom in
    proportion to the padding difference, which is too subtle to read as
    "the bottom has more room" -- reserving the exact space makes each
-   padding value the real, visible gap. */
-var VIEWER_NAV_CLEARANCE_PX = 150;
-var VIEWER_BOTTOM_MARGIN_PX = 32;
-
-/* the group-capsule strip's width and font-size (see the CSS, both in em)
-   scale off this one pixel value instead of a fixed size, so the strip
-   stays readable whatever size sidesPerView ends up fitting on screen --
-   the floor and multiplier are picked so the capsule text reads at
-   roughly the same size as the rest of the UI's small controls even on a
-   short card, rather than shrinking down to near-illegible. */
-function scaleEdgeHandles(pairEl, cardHeightPx){
-  pairEl.style.fontSize = Math.max(11, cardHeightPx * 0.028) + "px";
-}
+   padding value the real, visible gap. PAGE_INFO_BAR_CLEARANCE_PX only
+   has to clear each card's own .pageInfoBar strip now -- the nav lives in
+   the toolbar, not over the viewer, so it's no longer part of this budget.
+   Sized for the tallest a bar can actually get, not just the common
+   case, so the bar never sits any closer to the toolbar than the top
+   left menu does -- an "empty" page in image mode, whose file picker and
+   fit-mode select wrap the bar out to its worst case, is ~120px tall
+   (rounded up to 121) with the bar's own 10px padding now matching
+   #groupPanelControls' own padding on every side. WINDOW_EDGE_GAP_PX on
+   top of that is the same gap #groupPanelControls' own box keeps from
+   the toolbar (#groupPanel's own edge padding), so the bar's top edge is
+   never any closer. A smaller clearance left that rare tall bar's top
+   edge rendered underneath the toolbar -- the bug this budget now rules
+   out in every case, common or not -- at the cost of leaving unused
+   headroom above the much more common, shorter v20-style bar (~81px). */
+var PAGE_INFO_BAR_CLEARANCE_PX = 121 + WINDOW_EDGE_GAP_PX;
 
 /* sizes every currently-rendered .page to fit them all on screen at once,
    side by side, on whichever axis (combined width or height) is tighter
    -- every card shares one physical size (CARD_W_MM/CARD_H_MM are
    global), so a single scale computed from the total width covers all of
-   them. Reads the gaps straight from the DOM (12px between a pair's own
-   front/back, 24px between separate pairs, both from the CSS) rather
-   than re-deriving how many pairs are showing, so it works the same
-   whether renderViewer just built a lone side or several full pairs. */
+   them. Reads the fixed (non-card) width straight from the DOM instead of
+   assuming it -- every edge-handles strip's actual rendered width, the
+   12px gap between a pair's own front/back, and the 24px gap between
+   separate pairs (both from the CSS) -- so it works the same whether
+   renderViewer just built a lone side or several full pairs, and never
+   under-counts the strips (which used to leave rows a bit too wide for
+   their own budget, forcing an unwanted wrap into a second row that then
+   overflowed the viewer's own height). */
 function fitVisibleCards(){
   var wrap = $("#viewerContent");
   var pages = wrap.querySelectorAll(".page");
   var pairs = wrap.querySelectorAll(".pagePair");
   if(!pages.length) return;
   var dims = pageGeometryForIndex(state.currentPage).cardDims;
-  var innerGaps = 0;
-  pairs.forEach(function(pp){ innerGaps += Math.max(0, pp.querySelectorAll(".page").length - 1) * 12; });
+  var stripEl = wrap.querySelector(".cardEdgeHandles");
+  var stripW = stripEl ? stripEl.getBoundingClientRect().width : 0;
+  var stripCount = 0, pageGapCount = 0;
+  pairs.forEach(function(pp){
+    stripCount += pp.querySelectorAll(".cardEdgeHandles").length;
+    pageGapCount += Math.max(0, pp.querySelectorAll(".page").length - 1);
+  });
   var rowGaps = Math.max(0, pairs.length - 1) * 24;
-  var cw = (wrap.clientWidth * 0.92 - innerGaps - rowGaps) / pages.length;
-  var ch = wrap.clientHeight - VIEWER_NAV_CLEARANCE_PX - VIEWER_BOTTOM_MARGIN_PX;
+  var fixedW = stripCount*stripW + pageGapCount*12 + rowGaps;
+  /* the 1px below is deliberate slack, not part of the real budget --
+     this math is otherwise exact (solves cw so the row's own width comes
+     out to precisely availW), but "exact" sitting right on the boundary
+     leaves zero room for subpixel layout rounding (fractional device
+     pixel ratios, browser zoom) to tip the actual rendered row a hair
+     over its budget. A pixel of slack costs nothing visible and keeps
+     the row reliably a hair under its budget instead of exactly on it.
+     Only one WINDOW_EDGE_GAP_PX subtracted, not two: the right side needs
+     its own (there's nothing else reserving room against the window's
+     right edge), but the left side's gap already comes from #groupPanel's
+     own right-edge padding, outside wrap.clientWidth entirely -- see
+     #viewerContent's own comment on why it carries no padding-left. */
+  var availW = wrap.clientWidth - WINDOW_EDGE_GAP_PX - 1;
+  var cw = (availW - fixedW) / pages.length;
+  var ch = wrap.clientHeight - PAGE_INFO_BAR_CLEARANCE_PX - WINDOW_EDGE_GAP_PX;
   var scale = Math.min(cw/dims.w, ch/dims.h);
   var w = dims.w*scale, h = dims.h*scale;
   pages.forEach(function(p){ p.style.width = w+"px"; p.style.height = h+"px"; });
-  pairs.forEach(function(pp){ scaleEdgeHandles(pp, h); });
+}
+
+/* a segment capsule's label runs top-to-bottom (writing-mode:vertical-rl,
+   see .segmentCapsule) inside a pill whose length is fixed by however
+   many rows that department run covers -- a short run (as little as one
+   row) only has room for a couple of characters before the label would
+   wrap into a second column and spill out of the pill's own fixed width.
+   Only knowable once the page (and so the capsule, which stretches to
+   match it) has its real pixel height, i.e. after fitVisibleCards --
+   truncates each one to however many characters its own actual height
+   fits, roughly one character per font-size's worth of vertical room. */
+function fitSegmentCapsuleLabels(){
+  document.querySelectorAll(".segmentCapsule").forEach(function(capsule){
+    var full = capsule.dataset.fullLabel;
+    if(full == null) return;
+    var heightPx = capsule.getBoundingClientRect().height;
+    var fontPx = parseFloat(getComputedStyle(capsule).fontSize) || 12;
+    var maxChars = Math.max(1, Math.floor(heightPx / fontPx));
+    capsule.textContent = full.length > maxChars ? full.slice(0, maxChars) : full;
+  });
 }
 
 /* however many card sides renderViewer actually put on screen last time
-   -- lets updateIndicator and the sidebar's own "which page is currently
-   shown" highlight (see renderGroupPanel) agree with what's really
-   visible without recomputing sidesPerView themselves. */
+   -- lets renderPortalPanel mark every currently-visible page's button
+   .current (a single one, or a range) without recomputing sidesPerView
+   itself. */
 var lastVisibleCount = 0;
 
 function renderViewer(){
@@ -2550,9 +2475,8 @@ function renderViewer(){
       : "Släpp en CSV- eller XLSX-fil för att börja";
     overlay.hidden = false;
     lastVisibleCount = 0;
-    updateIndicator();
-    updateGridInfo();
     renderGroupPanel();
+    renderPortalPanel();
     return;
   }
   overlay.hidden = true;
@@ -2582,30 +2506,9 @@ function renderViewer(){
     lastVisibleCount = pairsToShow*2;
   }
   fitVisibleCards();
-  updateIndicator();
-  updateGridInfo();
+  fitSegmentCapsuleLabels();
   renderGroupPanel();
-}
-
-function updateIndicator(){
-  var total = totalPagesCount();
-  var totalPairs = Math.ceil(total/2);
-  if(sidesPerView() === 1){
-    var sida = state.currentPage%2===0 ? 1 : 2;
-    $("#pageIndicator").textContent = "Kort " + (Math.floor(state.currentPage/2)+1) + " Sida " + sida + " / " + totalPairs;
-    return;
-  }
-  var firstPair = state.currentPage/2+1;
-  var lastPair = Math.min(totalPairs, firstPair + Math.max(0, lastVisibleCount/2) - 1);
-  $("#pageIndicator").textContent = "Kort " + (firstPair===lastPair ? firstPair : firstPair+"–"+lastPair) + " / " + totalPairs;
-}
-function updateGridInfo(){
-  var geo = pageGeometryForIndex(state.currentPage);
-  if(geo.layout.key === "empty"){
-    $("#gridInfo").textContent = "Tom sida (" + geo.pageDims.name + ")";
-  } else {
-    $("#gridInfo").textContent = geo.grid.cols+" x "+geo.grid.rows+" = "+geo.grid.count+" kort ("+geo.layout.label+", "+geo.pageDims.name+")";
-  }
+  renderPortalPanel();
 }
 
 /* idx names the page to jump to -- the front of its pair in a multi-side
@@ -2618,6 +2521,80 @@ function scrollToPage(idx){
 }
 function goPrev(){ scrollToPage(state.currentPage - sidesPerView()); }
 function goNext(){ scrollToPage(state.currentPage + sidesPerView()); }
+
+/* one round button per page ("Sida N") in #portalPanel -- lets a drag
+   reach a card that isn't on screen right now without the scroll wheel,
+   which Firefox on Windows never delivers while a native drag is held
+   (an OS-level limitation of that drag loop, not something a page can
+   work around by listening harder). Held over during a drag, a portal
+   jumps the viewer straight to its page while the drag stays active --
+   a native drag session isn't tied to any particular DOM node staying
+   put, so rebuilding the whole viewer under it (renderViewer, same as
+   any other page turn) doesn't interrupt it; dragover just keeps firing
+   on whatever's now under the cursor once the target page is on screen,
+   ready to drop onto. Also a plain click-to-jump button even with
+   nothing being dragged.
+   One button per page, not per printed sheet -- two sides sharing a
+   sheet (see partnerPageIndex) is purely a print-time arrangement, not
+   something the portals need to know about, and addressing pages
+   directly is what actually fixes a portal being unreachable in the
+   narrowest tier: sidesPerView()===1 shows exactly one page, front or
+   back, and jumping straight to that exact index works there same as
+   anywhere else, unlike the old always-jump-to-the-front-of-a-pair
+   version. */
+/* the color a page's own portal button (while current) and its own
+   .pageInfoBar both use -- its first real contact's department color,
+   same palette entry that contact uses everywhere else (its group
+   tile/chip, its segment capsule on the card itself), so a page's portal,
+   its info bar, and its own card all read as the same color. null for a
+   page with no contacts to take a color from (an "empty" spacer page),
+   which leaves each caller's own CSS fallback in place. */
+function colorForPage(pageIndex){
+  var page = state.pages[pageIndex];
+  if(!page || !page.contacts.length) return null;
+  var contact = page.contacts.filter(function(c){ return !c.isEmptyRow; })[0];
+  if(!contact) return null;
+  return colorForDeptKey(deptGroupKey(contact.department));
+}
+function renderPortalPanel(){
+  var panel = $("#portalPanel");
+  if(!panel) return;
+  panel.innerHTML = "";
+  if(!state.pages.length) return;
+  var total = totalPagesCount();
+  var visibleStart = state.currentPage;
+  var visibleEnd = state.currentPage + Math.max(0, lastVisibleCount-1);
+  for(var i=0;i<total;i++){
+    var isCurrent = i>=visibleStart && i<=visibleEnd;
+    var btn = el("div", {
+      class:"pill portalBtn" + (isCurrent ? " current" : ""),
+      text:String(i+1),
+      title:"Hoppa till Sida " + (i+1)
+    });
+    if(isCurrent){
+      var color = colorForPage(i);
+      if(color) tintElement(btn, color);
+    }
+    wirePortalButton(btn, i);
+    panel.appendChild(btn);
+  }
+}
+function wirePortalButton(btn, pageIndex){
+  btn.addEventListener("click", function(){ scrollToPage(pageIndex); });
+  btn.addEventListener("dragover", function(e){
+    if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
+    e.preventDefault();
+    btn.classList.add("dragOver");
+    var visibleStart = state.currentPage;
+    var visibleEnd = state.currentPage + Math.max(0, lastVisibleCount-1);
+    if(pageIndex < visibleStart || pageIndex > visibleEnd) scrollToPage(pageIndex);
+  });
+  btn.addEventListener("dragleave", function(){ btn.classList.remove("dragOver"); });
+  /* not a real drop target -- dropping here just leaves whatever was
+     being dragged exactly where it already was, same as letting go
+     anywhere else with no valid target underneath. */
+  btn.addEventListener("drop", function(e){ e.preventDefault(); btn.classList.remove("dragOver"); });
+}
 
 var wheelCooldown = false;
 function onWheel(e){
@@ -2640,14 +2617,26 @@ function populatePaperSizes(){
 
 function initEvents(){
   $("#paperSize").addEventListener("change", function(){ state.paperSize = $("#paperSize").value; renderViewer(); });
-  $("#prevBtn").addEventListener("click", goPrev);
-  $("#nextBtn").addEventListener("click", goNext);
   $("#printBtn").addEventListener("click", doPrint);
   wireCardRemoveZone($("#cardRemoveZone"));
+  wireDropTarget($("#newPageZone"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage, addTemplatesToNewPage); });
+  /* the rest of #groupPanelControls (see the HTML) is static -- never
+     rebuilt by renderGroupPanel -- so it's wired once here instead of on
+     every render, unlike the per-source tiles below it. */
+  $("#clearAllBtn").addEventListener("click", function(){
+    state.pages = [];
+    renderViewer();
+  });
+  $("#populateBtn").addEventListener("click", function(){
+    state.currentPage = 0;
+    regeneratePages();
+    renderViewer();
+  });
+  wireDragStart($("#emptyRowTile"), { type:"template", fromPage:null, templates:[emptyRowTemplate()] });
   /* dropping a group/contact on the empty-viewer overlay (shown only when
      state.pages is empty) creates the first page, same as "+ Ny sida" --
      otherwise there's nowhere on screen yet to drop onto. */
-  wireDropTarget($("#emptyViewerOverlay"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage); });
+  wireDropTarget($("#emptyViewerOverlay"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage, addTemplatesToNewPage); });
   /* Ctrl+P (Cmd+P on Mac) must go through doPrint() too, not the browser's
      own print of whatever's on screen -- the visible viewer is a live
      editor (one card at a time, edit overlays, etc), not the print layout;
@@ -2698,21 +2687,69 @@ function groupContactsByDepartment(contacts){
 }
 function computeDepartmentGroups(){ return groupContactsByDepartment(state.contacts); }
 
+/* same idea as groupContactsByDepartment, but a department is only ever
+   the same group if it's also from the same imported source -- two files
+   that both have an "IT" department produce two separate groups here, so
+   dragging or auto-populating one never sweeps up the other's contacts
+   (see the group panel's per-source sections, and packContactsIntoPages).
+   Each group additionally carries its sourceId, needed by groupMatcher to
+   keep the two apart. */
+function groupContactsBySourceAndDepartment(contacts){
+  var byKey = new Map();
+  var order = [];
+  contacts.forEach(function(c){
+    var key = (c.sourceId||"") + "::" + deptGroupKey(c.department);
+    if(!byKey.has(key)){
+      byKey.set(key, { key:deptGroupKey(c.department), sourceId:c.sourceId, label:deptDisplayLabel(c.department), contacts:[] });
+      order.push(key);
+    }
+    byKey.get(key).contacts.push(c);
+  });
+  return order.map(function(k){ return byKey.get(k); });
+}
+
+/* Svart is only meant for header text/background choices, not something
+   a department should ever be auto-assigned -- a black segment capsule
+   or drag-highlight tint would be unreadable (white capsule text) and
+   easy to mistake for "no color at all". */
+var DEPT_COLOR_PRESETS = COLOR_PRESETS.filter(function(c){ return c.hex.toLowerCase() !== "#000000"; });
 /* consistent color for a department, shared by the segment capsules
    (buildCardEdgeHandles) and the drag-preview highlight
    (applyDragHighlights) -- same key, same color, so a purple IT capsule
    and a purple highlighted row obviously mean the same department. Order
    comes from computeDepartmentGroups (first-seen in the full roster),
-   cycling through COLOR_PRESETS if there are more departments than
+   cycling through DEPT_COLOR_PRESETS if there are more departments than
    presets. */
 function colorForDeptKey(key){
   var deptOrder = computeDepartmentGroups().map(function(g){ return g.key; });
   var idx = deptOrder.indexOf(key);
-  return COLOR_PRESETS[(idx === -1 ? 0 : idx) % COLOR_PRESETS.length].hex;
+  return DEPT_COLOR_PRESETS[(idx === -1 ? 0 : idx) % DEPT_COLOR_PRESETS.length].hex;
 }
 function hexToRgba(hex, alpha){
   var rgb = hexToRgb(hex);
   return "rgba("+rgb.r+","+rgb.g+","+rgb.b+","+alpha+")";
+}
+/* blends a color toward white by `ratio` (1 = the color itself, 0 =
+   white) and returns an OPAQUE rgb() -- not real alpha transparency,
+   which would pick up whatever's actually behind the element (portal
+   buttons sit on the toolbar's dark background, not a white panel like
+   everything else this tints, and true alpha there would composite
+   toward black instead of white, going muddy instead of light). This
+   is the same math as real alpha over a white backdrop, so it looks
+   identical to the alpha version everywhere else it's used. */
+function mixWithWhite(hex, ratio){
+  var rgb = hexToRgb(hex);
+  var mix = function(c){ return Math.round(c*ratio + 255*(1-ratio)); };
+  return "rgb("+mix(rgb.r)+","+mix(rgb.g)+","+mix(rgb.b)+")";
+}
+/* the shared "placed"/"current" look -- a light tint of the element's own
+   department color for its fill, a stronger tint for its border. Used by
+   every pill-shaped or bordered thing that colors itself per department
+   (contact chips, group tiles, portal buttons, segment capsules), so
+   they all read as the same color at a glance no matter which one it is. */
+function tintElement(el, color){
+  el.style.background = mixWithWhite(color, 0.32);
+  el.style.borderColor = mixWithWhite(color, 0.85);
 }
 
 /* which 1-indexed page(s) currently show at least one of this group's
@@ -2737,7 +2774,7 @@ function pageNumbersForGroup(group){
    the same guarantee a manual layout-capacity change already gets. */
 /* ensures state.pages[index] exists and is a real content page (creating
    blank pages up to it, and waking it up from "empty" if needed), ready to
-   receive contacts. Shared by moveGroupBetweenPages and moveGroupToNewPage. */
+   receive contacts -- used by moveMatchingBetweenPagesAt. */
 function activateContentPage(index){
   while(state.pages.length <= index){
     state.pages.push(blankPage(DEFAULT_LAYOUT));
@@ -2807,21 +2844,8 @@ function takeMatching(fromPage, matches, destLayoutKey){
   return takeMatchingOffPage(fromPage, matches);
 }
 
-/* moves every matching contact from one page (or the unplaced pool,
-   fromPage:null) to another page -- used by the drag-and-drop page-slot
-   UI. The destination cascades overflow forward exactly like every other
-   placement path. */
-function moveMatchingBetweenPages(fromPage, toIndex, matches){
-  if(fromPage != null && fromPage === toIndex) return;
-  var toPage = activateContentPage(toIndex);
-  var moving = takeMatching(fromPage, matches, toPage.layout);
-  if(!moving.length) return;
-  toPage.contacts = toPage.contacts.concat(moving);
-  reflowFromPage(toIndex);
-  renderViewer();
-}
-/* same as moveMatchingBetweenPages, but inserts starting at a specific
-   row instead of always appending to the end -- used when dropping
+/* inserts every matching contact into another page starting at a specific
+   row -- used when dropping
    directly onto a row of the card in the viewer itself (see
    wireCardDropTarget), where the row you're over is the whole point.
    Pool drags (fromPage:null) onto a v20 page they're already on still
@@ -2863,38 +2887,69 @@ function removeMatchingFromPage(fromPage, matches){
   renderViewer();
 }
 
-function groupMatcher(groupKey){ return function(c){ return deptGroupKey(c.department) === groupKey; }; }
+/* sourceId is required so two files that both have an "IT" department
+   never match each other's contacts (see groupContactsBySourceAndDepartment) */
+function groupMatcher(sourceId, groupKey){ return function(c){ return c.sourceId === sourceId && deptGroupKey(c.department) === groupKey; }; }
 function contactMatcher(contactId){ return function(c){ return c.id === contactId; }; }
 function idsMatcher(ids){ var set = new Set(ids); return function(c){ return set.has(c.id); }; }
 
-function moveGroupBetweenPages(fromPage, toIndex, groupKey){ moveMatchingBetweenPages(fromPage, toIndex, groupMatcher(groupKey)); }
-function moveGroupToNewPage(fromPage, groupKey){ moveMatchingToNewPage(fromPage, groupMatcher(groupKey)); }
-function removeGroupFromPage(fromPage, groupKey){ removeMatchingFromPage(fromPage, groupMatcher(groupKey)); }
+function moveGroupToNewPage(fromPage, groupKey, sourceId){ moveMatchingToNewPage(fromPage, groupMatcher(sourceId, groupKey)); }
+function removeGroupFromPage(fromPage, groupKey, sourceId){ removeMatchingFromPage(fromPage, groupMatcher(sourceId, groupKey)); }
 
-function moveContactBetweenPages(fromPage, toIndex, contactId){ moveMatchingBetweenPages(fromPage, toIndex, contactMatcher(contactId)); }
+/* clones a multi-use contact/group or the "Tom rad" spacer into brand-new
+   contact objects (fresh ids), so the pool's own template is never
+   consumed -- the same source stays draggable out again as many times as
+   needed. Never added to state.contacts: a template instance lives only
+   on whichever page(s) it's dropped onto (see the state.sources doc
+   comment), so it's automatically left out of the pool listing and the
+   "Fördela" auto-distribution, exactly as intended. */
+function instantiateTemplates(templates){
+  return templates.map(function(t){
+    var c = Object.assign({}, t);
+    c.id = state.nextContactId++;
+    return c;
+  });
+}
+function addTemplatesAt(toIndex, atRow, templates){
+  var contacts = instantiateTemplates(templates);
+  if(!contacts.length) return;
+  var toPage = activateContentPage(toIndex);
+  var insertAt = Math.max(0, Math.min(atRow, toPage.contacts.length));
+  toPage.contacts = toPage.contacts.slice(0, insertAt).concat(contacts, toPage.contacts.slice(insertAt));
+  reflowFromPage(toIndex);
+  renderViewer();
+}
+function addTemplatesToNewPage(templates){
+  var contacts = instantiateTemplates(templates);
+  if(!contacts.length) return;
+  var newIndex = state.pages.length;
+  state.pages.push(blankPage(DEFAULT_LAYOUT, contacts));
+  reflowFromPage(newIndex);
+  if(state.pages.length % 2 !== 0) state.pages.push(blankPage(DEFAULT_LAYOUT));
+  renderViewer();
+}
+
 function moveContactToNewPage(fromPage, contactId){ moveMatchingToNewPage(fromPage, contactMatcher(contactId)); }
 function removeContactFromPage(fromPage, contactId){ removeMatchingFromPage(fromPage, contactMatcher(contactId)); }
 
-/* removes a page outright. Its contacts are never deleted -- they're still
-   in state.contacts, same as any other unplaced group/contact -- they just
-   go back to being unassigned, ready to be dragged onto a different page
-   from the pool. (An earlier version reinserted a fresh page with the same
-   contacts at the same spot instead, which "rescued" the data but made
-   Remove look like it did nothing whenever the page had content -- the
-   page count never actually dropped.)
-
-   Deliberately does NOT re-pad to an even count the way page-creating
-   actions do: this is an explicit "I want fewer pages" action, and
-   re-padding fought that intent outright once nothing was left to
-   rescue -- removing an already-empty trailing page would immediately
-   get replaced by a fresh empty filler, so the count could never drop
-   below whatever it happened to pad up to, and Remove looked like it did
-   nothing at all. An odd final page count is fine: pageGeometryForIndex's
-   partner lookup already tolerates a page with no pair. */
+/* turns this one page/side blank rather than physically removing it from
+   state.pages -- splicing it out used to shift every later page's own
+   front/back pairing, and repeatedly doing that down to zero pages fell
+   all the way back to the "drop a CSV/XLSX file" empty-viewer message,
+   which is a jarring thing to land on when contacts are already loaded.
+   Same "switch to empty" move the layout select itself offers (see
+   buildPageControls): its contacts are stashed in savedContacts, not
+   deleted -- switching the layout back to v10/v20 restores them, and
+   they're always still draggable back out of the pool in the meantime.
+   A no-op on a page that's already blank. */
 function removePage(index){
-  var page = state.pages[index];
-  if(!page) return;
-  state.pages.splice(index, 1);
+  var pageState = state.pages[index];
+  if(!pageState || pageState.layout === "empty") return;
+  pageState.savedContacts = pageState.contacts;
+  pageState.contacts = [];
+  pageState.layout = "empty";
+  if(!pageState.emptyMode) pageState.emptyMode = "blank";
+  reflowFromPage(index);
   renderViewer();
 }
 
@@ -2920,11 +2975,15 @@ function wireDropTarget(target, onDrop){
     onDrop(JSON.parse(raw));
   });
 }
-/* dispatches a drop payload to the matching group/contact operation --
-   shared by every drop target so they don't each need their own type check */
-function handlePanelDrop(data, onGroup, onContact){
+/* dispatches a drop payload to the matching group/contact/template
+   operation -- shared by every drop target so they don't each need their
+   own type check. onTemplate is optional: drop targets with no sensible
+   "create a new one here" action (e.g. the remove zone) can leave it out,
+   in which case a template drop is silently ignored there. */
+function handlePanelDrop(data, onGroup, onContact, onTemplate){
   if(data.type === "contact") onContact(data.fromPage, data.contactId);
-  else onGroup(data.fromPage, data.groupKey);
+  else if(data.type === "template"){ if(onTemplate) onTemplate(data.templates); }
+  else onGroup(data.fromPage, data.groupKey, data.sourceId);
 }
 /* starts a panel drag carrying `payload` (a {type, fromPage, ...} object
    matching handlePanelDrop's expectations) -- shared by every draggable
@@ -2950,42 +3009,6 @@ function wireDragStart(node, payload){
 var activeDragPayload = null;
 document.addEventListener("dragend", function(){ activeDragPayload = null; });
 
-/* wires `row` (one name in a v10 page's own ordered contact list) as a
-   drop target for reordering that list -- dropping on the row's top
-   half inserts the dragged contact before it, the bottom half after.
-   `matches(data)` decides whether an incoming drag is actually a same-
-   list reorder; anything else falls to `fallback` (if given) instead,
-   so a normal pool/cross-page drop landing on a row still behaves
-   exactly like dropping anywhere else on the page card. Handles the
-   full drop itself (stopPropagation) rather than relying on it
-   bubbling to the card's own drop target, since dataTransfer.getData()
-   -- needed to tell reorder from everything else -- only works inside
-   "drop", not "dragover", so the decision can't be made early enough
-   to conditionally skip preventDefault on the row in the first place. */
-function wireReorderTarget(row, matches, onReorder, fallback){
-  row.addEventListener("dragover", function(e){
-    if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
-    e.preventDefault();
-    e.stopPropagation();
-    row.classList.add("dragOver");
-  });
-  row.addEventListener("dragleave", function(){ row.classList.remove("dragOver"); });
-  row.addEventListener("drop", function(e){
-    e.preventDefault();
-    e.stopPropagation();
-    row.classList.remove("dragOver");
-    var raw = e.dataTransfer.getData(PANEL_DRAG_MIME);
-    if(!raw) return;
-    var data = JSON.parse(raw);
-    if(matches(data)){
-      var insertAfter = (e.clientY - row.getBoundingClientRect().top) > row.getBoundingClientRect().height/2;
-      onReorder(data.contactId, insertAfter);
-    } else if(fallback){
-      fallback(data);
-    }
-  });
-}
-
 /* every 1-indexed page currently showing this exact contact -- normally at
    most one v20 page, but the same contact can legitimately sit on several
    v10 pages (and a v20 page) at once, since v10 never consolidates. A
@@ -3007,48 +3030,44 @@ function buildExpandToggle(expanded, onToggle){
   return toggle;
 }
 
-/* one draggable row per contact, used both under an expanded pool tile and
-   under an expanded page chip -- identical either way, since a single name
-   moves through the same take/move functions a whole department does */
-function buildContactList(contacts, fromPage){
-  var list = el("div", { class:"contactList" });
-  contacts.forEach(function(c){
-    var pageNums = pageNumbersForContact(c);
-    var placed = pageNums.length > 0;
-    var chip = el("div", {
-      class: "contactChip" + (placed ? " placed" : ""),
-      draggable: "true",
-      title: (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till en sida, \"+ Ny sida\", eller \"" + "✕ Ta bort från sida" + "\""
-    });
-    chip.appendChild(el("span", { class:"contactChipName", text:c.name }));
-    if(placed) chip.appendChild(el("span", { class:"contactChipPage", text:"s"+pageNums.join(",") }));
-    wireDragStart(chip, { type:"contact", fromPage:fromPage, contactId:c.id });
-    list.appendChild(chip);
-  });
-  return list;
+/* strips the id off a contact so it can be carried in a "template" drag
+   payload -- instantiateTemplates assigns each drop its own fresh id, so
+   the id on the pool's own copy is never reused as-is (see
+   state.nextContactId). */
+function contactFields(c){
+  var t = Object.assign({}, c);
+  delete t.id;
+  return t;
 }
 
-/* v10's own flat, numbered, drag-to-reorder contact list -- the actual
-   printed order on the card, unlike buildContactList's department-tile
-   rows (a pool/placement view where order doesn't matter). A manual
-   page's rows are also still draggable out to another page or the
-   delete zone (payloadType "contact", reusing the normal contact drag
-   machinery -- onPageDrop is the same fallback the page card itself
-   drops onto); a chain page's rows only ever reorder within their own
-   list (payloadType "chainReorder", no fallback -- see
-   reorderWithinPage for why chain membership isn't "moved" this way). */
-function buildOrderedContactList(pageIndex, contacts, payloadType, onPageDrop){
+/* one draggable row per contact, used under an expanded pool tile.
+   multiUse marks a source flagged for repeat use (see the source header's
+   checkbox in renderGroupPanel): its chips are cloned fresh on every drag
+   (a "template" payload) instead of being moved out of the pool, so the
+   same person can be dropped onto more than one card. */
+function buildContactList(contacts, fromPage, multiUse){
   var list = el("div", { class:"contactList" });
-  contacts.forEach(function(c, idx){
-    var title = "Dra för att ändra ordning" + (onPageDrop ? ", eller till en annan sida eller \"✕ Ta bort från sida\"" : "");
-    var row = el("div", { class:"contactChip", draggable:"true", title:title });
-    row.appendChild(el("span", { class:"contactChipName", text:(idx+1) + ". " + c.name }));
-    wireDragStart(row, { type:payloadType, fromPage:pageIndex, contactId:c.id });
-    wireReorderTarget(row,
-      function(data){ return data.type === payloadType && data.fromPage === pageIndex; },
-      function(draggedId, insertAfter){ reorderWithinPage(pageIndex, draggedId, c.id, insertAfter); },
-      onPageDrop);
-    list.appendChild(row);
+  contacts.forEach(function(c){
+    var pageNums = multiUse ? [] : pageNumbersForContact(c);
+    var placed = pageNums.length > 0;
+    var chip = el("div", {
+      class: "pill contactChip" + (placed ? " placed" : "") + (multiUse ? " reusable" : ""),
+      draggable: "true",
+      title: multiUse
+        ? "Kan dras ut flera gånger -- dra till ett kort eller \"+ Ny sida\" i visaren"
+        : (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till ett kort, \"+ Ny sida\" eller \"✕ Ta bort\" i visaren"
+    });
+    chip.appendChild(el("span", { class:"contactChipName truncate", text:c.name }));
+    if(placed){
+      var chipColor = colorForDeptKey(deptGroupKey(c.department));
+      tintElement(chip, chipColor);
+      var pageBadge = el("span", { class:"contactChipPage", text:"s"+pageNums.join(",") });
+      pageBadge.style.color = hexToRgba(chipColor, 0.9);
+      chip.appendChild(pageBadge);
+    }
+    if(multiUse) wireDragStart(chip, { type:"template", fromPage:null, templates:[contactFields(c)] });
+    else wireDragStart(chip, { type:"contact", fromPage:fromPage, contactId:c.id });
+    list.appendChild(chip);
   });
   return list;
 }
@@ -3059,137 +3078,73 @@ function renderGroupPanel(){
   panel.innerHTML = "";
   panel.appendChild(el("h2", { text:"Dra till kortet" }));
 
-  if(!state.contacts.length){
+  if(!state.sources.length){
     panel.appendChild(el("div", { class:"emptyNote", text:"Importera en CSV/XLSX för att se grupper här." }));
     return;
   }
 
-  var clearBtn = el("button", { type:"button", text:"Rensa sidor, gruppera manuellt", style:"width:100%; margin-bottom:10px; font-size:11px; padding:4px;" });
-  clearBtn.addEventListener("click", function(){
-    state.pages = [];
-    renderViewer();
-  });
-  panel.appendChild(clearBtn);
+  /* one section per imported file, so a department repeated across two
+     files (e.g. both having "IT") never shows up as a single merged
+     group -- each source's own tiles only ever come from ITS OWN
+     contacts (see groupContactsByDepartment(sourceContacts) below). */
+  state.sources.forEach(function(source){
+    var sourceContacts = state.contacts.filter(function(c){ return c.sourceId === source.id; });
+    if(!sourceContacts.length) return;
 
-  var grid = el("div", { class:"groupGrid" });
-  computeDepartmentGroups().forEach(function(g){
-    var pageNums = pageNumbersForGroup(g);
-    var placed = pageNums.length > 0;
-    var expanded = !!state.expandedGroups[g.key];
-    var tile = el("div", {
-      class: "groupTile" + (placed ? " placed" : ""),
-      draggable: "true",
-      title: (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till en sida nedan"
+    var section = el("div", { class:"sourceSection" });
+    var header = el("div", { class:"sourceHeader" });
+    header.appendChild(el("span", { class:"sourceName truncate", text:source.name, title:source.name }));
+    var toggleLabel = el("label", {
+      class:"sourceMultiUse",
+      title:"Tillåt att kontakter härifrån dras ut till flera platser (t.ex. generella supportnummer) -- de ingår då inte längre i \"Fördela\""
     });
-    var nameRow = el("div", { class:"groupTileNameRow" });
-    nameRow.appendChild(buildExpandToggle(expanded, function(){
-      state.expandedGroups[g.key] = !expanded;
+    var toggleInput = el("input", { type:"checkbox" });
+    toggleInput.checked = !!source.multiUse;
+    toggleInput.addEventListener("change", function(){
+      source.multiUse = toggleInput.checked;
       renderGroupPanel();
-    }));
-    nameRow.appendChild(el("span", { class:"groupTileName", text:g.label }));
-    nameRow.appendChild(el("span", { class:"groupTileCount", text:g.contacts.length + (placed ? " · s" + pageNums.join(",") : "") }));
-    tile.appendChild(nameRow);
-    /* fromPage:null marks this as a drag from the unplaced-pool grid
-       (as opposed to a specific page's chip) -- see takeGroup() */
-    wireDragStart(tile, { type:"group", fromPage:null, groupKey:g.key });
-    grid.appendChild(tile);
-    if(expanded) grid.appendChild(buildContactList(g.contacts, null));
-  });
-  panel.appendChild(grid);
+    });
+    toggleLabel.appendChild(toggleInput);
+    toggleLabel.appendChild(el("span", { text:"Flergång" }));
+    header.appendChild(toggleLabel);
+    section.appendChild(header);
 
-  panel.appendChild(el("h2", { text:"Sidor", style:"margin-top:14px;" }));
-
-  /* always rendered, even with zero pages -- "+ New page" is the only way
-     to create the very first one now that placement is drag-only */
-  var actionZone = el("div", { class:"pageActionZone" });
-  var newPageZone = el("div", { class:"dropZone newPageZone", text:"+ Ny sida" });
-  var deleteZone = el("div", { class:"dropZone deleteZone", text:"✕ Ta bort från sida" });
-  wireDropTarget(newPageZone, function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage); });
-  wireDropTarget(deleteZone, function(data){ handlePanelDrop(data, removeGroupFromPage, removeContactFromPage); });
-  actionZone.appendChild(newPageZone);
-  actionZone.appendChild(deleteZone);
-  panel.appendChild(actionZone);
-
-  if(!state.pages.length){
-    panel.appendChild(el("div", { class:"emptyNote", text:"Inga sidor än." }));
-    return;
-  }
-
-  state.pages.forEach(function(p, i){
-    /* highlights whichever page(s) are actually on screen right now, so
-       "Visa" (below) has something to jump away from -- lastVisibleCount
-       covers however many sides sidesPerView is currently showing (see
-       renderViewer), whether that's a lone side or several full pairs. */
-    var isShown = i >= state.currentPage && i < state.currentPage + lastVisibleCount;
-    var card = el("div", { class:"pageCard" + (isShown ? " activePage" : "") });
-
-    /* used/free count, Visa/Ta bort, and every selector (layout, header
-       color, chain/line2/numbers, empty-page mode) now live on the card
-       itself in the viewer -- see .pageInfoBar/buildPageInfoBar. This
-       card is just its drag-reorderable content list, so all it needs of
-       its own is enough of a label to tell it apart from its neighbors. */
-    card.appendChild(el("div", { class:"pageCardLabel", text:"Sida " + (i+1) }));
-    var cap = layoutRows(p.layout);
-
-    /* shared by the card's own drop target and, for a manual v10 page,
-       every row's reorder-target fallback (a normal pool/cross-page drop
-       landing on a row should behave exactly like dropping anywhere else
-       on the card) */
-    function onPageDrop(data){
-      handlePanelDrop(data,
-        function(fromPage, groupKey){ moveGroupBetweenPages(fromPage, i, groupKey); },
-        function(fromPage, contactId){ moveContactBetweenPages(fromPage, i, contactId); });
-    }
-
-    var chipList = el("div", { class:"pageGroupList" });
-    if(p.layout === "v10" && p.chain){
-      /* a chained page's contacts are computed from the chain, not the
-         normal drag-and-drop group system, so the note explains what it
-         resolved to; the list below is still manually reorderable
-         (dragging within it), just not movable elsewhere -- see
-         reorderWithinPage */
-      var chainTotal = contactsForChain(p.chain).length;
-      var chainNote = "Kedja \"" + p.chain + "\": " + Math.min(chainTotal, cap) + " av " + chainTotal + " visas";
-      if(chainTotal > cap){
-        chainNote += " -- " + (chainTotal - cap) + " till taggade \"" + p.chain + "\" får inte plats på ett kort";
-      }
-      chipList.appendChild(el("div", { class: chainTotal > cap ? "emptyNote full" : "emptyNote", text:chainNote }));
-      var chainMembers = contactsForPage(p);
-      if(chainMembers.length) chipList.appendChild(buildOrderedContactList(i, chainMembers, "chainReorder", null));
-    } else if(p.layout === "v10"){
-      /* a manual v10 page: order is what actually prints, so it's shown
-         (and reordered) as a flat numbered list, not department chips */
-      if(p.contacts.length){
-        chipList.appendChild(buildOrderedContactList(i, p.contacts, "contact", onPageDrop));
-      } else {
-        chipList.appendChild(el("div", { class:"emptyNote", text:"Inga kontakter än" }));
-      }
-    } else {
-      groupContactsByDepartment(p.contacts).forEach(function(g){
-        var pgKey = i + ":" + g.key;
-        var expandedP = !!state.expandedPageGroups[pgKey];
-        var chip = el("div", { class:"pageGroupChip", draggable:"true" });
-        chip.appendChild(buildExpandToggle(expandedP, function(){
-          state.expandedPageGroups[pgKey] = !expandedP;
-          renderGroupPanel();
-        }));
-        chip.appendChild(el("span", { text:g.label + " " + g.contacts.length }));
-        wireDragStart(chip, { type:"group", fromPage:i, groupKey:g.key });
-        chipList.appendChild(chip);
-        if(expandedP) chipList.appendChild(buildContactList(g.contacts, i));
+    var grid = el("div", { class:"groupGrid" });
+    groupContactsByDepartment(sourceContacts).forEach(function(g){
+      var expandKey = source.id + ":" + g.key;
+      var expanded = !!state.expandedGroups[expandKey];
+      var pageNums = source.multiUse ? [] : pageNumbersForGroup(g);
+      var placed = pageNums.length > 0;
+      var tile = el("div", {
+        class: "pill groupTile" + (placed ? " placed" : "") + (source.multiUse ? " reusable" : ""),
+        draggable: "true",
+        title: source.multiUse
+          ? "Kan dras ut flera gånger -- dra till en sida nedan"
+          : (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till en sida nedan"
       });
-      if(!chipList.children.length){
-        chipList.appendChild(el("div", { class:"emptyNote", text: p.layout === "empty" ? "Släpp en grupp här för att fylla den" : "Inga kontakter än" }));
+      if(placed){
+        var tileColor = colorForDeptKey(g.key);
+        tintElement(tile, tileColor);
       }
-    }
-    card.appendChild(chipList);
-
-    /* the whole card is a drop target -- dragging a group or contact from
-       any page (including this one, a no-op) onto it moves it from the
-       source page here, cascading overflow like every other placement */
-    wireDropTarget(card, onPageDrop);
-
-    panel.appendChild(card);
+      var nameRow = el("div", { class:"groupTileNameRow" });
+      nameRow.appendChild(buildExpandToggle(expanded, function(){
+        state.expandedGroups[expandKey] = !expanded;
+        renderGroupPanel();
+      }));
+      nameRow.appendChild(el("span", { class:"groupTileName truncate", text:g.label }));
+      var countSpan = el("span", { class:"groupTileCount", text:g.contacts.length + (placed ? " · s" + pageNums.join(",") : "") });
+      if(placed) countSpan.style.color = hexToRgba(tileColor, 0.9);
+      nameRow.appendChild(countSpan);
+      tile.appendChild(nameRow);
+      if(source.multiUse) wireDragStart(tile, { type:"template", fromPage:null, templates:g.contacts.map(contactFields) });
+      /* fromPage:null marks this as a drag from the unplaced-pool grid
+         (as opposed to a specific page's chip) -- see takeGroup() */
+      else wireDragStart(tile, { type:"group", fromPage:null, groupKey:g.key, sourceId:source.id });
+      grid.appendChild(tile);
+      if(expanded) grid.appendChild(buildContactList(g.contacts, null, source.multiUse));
+    });
+    section.appendChild(grid);
+    panel.appendChild(section);
   });
 }
 
