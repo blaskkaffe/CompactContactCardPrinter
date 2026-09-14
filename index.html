@@ -505,28 +505,32 @@ const DEFAULT_LAYOUT = "v20";
 
 /* -- header background presets, exactly 16 (one full 4x4 grid, no overflow
    row) -- Svart first since it's the default new-page color, the rest
-   hues evenly spaced around the wheel (24° apart) at one consistent,
-   moderate saturation (58%, vs. a fully saturated wheel) so picking a
-   color is just "which hue" -- lower saturation reads as muted/earthy
-   rather than neon while each swatch still lands close to the same
-   ~5.4:1 contrast against white header text. */
+   hues evenly spaced around the wheel (24° apart). Bold/near-fully
+   saturated (92%) rather than muted -- distinct, easy-to-print colors
+   were the actual goal, and desaturating every hue toward gray (an
+   earlier version of this palette) made them all read as similar murky
+   browns/olives instead. Each still lands close to the same ~4.8:1
+   contrast against the white header text drawn on top of it (headerColor,
+   see drawCard) -- true bright yellow can't hit that and still be legible
+   under fixed white text, so Gul reads as a dark gold/olive rather than a
+   light canary yellow; every other hue stays clearly primary/secondary. */
 const COLOR_PRESETS = [
   { name:"Svart",    hex:"#000000" },
-  { name:"Röd",      hex:"#c43434" },
-  { name:"Orange",   hex:"#9e582a" },
-  { name:"Gul",      hex:"#7b6921" },
-  { name:"Oliv",     hex:"#60711e" },
-  { name:"Lime",     hex:"#42761f" },
-  { name:"Grön",     hex:"#207a20" },
-  { name:"Smaragd",  hex:"#207944" },
-  { name:"Turkos",   hex:"#207765" },
-  { name:"Cyan",     hex:"#247387" },
-  { name:"Azur",     hex:"#3269bc" },
-  { name:"Blå",      hex:"#4a4acf" },
-  { name:"Indigo",   hex:"#7f4acf" },
-  { name:"Lila",     hex:"#a533c1" },
-  { name:"Magenta",  hex:"#b5309b" },
-  { name:"Cerise",   hex:"#be336b" }
+  { name:"Röd",      hex:"#e40909" },
+  { name:"Orange",   hex:"#be5108" },
+  { name:"Gul",      hex:"#896f06" },
+  { name:"Oliv",     hex:"#637a05" },
+  { name:"Lime",     hex:"#378205" },
+  { name:"Grön",     hex:"#068506" },
+  { name:"Smaragd",  hex:"#068438" },
+  { name:"Turkos",   hex:"#058168" },
+  { name:"Cyan",     hex:"#067c99" },
+  { name:"Azur",     hex:"#0b69f5" },
+  { name:"Blå",      hex:"#2323f6" },
+  { name:"Indigo",   hex:"#7723f6" },
+  { name:"Lila",     hex:"#bc0ae9" },
+  { name:"Magenta",  hex:"#d109a9" },
+  { name:"Cerise",   hex:"#e0095f" }
 ];
 
 /* ================= shared utilities ================= */
