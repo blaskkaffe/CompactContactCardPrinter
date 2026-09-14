@@ -173,12 +173,12 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
 /* how many card sides show at once (1/2/4) is purely a function of
    viewport width -- see sidesPerView. */
 main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--bg); overflow:hidden;}
-/* padding-top clears each card's floating .pageInfoBar strip above it --
+/* padding-top clears each card's own .pageInfoBar tab attached above it --
    must match PAGE_INFO_BAR_CLEARANCE_PX in the JS. left/right match
    VIEWER_SIDE_PADDING_PX and #groupPanel's own edge padding in the JS,
    so a card sits no further from the panel than the panel sits from the
    window edge. */
-#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:106px 14px 32px;}
+#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:100px 14px 32px;}
 
 #emptyViewerOverlay{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:40px; color:var(--border-dark); font-size:18px; text-align:center;}
 #emptyViewerOverlay[hidden]{display:none;}
@@ -206,8 +206,10 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    sub-pixel overflow that #viewerWrap's own overflow:hidden just clips. */
 .pagesRow{display:flex; flex-wrap:nowrap; justify-content:center; align-items:flex-start; gap:24px;}
 
-/* same floating-surface shadow as the group panel boxes and the
-   per-card info bar above -- see --shadow-panel. */
+/* same floating-surface shadow as the group panel boxes -- see
+   --shadow-panel. Its attached .pageInfoBar tab has no shadow of its
+   own, same as a segmentCapsule side tab -- only the card itself casts
+   one. */
 .page{position:relative; z-index:2; flex:0 0 auto; background:var(--panel); box-shadow:var(--shadow-panel);}
 .page canvas{display:block; width:100%; height:100%; cursor:grab;}
 .page canvas:active{cursor:grabbing;}
@@ -245,14 +247,17 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
 /* ===================== END SEGMENT TABS / DRAG GHOSTS ===================== */
 
 /* ===================== PER-CARD INFO BAR (viewer) ===================== */
-/* floats directly above its card (bottom:100%) rather than adding to its
-   own in-flow height -- #viewerContent's padding-top leaves room above
-   the top row. Holds the used/free count, A-Ö/Ta bort, and the layout/
-   color/etc selectors (see buildPageInfoBar). background/border here are
-   just the fallback for a page with no department color to take (see
-   colorForPage) -- tintElement overrides both per page to match that
-   page's own portal button, same as a placed contact chip/group tile. */
-.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; z-index:2; margin-bottom:6px; padding:4px 6px; background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:var(--panel-radius); box-shadow:var(--shadow-panel); font-size:11px;}
+/* sits flush on top of its card (bottom:100%, no gap) like a segmentCapsule
+   turned sideways -- rounded only on the two outward (top) corners, flat
+   where it meets the card, no shadow of its own (the combined tab+card
+   reads as one unit under the card's own shadow). #viewerContent's
+   padding-top leaves room above the top row. Holds the used/free count,
+   A-Ö/Ta bort, and the layout/color/etc selectors (see buildPageInfoBar).
+   background/border here are just the fallback for a page with no
+   department color to take (see colorForPage) -- tintElement overrides
+   both per page to match that page's own portal button, same as a placed
+   contact chip/group tile/segmentCapsule. */
+.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; z-index:2; padding:4px 6px; background:var(--panel); border:1px solid var(--border); border-radius:var(--panel-radius) var(--panel-radius) 0 0; font-size:11px;}
 .pageInfoBar .pageInfoHeader{display:flex; align-items:center; gap:6px; margin-bottom:4px;}
 .pageInfoBar .pageInfoHeader span{flex:1 1 auto; font-size:11px; font-weight:bold;}
 .pageInfoBar .pageInfoHeader span.full{color:#a00;}
@@ -2532,15 +2537,17 @@ function sidesPerView(){
    Sized for the common case, not the tallest a bar can ever get: a v20
    page's bar (used/free + A-Ö/Ta bort + layout/color) is ~74px tall with
    the bar's own controls now padded to match the top left menu's buttons,
-   plus its own 6px margin-bottom, plus headroom so it doesn't sit flush
-   against the toolbar. A rarer bar -- an "empty" page in image mode, whose
-   file picker and fit-mode select can wrap it out to ~113px -- isn't fully
-   covered by this budget and can crowd the toolbar slightly; fully
-   covering it would need ~130px, which was measured to shrink every
+   plus headroom above that so the bar doesn't sit flush against the
+   toolbar (the bar itself now sits flush against its card -- see
+   .pageInfoBar -- so there's no separate margin term to add here). A
+   rarer bar -- an "empty" page in image mode, whose file picker and
+   fit-mode select can wrap it out to ~113px -- isn't fully covered by
+   this budget and can crowd the toolbar slightly; fully covering it
+   would need a much bigger clearance, which was measured to shrink every
    card's rendered size (ch is the binding constraint in fitVisibleCards'
    Math.min(cw/dims.w, ch/dims.h) at common viewport heights), so that
    rare case is left as an accepted trade-off instead. */
-var PAGE_INFO_BAR_CLEARANCE_PX = 106;
+var PAGE_INFO_BAR_CLEARANCE_PX = 100;
 var VIEWER_BOTTOM_MARGIN_PX = 32;
 /* must match #viewerContent's own left/right padding in the CSS -- used
    below to size against the actual content box, not the padding along
