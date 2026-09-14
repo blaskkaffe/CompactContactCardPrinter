@@ -42,8 +42,20 @@ label.tool{display:flex;align-items:center;gap:var(--space-1);flex:0 0 auto;font
 #portalPanel .portalBtn.dragOver{background:var(--blue-bg);border-color:var(--blue);box-shadow:0 2px 6px var(--blue-glow);color:var(--blue-text);transform:scale(1.2)}
 
 /* Group panel */
-#mainRow{display:flex;flex:1 1 auto;overflow:hidden}
-#groupPanel{display:flex;flex-direction:column;gap:var(--space-5);flex:0 0 260px;padding:var(--edge-gap);color:var(--text);overflow:hidden}
+#mainRow{position:relative;display:flex;flex:1 1 auto;overflow:hidden}
+/* floats over the viewer instead of sharing mainRow's layout with it as a
+   column of its own -- the viewer spans the full width underneath (see
+   #viewerContent's own padding, now the same edge-gap on every side
+   instead of relying on this panel's old width to create the left one).
+   position:relative on #mainRow scopes these insets to just its own box
+   (below the toolbar), not the whole viewport. Both of this panel's boxes
+   already carry their own background/shadow (see the shared rule right
+   below), so floating them costs nothing visually -- they read as cards
+   sitting on top of the viewer, the same way a page's own .pageInfoBar
+   floats above its card. z-index puts them above every card/highlight
+   layer in the viewer (the highest of those is 4, see .cardRowHighlightLayer)
+   regardless of DOM order. */
+#groupPanel{position:absolute;top:var(--edge-gap);left:var(--edge-gap);bottom:var(--edge-gap);z-index:5;display:flex;flex-direction:column;gap:var(--space-5);width:260px;color:var(--text);overflow:hidden}
 #groupPanelControls,#groupPanelBody{background:var(--panel);border:1px solid var(--border);border-radius:var(--panel-radius);box-shadow:var(--shadow-panel)}
 #groupPanelControls{display:flex;flex-direction:column;gap:var(--space-3);flex:0 0 auto;padding:var(--space-4)}
 #groupPanelControls .panelControlsGrid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)}
@@ -83,7 +95,7 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
    actually renders, which isn't known until after layout. 0 here is only
    the flash-of-unstyled-content fallback for the instant before that
    first runs. */
-#viewerContent{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:0 var(--edge-gap) var(--edge-gap) 0}
+#viewerContent{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:0 var(--edge-gap) var(--edge-gap) var(--edge-gap)}
 #emptyViewerOverlay{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:40px;color:var(--border-dark);font-size:18px;text-align:center}
 #emptyViewerOverlay[hidden]{display:none}
 #emptyViewerOverlay.dragOver{background:var(--blue-bg);color:var(--blue-text)}
@@ -179,13 +191,15 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
 </header>
 
 <div id="mainRow">
-  <!-- GROUP PANEL: two stacked boxes -- #groupPanelControls (static, never
-       rebuilt) holds the drop zones and the buttons that act on the whole
-       roster; #groupPanelBody (rebuilt by renderGroupPanel) is the
-       scrollable unplaced-contacts pool ("Dra till kortet"), one section
-       per imported source. Everything about a page ITSELF (used/free
-       count, A-Ö/Ta bort, layout/color/etc selectors) lives on the card in
-       the viewer instead, see .pageInfoBar. -->
+  <!-- GROUP PANEL: two stacked boxes, floating over the viewer (see
+       #groupPanel's own CSS) rather than sharing mainRow's layout as a
+       column of its own -- #groupPanelControls (static, never rebuilt)
+       holds the drop zones and the buttons that act on the whole roster;
+       #groupPanelBody (rebuilt by renderGroupPanel) is the scrollable
+       unplaced-contacts pool ("Dra till kortet"), one section per
+       imported source. Everything about a page ITSELF (used/free count,
+       A-Ö/Ta bort, layout/color/etc selectors) lives on the card in the
+       viewer instead, see .pageInfoBar. -->
   <aside id="groupPanel">
     <div id="groupPanelControls">
       <div class="panelControlsGrid">
@@ -2351,10 +2365,12 @@ function sidesPerView(){
 
 /* the one distance every floating thing keeps from the window's own edge
    -- must match --edge-gap in the CSS. Reused below both as the viewer's
-   own left/right/bottom padding (matching #groupPanel's own edge padding
-   in the CSS) and as the gap kept above the tallest currently-visible
-   per-card info bar, so nothing built from this constant ever sits closer
-   to a window edge than anything else built from it. */
+   own left/right/bottom padding (matching #groupPanel's own inset from
+   mainRow's edges in the CSS, now that it floats over the viewer instead
+   of sitting beside it) and as the gap kept above the tallest
+   currently-visible per-card info bar, so nothing built from this
+   constant ever sits closer to a window edge than anything else built
+   from it. */
 var WINDOW_EDGE_GAP_PX = 14;
 
 /* #viewerContent's own padding-top, kept just tall enough to clear
@@ -2406,12 +2422,12 @@ function fitVisibleCards(){
      pixel ratios, browser zoom) to tip the actual rendered row a hair
      over its budget. A pixel of slack costs nothing visible and keeps
      the row reliably a hair under its budget instead of exactly on it.
-     Only one WINDOW_EDGE_GAP_PX subtracted, not two: the right side needs
-     its own (there's nothing else reserving room against the window's
-     right edge), but the left side's gap already comes from #groupPanel's
-     own right-edge padding, outside wrap.clientWidth entirely -- see
-     #viewerContent's own comment on why it carries no padding-left. */
-  var availW = wrap.clientWidth - WINDOW_EDGE_GAP_PX - 1;
+     Both WINDOW_EDGE_GAP_PX subtracted, not just one: #viewerContent
+     carries that same gap as real padding on both its left and right now
+     (the group panel floats over the viewer instead of sitting beside it
+     as a column that used to create the left one for free -- see
+     #groupPanel), and clientWidth includes padding either way. */
+  var availW = wrap.clientWidth - WINDOW_EDGE_GAP_PX*2 - 1;
   var cw = (availW - fixedW) / pages.length;
 
   function applySizesFor(topClearancePx){
