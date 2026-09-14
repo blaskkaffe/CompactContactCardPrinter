@@ -86,8 +86,7 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
 .cardRowHighlightLayer .cardRowHighlight{position:absolute;left:0;right:0}
 
 /* Card layout */
-.pagePair{display:flex;justify-content:center}
-.pagePair .page+.cardEdgeHandles{margin-left:12px}
+.pageUnit{display:flex}
 .pagesRow{display:flex;flex-wrap:nowrap;justify-content:center;align-items:flex-start;gap:24px}
 .page{position:relative;z-index:2;flex:0 0 auto;background:var(--panel);box-shadow:var(--shadow-panel)}
 .page canvas{display:block;width:100%;height:100%;cursor:grab}
@@ -437,23 +436,10 @@ function pageGeometry(layoutKey){
   return { layout:layout, cardDims:cardDims, pageDims:pageDims, grid:grid };
 }
 
-/* pages are printed double-sided, so page 0+1, 2+3, ... are the front/back
-   of one physical sheet and must share its exact size. An "empty" page
-   borrows its geometry (card size, page orientation, grid) from its
-   partner so the pair always matches -- only when both sides of a pair
-   are empty does it fall back to the layout's own default orientation. */
-function partnerPageIndex(index){ return index % 2 === 0 ? index + 1 : index - 1; }
-
 function pageGeometryForIndex(index){
   var pageState = state.pages[index];
   var layoutKey = pageState ? pageState.layout : "v20";
-  var geoSourceKey = layoutKey;
-  if(layoutKey === "empty"){
-    var partner = state.pages[partnerPageIndex(index)];
-    if(partner && partner.layout !== "empty") geoSourceKey = partner.layout;
-  }
-  var geo = pageGeometry(geoSourceKey);
-  return { layout:LAYOUTS[layoutKey], cardDims:geo.cardDims, pageDims:geo.pageDims, grid:geo.grid };
+  return pageGeometry(layoutKey);
 }
 
 /* ---------------- contact sorting (alphabetical, chief dept first) ---------------- */
@@ -670,9 +656,9 @@ function emptyRowTemplate(){
 }
 
 /* ---------------- page generation ---------------- */
-/* auto-chunks contacts into pages using DEFAULT_LAYOUT, padded to an even
-   count with a blank page. Each page keeps its own contacts snapshot, so
-   changing one page's layout later doesn't reshuffle any other page. */
+/* auto-chunks contacts into pages using DEFAULT_LAYOUT. Each page keeps
+   its own contacts snapshot, so changing one page's layout later doesn't
+   reshuffle any other page. */
 function blankPage(layout, contacts){
   return { layout:layout, contacts:contacts||[], emptyMode:"blank", image:null, headerColor:"#000000" };
 }
@@ -724,11 +710,7 @@ function populatableContacts(){
 }
 function regeneratePages(){
   var capacity = layoutRows(DEFAULT_LAYOUT);
-  var pages = packContactsIntoPages(populatableContacts(), capacity).map(function(c){ return blankPage(DEFAULT_LAYOUT, c); });
-  if(pages.length && pages.length % 2 !== 0){
-    pages.push(blankPage(DEFAULT_LAYOUT));
-  }
-  state.pages = pages;
+  state.pages = packContactsIntoPages(populatableContacts(), capacity).map(function(c){ return blankPage(DEFAULT_LAYOUT, c); });
 }
 
 /* called after a page's own layout changes (its capacity may have shrunk,
@@ -760,9 +742,6 @@ function reflowFromPage(index){
     next.contacts = merged.slice(0, nextCap);
     carry = merged.slice(nextCap);
     idx++;
-  }
-  if(state.pages.length % 2 !== 0){
-    state.pages.push(blankPage(DEFAULT_LAYOUT));
   }
 }
 
@@ -1809,11 +1788,8 @@ function buildPageControls(index){
    A-Ö/Ta bort) and selectors (layout, header color, line 2/numbers,
    empty-page mode -- see buildPageControls, reused unchanged), now living
    right next to the card it actually describes instead of a separate
-   scrolling list. Every physical side is its own plainly numbered "Sida
-   N" -- state.pages' own index, 1-based -- with no separate sheet/side
-   pairing in the label; two sides sharing a printed sheet (see
-   partnerPageIndex) is purely a print-time arrangement, not something
-   the numbering needs to expose (see sidesPerView, buildPagePairEl). */
+   scrolling list. Every page is its own plainly numbered "Sida N" --
+   state.pages' own index, 1-based. */
 function buildPageInfoBar(index){
   var bar = el("div", { class:"pageInfoBar" });
   var barColor = colorForPage(index);
@@ -1846,9 +1822,7 @@ function buildPageInfoBar(index){
 }
 
 /* one card's worth of preview -- the on-screen unit shown regardless of
-   how many are on screen at once (see sidesPerView). Pages are printed in
-   front/back pairs (see partnerPageIndex): "Sida" is 1 (front, even
-   index) or 2 (back, odd index) within its sheet. */
+   how many are on screen at once (see sidesPerView). */
 function buildPageEl(index){
   var page = el("div", { class:"page", "data-index":String(index) });
   page.appendChild(buildPageInfoBar(index));
@@ -1871,30 +1845,16 @@ function buildPageEl(index){
   return page;
 }
 
-/* one printed sheet's worth of preview: front + back side by side, since
-   that's the actual physical unit -- pages are always printed in pairs
-   (see partnerPageIndex). frontIndex is always even. Every card gets its
-   own strip immediately to its own left, front and back alike (see
-   .cardEdgeHandles), instead of the old outer/inner split -- so this is
-   just the same two steps repeated once per card. */
-function buildPagePairEl(frontIndex){
-  var backIndex = partnerPageIndex(frontIndex);
-  var pair = el("div", { class:"pagePair", "data-index":String(frontIndex) });
-  [frontIndex, backIndex].forEach(function(idx){
-    pair.appendChild(buildCardEdgeHandles(idx));
-    pair.appendChild(buildPageEl(idx));
-  });
-  return pair;
-}
-/* the narrowest tier (sidesPerView===1) shows only one physical side, not
-   its printed partner -- same wrapper/edge-handle strip as a full pair,
-   just missing the second .page, so buildPageEl/fitVisibleCards still
-   work on it unchanged. */
-function buildLonePageEl(index){
-  var pair = el("div", { class:"pagePair", "data-index":String(index) });
-  pair.appendChild(buildCardEdgeHandles(index));
-  pair.appendChild(buildPageEl(index));
-  return pair;
+/* the on-screen unit for one page: its edge-handle strip (segment
+   capsules, see .cardEdgeHandles) immediately to its own left, then the
+   card itself. renderViewer places as many of these side by side as fit
+   the viewer's width (see sidesPerView) -- there's no pairing of pages
+   into printed sheets to account for here. */
+function buildPageUnitEl(index){
+  var unit = el("div", { class:"pageUnit", "data-index":String(index) });
+  unit.appendChild(buildCardEdgeHandles(index));
+  unit.appendChild(buildPageEl(index));
+  return unit;
 }
 
 /* which row (0-indexed, capacity-based -- one v10 contact block counts as
@@ -2341,11 +2301,11 @@ function currentPageDims(index){
   return pageGeometryForIndex(index).pageDims;
 }
 
-/* how many individual card SIDES (not pairs) show on screen at once,
-   purely a function of the viewer's own width -- no separate view-mode
-   toggle to keep in sync with it. Two full pairs (4 sides) on a large
-   window, one pair (2 sides) on a medium one, and just one lone side on
-   a narrow one: simple width tiers rather than anything more elaborate. */
+/* how many individual pages show on screen at once, purely a function of
+   the viewer's own width -- no separate view-mode toggle to keep in sync
+   with it. Four pages on a large window, two on a medium one, just one
+   on a narrow one: simple width tiers rather than anything more
+   elaborate. */
 var SIDES_LARGE_MIN_PX = 1200;
 var SIDES_MEDIUM_MIN_PX = 640;
 function sidesPerView(){
@@ -2393,28 +2353,21 @@ var PAGE_INFO_BAR_CLEARANCE_PX = 121 + WINDOW_EDGE_GAP_PX;
    -- every card shares one physical size (CARD_W_MM/CARD_H_MM are
    global), so a single scale computed from the total width covers all of
    them. Reads the fixed (non-card) width straight from the DOM instead of
-   assuming it -- every edge-handles strip's actual rendered width, the
-   12px gap between a pair's own front/back, and the 24px gap between
-   separate pairs (both from the CSS) -- so it works the same whether
-   renderViewer just built a lone side or several full pairs, and never
+   assuming it -- every edge-handles strip's actual rendered width, and
+   the 24px gap between page units (both from the CSS) -- so it never
    under-counts the strips (which used to leave rows a bit too wide for
    their own budget, forcing an unwanted wrap into a second row that then
    overflowed the viewer's own height). */
 function fitVisibleCards(){
   var wrap = $("#viewerContent");
   var pages = wrap.querySelectorAll(".page");
-  var pairs = wrap.querySelectorAll(".pagePair");
+  var units = wrap.querySelectorAll(".pageUnit");
   if(!pages.length) return;
   var dims = pageGeometryForIndex(state.currentPage).cardDims;
   var stripEl = wrap.querySelector(".cardEdgeHandles");
   var stripW = stripEl ? stripEl.getBoundingClientRect().width : 0;
-  var stripCount = 0, pageGapCount = 0;
-  pairs.forEach(function(pp){
-    stripCount += pp.querySelectorAll(".cardEdgeHandles").length;
-    pageGapCount += Math.max(0, pp.querySelectorAll(".page").length - 1);
-  });
-  var rowGaps = Math.max(0, pairs.length - 1) * 24;
-  var fixedW = stripCount*stripW + pageGapCount*12 + rowGaps;
+  var rowGaps = Math.max(0, units.length - 1) * 24;
+  var fixedW = units.length*stripW + rowGaps;
   /* the 1px below is deliberate slack, not part of the real budget --
      this math is otherwise exact (solves cw so the row's own width comes
      out to precisely availW), but "exact" sitting right on the boundary
@@ -2466,8 +2419,7 @@ function renderViewer(){
   wrap.innerHTML = "";
 
   /* nothing to show a card for yet -- one overlay message covering the
-     whole viewer, instead of the same text repeated on an empty front
-     and an empty back card */
+     whole viewer, instead of repeating the same text on every card */
   var overlay = $("#emptyViewerOverlay");
   if(!state.pages.length){
     overlay.textContent = state.contacts.length
@@ -2482,38 +2434,26 @@ function renderViewer(){
   overlay.hidden = true;
 
   var total = totalPagesCount();
-  var spv = sidesPerView();
+  var pagesToShow = Math.min(sidesPerView(), total);
+  var maxStart = Math.max(0, total - pagesToShow);
+  if(state.currentPage > maxStart) state.currentPage = maxStart;
+  if(state.currentPage < 0) state.currentPage = 0;
 
-  if(spv === 1){
-    if(state.currentPage > total-1) state.currentPage = total-1;
-    if(state.currentPage < 0) state.currentPage = 0;
-    wrap.appendChild(buildLonePageEl(state.currentPage));
-    lastVisibleCount = 1;
-  } else {
-    /* currentPage always names the FRONT of the leading pair shown --
-       pages are always printed in pairs (see partnerPageIndex), so a
-       multi-side tier only ever shows/steps through whole pairs. */
-    if(state.currentPage % 2 !== 0) state.currentPage -= 1;
-    var pairsToShow = Math.min(spv/2, Math.ceil(total/2));
-    var maxFront = Math.max(0, total - pairsToShow*2);
-    if(state.currentPage > maxFront) state.currentPage = maxFront;
-    if(state.currentPage < 0) state.currentPage = 0;
-    var row = el("div", { class:"pagesRow" });
-    for(var i=0;i<pairsToShow;i++){
-      row.appendChild(buildPagePairEl(state.currentPage + i*2));
-    }
-    wrap.appendChild(row);
-    lastVisibleCount = pairsToShow*2;
+  var row = el("div", { class:"pagesRow" });
+  for(var i=0;i<pagesToShow;i++){
+    row.appendChild(buildPageUnitEl(state.currentPage + i));
   }
+  wrap.appendChild(row);
+  lastVisibleCount = pagesToShow;
+
   fitVisibleCards();
   fitSegmentCapsuleLabels();
   renderGroupPanel();
   renderPortalPanel();
 }
 
-/* idx names the page to jump to -- the front of its pair in a multi-side
-   tier, or its own lone target in the single-side tier; renderViewer
-   re-aligns/clamps it for whichever tier is actually current. */
+/* idx names the page to jump to; renderViewer re-clamps it against
+   however many pages actually fit on screen at once. */
 function scrollToPage(idx){
   var total = totalPagesCount();
   state.currentPage = Math.max(0, Math.min(total-1, idx));
@@ -2533,15 +2473,7 @@ function goNext(){ scrollToPage(state.currentPage + sidesPerView()); }
    any other page turn) doesn't interrupt it; dragover just keeps firing
    on whatever's now under the cursor once the target page is on screen,
    ready to drop onto. Also a plain click-to-jump button even with
-   nothing being dragged.
-   One button per page, not per printed sheet -- two sides sharing a
-   sheet (see partnerPageIndex) is purely a print-time arrangement, not
-   something the portals need to know about, and addressing pages
-   directly is what actually fixes a portal being unreachable in the
-   narrowest tier: sidesPerView()===1 shows exactly one page, front or
-   back, and jumping straight to that exact index works there same as
-   anywhere else, unlike the old always-jump-to-the-front-of-a-pair
-   version. */
+   nothing being dragged. */
 /* the color a page's own portal button (while current) and its own
    .pageInfoBar both use -- its first real contact's department color,
    same palette entry that contact uses everywhere else (its group
@@ -2654,7 +2586,7 @@ function initEvents(){
   document.addEventListener("click", closeOpenSwatchLists);
   $("#viewerWrap").addEventListener("wheel", onWheel, { passive:false });
   /* a resize can cross a sidesPerView tier (needing a full rebuild, since
-     a different number of pairs/sides now fit) just as easily as it can
+     a different number of pages now fit) just as easily as it can
      leave the tier alone and only change the pixel size of what's
      already showing -- always going through renderViewer covers both
      without needing to tell them apart. Debounced so a window dragged by
@@ -2873,7 +2805,6 @@ function moveMatchingToNewPage(fromPage, matches){
   var newIndex = state.pages.length;
   state.pages.push(blankPage(DEFAULT_LAYOUT, moving));
   reflowFromPage(newIndex);
-  if(state.pages.length % 2 !== 0) state.pages.push(blankPage(DEFAULT_LAYOUT));
   renderViewer();
 }
 /* drop target: takes every matching contact off the page it's on (or,
@@ -2925,18 +2856,17 @@ function addTemplatesToNewPage(templates){
   var newIndex = state.pages.length;
   state.pages.push(blankPage(DEFAULT_LAYOUT, contacts));
   reflowFromPage(newIndex);
-  if(state.pages.length % 2 !== 0) state.pages.push(blankPage(DEFAULT_LAYOUT));
   renderViewer();
 }
 
 function moveContactToNewPage(fromPage, contactId){ moveMatchingToNewPage(fromPage, contactMatcher(contactId)); }
 function removeContactFromPage(fromPage, contactId){ removeMatchingFromPage(fromPage, contactMatcher(contactId)); }
 
-/* turns this one page/side blank rather than physically removing it from
+/* turns this one page blank rather than physically removing it from
    state.pages -- splicing it out used to shift every later page's own
-   front/back pairing, and repeatedly doing that down to zero pages fell
-   all the way back to the "drop a CSV/XLSX file" empty-viewer message,
-   which is a jarring thing to land on when contacts are already loaded.
+   index, and repeatedly doing that down to zero pages fell all the way
+   back to the "drop a CSV/XLSX file" empty-viewer message, which is a
+   jarring thing to land on when contacts are already loaded.
    Same "switch to empty" move the layout select itself offers (see
    buildPageControls): its contacts are stashed in savedContacts, not
    deleted -- switching the layout back to v10/v20 restores them, and
