@@ -129,17 +129,6 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
 .pageInfoBar .pageControls select,.pageInfoBar .pageControls button,.pageInfoBar .pageControls input{height:30px;padding:0 6px;background:var(--panel);border:1px solid var(--border);border-radius:3px;font-size:var(--small-font);cursor:pointer}
 .pageInfoBar .pageControls>select{width:76px}
 .pageInfoBar .pageControls label.tool{display:flex;align-items:center;gap:3px;font-size:var(--small-font);white-space:nowrap;cursor:pointer}
-/* a compact button standing in for the raw file input -- the browser's
-   own file input renders at whatever width its "no file chosen" text
-   needs (often 200px+), which forced it onto a row of its own (nothing
-   else fit beside it) and made an image-mode page's info bar much taller
-   than every other page's. The real input lives inside this label,
-   visually hidden (not display:none, which some browsers stop forwarding
-   a label click to) rather than shown -- clicking the label's own text
-   still opens the file picker, same as clicking a native file input. */
-.pageInfoBar .pageControls label.fileTrigger{display:inline-flex;align-items:center;height:30px;padding:0 6px;background:var(--panel);border:1px solid var(--border);border-radius:3px;font-size:var(--small-font);white-space:nowrap;cursor:pointer}
-.pageInfoBar .pageControls label.fileTrigger:hover{background:var(--hover-bg)}
-.pageInfoBar .pageControls label.fileTrigger input[type=file]{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .pageInfoBar .pageControls input[type=checkbox]{height:auto;padding:0}
 .pageInfoBar .swatchSelect{position:relative;min-width:0}
 .pageInfoBar .swatchSelect .swatchBtn{display:flex;align-items:center;gap:5px;width:76px;min-width:0;height:30px;padding:0 6px;background:var(--panel);border:1px solid var(--border);border-radius:3px;font-size:var(--small-font);cursor:pointer}
@@ -290,17 +279,10 @@ const HEADER_HEIGHT_FACTOR = 1.3;
 
 /* -- spacing "distances" (mm) -- */
 const CELL_PADDING_MM = 1.5;   /* inner padding of every row/column */
-const BORDER_WIDTH_MM = 0.3;   /* card border, crop marks, empty-card outline */
+const BORDER_WIDTH_MM = 0.3;   /* card border, crop marks */
 const DIVIDER_INSET_MM = 2;    /* how far a row divider stays clear of the card's left/right edges */
 const DIVIDER_ALPHA = 0.5;     /* row divider opacity */
 const DIVIDER_WIDTH_MM = 0.1;  /* row divider line weight */
-/* "Tomt rutnät" (blank empty-page mode): an actual graph-paper grid
-   inside each blank card outline, so the option visibly does something
-   distinct from "Tom" (a truly blank card) -- squares GRID_SPACING_MM
-   apart, inset GRID_INSET_MM from the card's own border on every side. */
-const GRID_SPACING_MM = 5;
-const GRID_INSET_MM = 2;
-const GRID_ALPHA = 0.3;
 
 /* -- card / paper geometry -- */
 const CARD_W_MM = 53.98; /* ISO/IEC 7810 ID-1 credit card -- always the VERTICAL shape */
@@ -387,7 +369,7 @@ var state = {
   sources: [],   /* [{id, name, multiUse}] -- one entry per imported file, in import order; every contact in `contacts` carries the sourceId of whichever import it came from, so same-named departments from two different files are never treated as one group (see groupContactsBySourceAndDepartment) */
   nextContactId: 1,
   nextSourceId: 1,
-  pages: [], /* [{layout, contacts, emptyMode, image, headerColor, headerLegend, savedContacts}] -- one entry per generated page */
+  pages: [], /* [{layout, contacts, headerColor, headerLegend, savedContacts}] -- one entry per generated page */
   expandedGroups: {},     /* group panel UI only: which pool department tiles are expanded to show individual contacts, keyed by group key */
   expandedPageGroups: {}  /* same, for a page card's own department chips, keyed by "pageIndex:groupKey" */
 };
@@ -690,7 +672,7 @@ function emptyRowTemplate(){
    its own contacts snapshot, so changing one page's layout later doesn't
    reshuffle any other page. */
 function blankPage(layout, contacts){
-  return { layout:layout, contacts:contacts||[], emptyMode:"blank", image:null, headerColor:"#000000" };
+  return { layout:layout, contacts:contacts||[], headerColor:"#000000" };
 }
 /* packs contacts into as few `capacity`-sized bins as possible WITHOUT
    splitting a department across two, unless the department itself is
@@ -1255,29 +1237,6 @@ function drawCenteredMessage(ctx, w, h, text){
   ctx.restore();
 }
 
-/* faint graph-paper grid filling a blank card's interior, GRID_SPACING_MM
-   apart in both directions -- without this, "Tomt rutnät" ("empty grid")
-   was just a bordered blank rectangle, indistinguishable in kind from
-   "Tom" (truly blank) and not actually a grid at all. */
-function drawEmptyGrid(ctx, xPx, yPx, wPx, hPx, dpi){
-  var inset = mmToPx(GRID_INSET_MM, dpi);
-  var step = mmToPx(GRID_SPACING_MM, dpi);
-  ctx.save();
-  ctx.strokeStyle = "rgba(0,0,0," + GRID_ALPHA + ")";
-  ctx.lineWidth = Math.max(1, mmToPx(DIVIDER_WIDTH_MM, dpi));
-  var left = xPx+inset, right = xPx+wPx-inset, top = yPx+inset, bottom = yPx+hPx-inset;
-  for(var x=left+step; x<right; x+=step) strokeLine(ctx, x, top, x, bottom);
-  for(var y=top+step; y<bottom; y+=step) strokeLine(ctx, left, y, right, y);
-  ctx.restore();
-}
-
-function drawEmptyCardOutline(ctx, xPx, yPx, wPx, hPx, dpi){
-  ctx.save();
-  fillCardBase(ctx, xPx, yPx, wPx, hPx, dpi);
-  drawEmptyGrid(ctx, xPx, yPx, wPx, hPx, dpi);
-  ctx.restore();
-}
-
 /* short cut-guides at each corner of the card block, extending straight out
    to the paper edge (same weight as the card border) -- lets you trim the
    outer margin off with straightedge cuts before separating the cards
@@ -1293,71 +1252,6 @@ function drawCropMarks(ctx, pageWpx, pageHpx, blockX, blockY, blockW, blockH, dp
   line(0, bottom, blockX, bottom);           line(blockX, bottom, blockX, pageHpx);
   line(right, bottom, pageWpx, bottom);      line(right, bottom, right, pageHpx);
   ctx.restore();
-}
-
-/* fully empty / bordered-grid / custom-image variants of the filler page.
-   `preview` (the on-screen viewer, as opposed to print) shows just one
-   blank card outline in "rows" mode instead of the whole tiled sheet --
-   every card slot looks identical, so one is all there is to see. */
-/* draws pageState.image into a wPx x hPx box, honoring two independent
-   per-page choices:
-     imageFit      -- "contain" (default): scaled uniformly to fit inside
-                       the box, keeping proportions, same as before this
-                       was made a choice at all. "stretch": scaled to
-                       exactly fill the box on both axes, proportions not
-                       kept.
-                     -- imageRotation -- 0/90/180/270 (degrees, clockwise).
-   Rotating swaps which of the image's own width/height fits against the
-   box's width vs height (a 90/270 turn makes a landscape photo fit a
-   portrait card the way you'd expect) -- see fitW/fitH below. The image
-   is always drawn using its own natural pixel size scaled to drawW/drawH
-   in a frame rotated around the box's center, so the math is identical
-   for every rotation, 0 included. */
-function drawEmptyImage(ctx, wPx, hPx, pageState){
-  var img = pageState.image;
-  var rotation = ((pageState.imageRotation||0) % 360 + 360) % 360;
-  var swapped = rotation === 90 || rotation === 270;
-  var fitW = swapped ? hPx : wPx, fitH = swapped ? wPx : hPx;
-  var drawW, drawH;
-  if(pageState.imageFit === "stretch"){
-    drawW = fitW; drawH = fitH;
-  } else {
-    var scale = Math.min(fitW/img.width, fitH/img.height);
-    drawW = img.width*scale; drawH = img.height*scale;
-  }
-  ctx.save();
-  ctx.translate(wPx/2, hPx/2);
-  ctx.rotate(rotation * Math.PI/180);
-  ctx.drawImage(img, -drawW/2, -drawH/2, drawW, drawH);
-  ctx.restore();
-}
-
-function drawEmptyPageContent(ctx, wPx, hPx, geo, pageState, preview){
-  if(pageState.emptyMode === "image" && pageState.image){
-    drawEmptyImage(ctx, wPx, hPx, pageState);
-    return;
-  }
-  if(pageState.emptyMode === "rows"){
-    if(preview){
-      drawEmptyCardOutline(ctx, 0, 0, wPx, hPx, RENDER_DPI);
-      return;
-    }
-    var grid = geo.grid;
-    if(grid.count <= 0) return;
-    var blockWmm = grid.cols*geo.cardDims.w, blockHmm = grid.rows*geo.cardDims.h;
-    var origin = blockOriginMm(geo.pageDims, blockWmm, blockHmm);
-    var startXmm = origin.x, startYmm = origin.y;
-    for(var i=0;i<grid.count;i++){
-      var col = i%grid.cols, row = Math.floor(i/grid.cols);
-      var xPx = mmToPx(startXmm+col*geo.cardDims.w, RENDER_DPI);
-      var yPx = mmToPx(startYmm+row*geo.cardDims.h, RENDER_DPI);
-      var wPxCard = mmToPx(geo.cardDims.w, RENDER_DPI), hPxCard = mmToPx(geo.cardDims.h, RENDER_DPI);
-      drawEmptyCardOutline(ctx, xPx, yPx, wPxCard, hPxCard, RENDER_DPI);
-    }
-    drawCropMarks(ctx, wPx, hPx, mmToPx(startXmm,RENDER_DPI), mmToPx(startYmm,RENDER_DPI), mmToPx(blockWmm,RENDER_DPI), mmToPx(blockHmm,RENDER_DPI), RENDER_DPI);
-    return;
-  }
-  /* "blank": nothing further -- caller already filled white */
 }
 
 function totalPagesCount(){ return state.pages.length || 1; }
@@ -1383,8 +1277,7 @@ function renderCardsOntoCanvas(canvas, pageIndex, preview){
     return;
   }
   if(layoutKey === "empty"){
-    drawEmptyPageContent(ctx, canvas.width, canvas.height, geo, pageState, preview);
-    return;
+    return; /* nothing further -- the canvas is already filled white above */
   }
   var cardContacts = contactsForPage(pageState);
 
@@ -1746,7 +1639,6 @@ function buildPageControls(index){
       pageState.savedContacts = null;
     }
     pageState.layout = newKey;
-    if(newKey === "empty" && !pageState.emptyMode) pageState.emptyMode = "blank";
     reflowFromPage(index);
     renderViewer();
   }));
@@ -1776,46 +1668,6 @@ function buildPageControls(index){
     box.appendChild(numLabel);
   }
 
-  if(pageState.layout === "empty"){
-    var modeOptions = [["blank","Tom"],["rows","Tomt rutnät"],["image","Anpassad bild"]];
-    box.appendChild(buildSelect(modeOptions, pageState.emptyMode, function(v){ pageState.emptyMode = v; renderViewer(); }));
-
-    if(pageState.emptyMode === "image"){
-      var fileInput = document.createElement("input");
-      fileInput.type = "file";
-      fileInput.accept = "image/*";
-      fileInput.addEventListener("change", function(){
-        var f = fileInput.files[0];
-        if(!f) return;
-        var reader = new FileReader();
-        reader.onload = function(){
-          var img = new Image();
-          img.onload = function(){ pageState.image = img; renderViewer(); };
-          img.src = reader.result;
-        };
-        reader.readAsDataURL(f);
-      });
-      /* wrapped in a label styled as a normal button (see .fileTrigger)
-         instead of appended bare -- a bare file input renders far wider
-         than any other control here, which used to force it onto its own
-         row and made this page's info bar taller than every other page's. */
-      var fileTrigger = el("label", { class:"fileTrigger", text:pageState.image ? "Byt bild" : "Välj bild", title:"Välj en bildfil" });
-      fileTrigger.appendChild(fileInput);
-      box.appendChild(fileTrigger);
-
-      if(pageState.image){
-        var fitOptions = [["contain","Behåll proportioner"],["stretch","Sträck ut"]];
-        box.appendChild(buildSelect(fitOptions, pageState.imageFit || "contain", function(v){ pageState.imageFit = v; renderViewer(); }, "Bildanpassning"));
-
-        var rotateBtn = el("button", { type:"button", text:"↻ Rotera", title:"Rotera bilden 90°" });
-        rotateBtn.addEventListener("click", function(){
-          pageState.imageRotation = ((pageState.imageRotation || 0) + 90) % 360;
-          renderViewer();
-        });
-        box.appendChild(rotateBtn);
-      }
-    }
-  }
   return box;
 }
 
@@ -2376,15 +2228,15 @@ var WINDOW_EDGE_GAP_PX = 14;
 /* #viewerContent's own padding-top, kept just tall enough to clear
    whichever .pageInfoBar is tallest among the page(s) actually on screen
    right now, plus WINDOW_EDGE_GAP_PX above that -- not a fixed worst-case
-   reservation, since a bar's height varies a lot (a v10 legend is one
-   line; "Tom sida" in image mode wraps its file picker/fit selector out
-   to several) and most pages never come close to the tallest one
-   possible. Recomputed by fitVisibleCards on every render from the real
-   rendered bars, so the card(s) always get to use however much of the
-   viewer's height the CURRENT page(s) actually leave available, with the
-   same WINDOW_EDGE_GAP_PX clearance on every side. Starts at a plain
-   guess (one line's worth) so the very first render has something to
-   size against before any bar has actually been measured. */
+   reservation, since a bar's height still varies some (a v10 page's extra
+   "Rad"/"Nr" controls, a narrow card wrapping its controls onto a second
+   line) and most pages never come close to the tallest one possible.
+   Recomputed by fitVisibleCards on every render from the real rendered
+   bars, so the card(s) always get to use however much of the viewer's
+   height the CURRENT page(s) actually leave available, with the same
+   WINDOW_EDGE_GAP_PX clearance on every side. Starts at a plain guess
+   (one line's worth) so the very first render has something to size
+   against before any bar has actually been measured. */
 var viewerTopClearancePx = 80 + WINDOW_EDGE_GAP_PX;
 
 /* sizes every currently-rendered .page to fit them all on screen at once,
