@@ -130,7 +130,12 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
    floating on the page background; #groupPanel itself has no panel
    chrome of its own (that's on the two boxes below), just room around
    them. #groupPanelControls never scrolls/rebuilds, #groupPanelBody does
-   (see renderGroupPanel). */
+   (see renderGroupPanel). Uniform --edge-gap padding on all four sides --
+   left/top double as the window-edge gap, but the right side does a
+   second job too: it's also the ONLY gap between these boxes and the
+   first card's own edge-handle tabs, since #viewerContent deliberately
+   carries no padding-left of its own (see #viewerContent) to avoid
+   stacking a second --edge-gap on top of this one. */
 #groupPanel{display:flex; flex-direction:column; gap:12px; flex:0 0 260px; padding:var(--edge-gap); color:var(--text); overflow:hidden;}
 #groupPanelControls, #groupPanelBody{background:var(--panel); border:1px solid var(--border); border-radius:var(--panel-radius); box-shadow:var(--shadow-panel);}
 #groupPanelControls{display:flex; flex-direction:column; gap:8px; flex:0 0 auto; padding:10px;}
@@ -184,11 +189,16 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
 /* padding-top clears each card's own .pageInfoBar tab attached above it --
    must match PAGE_INFO_BAR_CLEARANCE_PX in the JS (itself built from
    --edge-gap, via WINDOW_EDGE_GAP_PX, plus the tallest a bar gets).
-   left/right/bottom all reuse --edge-gap directly -- the same distance
-   #groupPanel keeps from the window on its own left/top -- so a card
-   never sits closer to any window edge than the panel sits from that
-   same edge. */
-#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:135px var(--edge-gap) var(--edge-gap);}
+   right/bottom reuse --edge-gap directly, the same distance #groupPanel
+   keeps from the window on its own top, so a card never sits closer to
+   the window's right/bottom edge than the panel sits from the window's
+   own edge. No padding-left, though: #groupPanel already keeps --edge-gap
+   between its own visible boxes and ITS right edge (part of its own
+   uniform padding, see #groupPanel), and that edge sits flush against
+   this element's own left edge (#mainRow, no gap of its own) -- adding
+   another --edge-gap of padding here too would double the gap on that
+   one side instead of matching the other three. */
+#viewerContent{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:135px var(--edge-gap) var(--edge-gap) 0;}
 
 #emptyViewerOverlay{position:absolute; inset:0; display:flex; justify-content:center; align-items:center; padding:40px; color:var(--border-dark); font-size:18px; text-align:center;}
 #emptyViewerOverlay[hidden]{display:none;}
@@ -2603,8 +2613,13 @@ function fitVisibleCards(){
      leaves zero room for subpixel layout rounding (fractional device
      pixel ratios, browser zoom) to tip the actual rendered row a hair
      over its budget. A pixel of slack costs nothing visible and keeps
-     the row reliably a hair under its budget instead of exactly on it. */
-  var availW = wrap.clientWidth - WINDOW_EDGE_GAP_PX*2 - 1;
+     the row reliably a hair under its budget instead of exactly on it.
+     Only one WINDOW_EDGE_GAP_PX subtracted, not two: the right side needs
+     its own (there's nothing else reserving room against the window's
+     right edge), but the left side's gap already comes from #groupPanel's
+     own right-edge padding, outside wrap.clientWidth entirely -- see
+     #viewerContent's own comment on why it carries no padding-left. */
+  var availW = wrap.clientWidth - WINDOW_EDGE_GAP_PX - 1;
   var cw = (availW - fixedW) / pages.length;
   var ch = wrap.clientHeight - PAGE_INFO_BAR_CLEARANCE_PX - WINDOW_EDGE_GAP_PX;
   var scale = Math.min(cw/dims.w, ch/dims.h);
