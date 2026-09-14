@@ -175,16 +175,15 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
   <div class="toolbarSide toolbarSideRight">
     <!-- everything about a page ITSELF (layout, header color, ...) lives
          on the card in the viewer now, see .pageInfoBar/buildPageInfoBar --
-         paper size + print are the only page-wide settings left up here.
-         Import status used to show here too (as #dataStatus), but which
-         files loaded is already visible in the group panel's own source
-         list below -- see renderGroupPanel -- so it was redundant, and
-         its text could grow long enough to squeeze #portalPanel's pills
-         out of room (see header.toolbar's grid in the CSS) -- setStatus
-         now just logs instead of touching the DOM. -->
-    <label class="tool">Papper:
-      <select id="paperSize"></select>
-    </label>
+         print is the only page-wide setting left up here -- paper size
+         used to be a select next to it, but everything always prints on
+         A4 (see PAGE_W_MM/PAGE_H_MM), so there was never really a choice
+         to make. Import status used to show here too (as #dataStatus),
+         but which files loaded is already visible in the group panel's
+         own source list below -- see renderGroupPanel -- so it was
+         redundant, and its text could grow long enough to squeeze
+         #portalPanel's pills out of room (see header.toolbar's grid in
+         the CSS) -- setStatus now just logs instead of touching the DOM. -->
     <button id="printBtn" class="pill">Skriv ut</button>
   </div>
 </header>
@@ -299,11 +298,12 @@ const CARD_W_MM = 53.98; /* ISO/IEC 7810 ID-1 credit card -- always the VERTICAL
 const CARD_H_MM = 85.60;
 const MARGIN_MM = 10;    /* printer-unsafe border kept clear on every edge */
 
-const PAPER_SIZES = {
-  A3: { label:"A3", wMM:297, hMM:420 },
-  A4: { label:"A4", wMM:210, hMM:297 }, /* default -- see state.paperSize */
-  A5: { label:"A5", wMM:148, hMM:210 }
-};
+/* the only paper size ever printed on -- there used to be a picker
+   (A3/A4/A5), but everything's always gone out on A4 in practice, so the
+   choice was removed rather than kept as a UI element with one real
+   answer. See pickPageOrientation/pageSizeCssValue. */
+const PAGE_W_MM = 210;
+const PAGE_H_MM = 297;
 
 /* -- card layout definitions --
    v10 is 10 CONTACTS, each spanning two printed lines:
@@ -373,7 +373,6 @@ function ptToPx(pt, dpi){ return pt * dpi / 72; }
 
 /* ================= app state ================= */
 var state = {
-  paperSize: "A4",
   currentPage: 0,              /* 0-indexed; the first of however many card sides are on screen (see sidesPerView) */
   contacts: [],
   sources: [],   /* [{id, name, multiUse}] -- one entry per imported file, in import order; every contact in `contacts` carries the sourceId of whichever import it came from, so same-named departments from two different files are never treated as one group (see groupContactsBySourceAndDepartment) */
@@ -439,13 +438,11 @@ function blockOriginMm(pageDims, blockWmm, blockHmm){
 }
 
 /* the card orientation is chosen per-page (via that page's layout); the
-   PAGE orientation is whichever of portrait/landscape fits the most of
+   PAGE orientation is whichever of portrait/landscape A4 fits the most of
    that card shape -- it is never chosen directly by the user */
 function pickPageOrientation(cardDims){
-  var p = PAPER_SIZES[state.paperSize];
-  var portrait = { w:p.wMM, h:p.hMM, name:"stående" };
-  if(p.wMM === p.hMM) return portrait;
-  var landscape = { w:p.hMM, h:p.wMM, name:"liggande" };
+  var portrait = { w:PAGE_W_MM, h:PAGE_H_MM, name:"stående" };
+  var landscape = { w:PAGE_H_MM, h:PAGE_W_MM, name:"liggande" };
   return gridForDims(landscape, cardDims).count > gridForDims(portrait, cardDims).count ? landscape : portrait;
 }
 
@@ -1465,20 +1462,15 @@ function onCanvasClick(e, canvas, pageIndex){
    so mixed page orientations/sizes across pages print using the first
    page's size -- a real limitation of print CSS, not something this app
    can route around. Each canvas still gets its own correct mm CSS size. */
-/* prefer a named CSS paper size ("A4", "A4 landscape") over raw mm
-   dimensions when they match one of PAPER_SIZES -- many printer drivers
-   only reliably recognize the standard keyword form for @page size and
-   may silently reject or mis-handle an arbitrary custom mm size, even
-   when the numbers are numerically identical to a standard sheet. Falls
-   back to literal mm only for a genuinely custom card/paper size. */
+/* the named CSS paper size ("A4"/"A4 landscape") for a page's dims --
+   named over raw mm dimensions since many printer drivers only reliably
+   recognize the standard keyword form for @page size and may silently
+   reject or mis-handle an arbitrary custom mm size, even when the
+   numbers are numerically identical to a standard sheet. dims always
+   comes from pickPageOrientation, which only ever returns portrait or
+   landscape A4, so there's no other case to fall back to here. */
 function pageSizeCssValue(dims){
-  var key = Object.keys(PAPER_SIZES).find(function(k){
-    var p = PAPER_SIZES[k];
-    return (p.wMM === dims.w && p.hMM === dims.h) || (p.wMM === dims.h && p.hMM === dims.w);
-  });
-  if(!key) return dims.w + "mm " + dims.h + "mm";
-  var p = PAPER_SIZES[key];
-  return dims.w === p.wMM && dims.h === p.hMM ? key : key + " landscape";
+  return dims.w === PAGE_W_MM && dims.h === PAGE_H_MM ? "A4" : "A4 landscape";
 }
 
 /* every canvas is rendered inside its own try/catch: without this, one
@@ -2489,17 +2481,7 @@ function onWheel(e){
   setTimeout(function(){ wheelCooldown = false; }, 350);
 }
 
-function populatePaperSizes(){
-  var sel = $("#paperSize");
-  sel.innerHTML = "";
-  Object.keys(PAPER_SIZES).forEach(function(key){
-    sel.appendChild(el("option", { value:key, text:PAPER_SIZES[key].label }));
-  });
-  sel.value = state.paperSize;
-}
-
 function initEvents(){
-  $("#paperSize").addEventListener("change", function(){ state.paperSize = $("#paperSize").value; renderViewer(); });
   $("#printBtn").addEventListener("click", doPrint);
   wireCardRemoveZone($("#cardRemoveZone"));
   wireDropTarget($("#newPageZone"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage, addTemplatesToNewPage); });
@@ -3032,7 +3014,6 @@ function renderGroupPanel(){
   });
 }
 
-populatePaperSizes();
 initEvents();
 renderViewer();
 
