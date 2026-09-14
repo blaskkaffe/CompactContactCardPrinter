@@ -257,15 +257,18 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    department color to take (see colorForPage) -- tintElement overrides
    both per page to match that page's own portal button, same as a placed
    contact chip/group tile/segmentCapsule. */
-.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; z-index:2; padding:4px 6px; background:var(--panel); border:1px solid var(--border); border-radius:var(--panel-radius) var(--panel-radius) 0 0; font-size:11px;}
+.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; z-index:2; padding:4px 10px; background:var(--panel); border:1px solid var(--border); border-radius:var(--panel-radius) var(--panel-radius) 0 0; font-size:11px;}
 .pageInfoBar .pageInfoHeader{display:flex; align-items:center; gap:6px; margin-bottom:4px;}
 .pageInfoBar .pageInfoHeader span{flex:1 1 auto; font-size:11px; font-weight:bold;}
 .pageInfoBar .pageInfoHeader span.full{color:#a00;}
 .pageInfoBar .pageInfoHeader button,
 .pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{background:var(--panel); border:1px solid var(--border); border-radius:3px; font-size:10px; cursor:pointer;}
-.pageInfoBar .pageInfoHeader button{flex:0 0 auto; padding:8px 6px;}
+/* same diameter/radius as a pill (see --pill-radius) -- a perfect circle
+   rather than a rectangle, so A-Ö and the X read as icons, not labels. */
+.pageInfoBar .pageInfoHeader button{flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:var(--segmentPillHeight); height:var(--segmentPillHeight); padding:0; border-radius:var(--pill-radius); font-size:9px; font-weight:bold;}
 /* red only on hover -- permanently red next to the neutral A-Ö button
    read as too alarming. */
+.pageInfoBar .pageInfoHeader button.removeBtn{font-size:13px;}
 .pageInfoBar .pageInfoHeader button.removeBtn:hover{border-color:var(--danger); color:var(--danger);}
 .pageInfoBar .pageControls{display:flex; flex-wrap:wrap; align-items:center; gap:4px;}
 .pageInfoBar .pageControls select, .pageInfoBar .pageControls button, .pageInfoBar .pageControls input{padding:8px 6px;}
@@ -2005,7 +2008,7 @@ function buildPageInfoBar(index){
     renderViewer();
   });
   headerRow.appendChild(sortBtn);
-  var removeBtn = el("button", { type:"button", class:"removeBtn", text:"Ta bort", title:"Gör den här sidan tom" });
+  var removeBtn = el("button", { type:"button", class:"removeBtn", text:"×", title:"Ta bort -- gör den här sidan tom" });
   removeBtn.addEventListener("click", function(){ removePage(index); });
   headerRow.appendChild(removeBtn);
   bar.appendChild(headerRow);
