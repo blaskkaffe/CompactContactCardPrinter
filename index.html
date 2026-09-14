@@ -505,25 +505,28 @@ const DEFAULT_LAYOUT = "v20";
 
 /* -- header background presets, exactly 16 (one full 4x4 grid, no overflow
    row) -- Svart first since it's the default new-page color, the rest
-   hues evenly spaced around the wheel (22.5° apart) at one consistent
-   saturation/lightness so picking a color is just "which hue". */
+   hues evenly spaced around the wheel (24° apart) at one consistent,
+   moderate saturation (58%, vs. a fully saturated wheel) so picking a
+   color is just "which hue" -- lower saturation reads as muted/earthy
+   rather than neon while each swatch still lands close to the same
+   ~5.4:1 contrast against white header text. */
 const COLOR_PRESETS = [
   { name:"Svart",    hex:"#000000" },
-  { name:"Röd",      hex:"#c52020" },
-  { name:"Orange",   hex:"#a14e1a" },
-  { name:"Gul",      hex:"#7c6214" },
-  { name:"Oliv",     hex:"#5f6b11" },
-  { name:"Lime",     hex:"#427112" },
-  { name:"Grön",     hex:"#1f7513" },
-  { name:"Smaragd",  hex:"#13752c" },
-  { name:"Turkos",   hex:"#137350" },
-  { name:"Cyan",     hex:"#127070" },
-  { name:"Azur",     hex:"#1a6a9d" },
-  { name:"Blå",      hex:"#2e59dd" },
-  { name:"Indigo",   hex:"#503adf" },
-  { name:"Lila",     hex:"#8934de" },
-  { name:"Magenta",  hex:"#a91fbc" },
-  { name:"Rosa",     hex:"#b71e91" }
+  { name:"Röd",      hex:"#c43434" },
+  { name:"Orange",   hex:"#9e582a" },
+  { name:"Gul",      hex:"#7b6921" },
+  { name:"Oliv",     hex:"#60711e" },
+  { name:"Lime",     hex:"#42761f" },
+  { name:"Grön",     hex:"#207a20" },
+  { name:"Smaragd",  hex:"#207944" },
+  { name:"Turkos",   hex:"#207765" },
+  { name:"Cyan",     hex:"#247387" },
+  { name:"Azur",     hex:"#3269bc" },
+  { name:"Blå",      hex:"#4a4acf" },
+  { name:"Indigo",   hex:"#7f4acf" },
+  { name:"Lila",     hex:"#a533c1" },
+  { name:"Magenta",  hex:"#b5309b" },
+  { name:"Cerise",   hex:"#be336b" }
 ];
 
 /* ================= shared utilities ================= */
