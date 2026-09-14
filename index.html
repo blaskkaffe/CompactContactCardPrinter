@@ -2675,6 +2675,7 @@ function initEvents(){
   $("#nextBtn").addEventListener("click", goNext);
   $("#printBtn").addEventListener("click", doPrint);
   wireCardRemoveZone($("#cardRemoveZone"));
+  wireGroupPanelAutoScroll($("#groupPanelBody"));
   wireDropTarget($("#newPageZone"), function(data){ handlePanelDrop(data, moveGroupToNewPage, moveContactToNewPage, addTemplatesToNewPage); });
   /* dropping a group/contact on the empty-viewer overlay (shown only when
      state.pages is empty) creates the first page, same as "+ Ny sida" --
@@ -3023,7 +3024,44 @@ function wireDragStart(node, payload){
    always fires on the source element once the drag operation ends,
    dropped or not. */
 var activeDragPayload = null;
-document.addEventListener("dragend", function(){ activeDragPayload = null; });
+document.addEventListener("dragend", function(){ activeDragPayload = null; stopGroupPanelAutoScroll(); });
+
+/* HTML5 drag-and-drop's native "auto-scroll a container when the drag
+   nears its edge" is unreliable across browsers -- notably broken for an
+   inner scrollable element in Firefox on Windows, reported as dragging
+   and scrolling not working together. #groupPanelBody (the "Dra till
+   kortet" pool) is the only element in the whole app that actually
+   scrolls (see #mainRow/#viewerWrap's own overflow:hidden), so it's the
+   only place this needs to be done by hand: dragover near its top/bottom
+   edge starts a scroll loop, faster the closer the cursor is to the
+   edge, stopped the moment the drag leaves the panel or ends anywhere
+   (including a drop, or Esc/leaving the window entirely -- both fire
+   dragend). */
+var groupPanelScrollSpeed = 0;
+var groupPanelAutoScrollRAF = null;
+function stopGroupPanelAutoScroll(){
+  groupPanelScrollSpeed = 0;
+  if(groupPanelAutoScrollRAF != null){ cancelAnimationFrame(groupPanelAutoScrollRAF); groupPanelAutoScrollRAF = null; }
+}
+function wireGroupPanelAutoScroll(panel){
+  var EDGE_PX = 48, MAX_SPEED = 16;
+  function step(){
+    if(groupPanelScrollSpeed === 0){ groupPanelAutoScrollRAF = null; return; }
+    panel.scrollTop += groupPanelScrollSpeed;
+    groupPanelAutoScrollRAF = requestAnimationFrame(step);
+  }
+  panel.addEventListener("dragover", function(e){
+    if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
+    var rect = panel.getBoundingClientRect();
+    var fromTop = e.clientY - rect.top, fromBottom = rect.bottom - e.clientY;
+    if(fromTop < EDGE_PX) groupPanelScrollSpeed = -MAX_SPEED * (1 - fromTop/EDGE_PX);
+    else if(fromBottom < EDGE_PX) groupPanelScrollSpeed = MAX_SPEED * (1 - fromBottom/EDGE_PX);
+    else groupPanelScrollSpeed = 0;
+    if(groupPanelScrollSpeed !== 0 && groupPanelAutoScrollRAF == null) groupPanelAutoScrollRAF = requestAnimationFrame(step);
+  });
+  panel.addEventListener("dragleave", function(){ groupPanelScrollSpeed = 0; });
+  panel.addEventListener("drop", stopGroupPanelAutoScroll);
+}
 
 /* every 1-indexed page currently showing this exact contact -- normally at
    most one v20 page, but the same contact can legitimately sit on several
