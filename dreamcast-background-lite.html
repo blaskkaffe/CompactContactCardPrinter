@@ -118,45 +118,43 @@ if (!bgAnimationPaused) {
         return out;
     }
 
-    function rotationX(theta) {
-        const c = Math.cos(theta), s = Math.sin(theta);
-        return new Float32Array([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]);
-    }
-
-    function rotationY(theta) {
-        const c = Math.cos(theta), s = Math.sin(theta);
-        return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]);
-    }
-
-    function translation(tx, ty, tz) {
-        return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, tx, ty, tz, 1]);
-    }
-
-    // --- sky dome (approximates the original upside-down LatheGeometry cylinder) ---
-    function buildLathe(segY, height, radius, segPhi) {
+    // --- sky dome ---
+    // The original used an open-ended, finite-radius tube (a LatheGeometry
+    // cylinder) tilted to stand in for the sky. Reimplemented independently
+    // its rim can drift into frame as it slowly spins. A closed sphere has
+    // no rim to ever reveal, so it stays robust at any rotation/angle while
+    // keeping the same look: same texture, same fade-by-height gradient.
+    function buildSphere(latSegments, lonSegments, radius, center) {
         const positions = [];
         const uvs = [];
-        for (let iy = 0; iy <= segY; iy++) {
-            const y = height * (iy / segY);
-            const v = iy / segY;
-            for (let j = 0; j <= segPhi; j++) {
-                const phi = (j / segPhi) * Math.PI * 2;
-                positions.push(radius * Math.cos(phi), y, radius * Math.sin(phi));
-                uvs.push(j / segPhi, v);
+        // Pole axis is X (sideways), not Y: the camera looks mostly along Y,
+        // so this keeps the poles - where lat/long UV mapping always pinches
+        // to a point - out of its sightline, avoiding a starburst artifact.
+        for (let i = 0; i <= latSegments; i++) {
+            const theta = (i / latSegments) * Math.PI;
+            const x = radius * Math.cos(theta);
+            const ringRadius = radius * Math.sin(theta);
+            for (let j = 0; j <= lonSegments; j++) {
+                const phi = (j / lonSegments) * Math.PI * 2;
+                positions.push(
+                    center[0] + x,
+                    center[1] + ringRadius * Math.cos(phi),
+                    center[2] + ringRadius * Math.sin(phi)
+                );
+                uvs.push(j / lonSegments, i / latSegments);
             }
         }
         const indices = [];
-        const rowSize = segPhi + 1;
-        for (let iy = 0; iy < segY; iy++)
-            for (let j = 0; j < segPhi; j++) {
-                const a = iy * rowSize + j, b = a + 1, c = a + rowSize, d = c + 1;
+        const rowSize = lonSegments + 1;
+        for (let i = 0; i < latSegments; i++)
+            for (let j = 0; j < lonSegments; j++) {
+                const a = i * rowSize + j, b = a + 1, c = a + rowSize, d = c + 1;
                 indices.push(a, c, b, b, c, d);
             }
         return { positions: new Float32Array(positions), uvs: new Float32Array(uvs), indices: new Uint16Array(indices) };
     }
 
-    const sky = buildLathe(64, 70, 40, 32);
-    const skyFixedRotationX = Math.PI / 0.655;
+    const sky = buildSphere(20, 28, 55, [0, 18, 22]);
 
     // --- plane grid (approximates the original PlaneGeometry(50,30,100,100)) ---
     function buildGrid(segX, segY, width, height) {
@@ -231,12 +229,16 @@ if (!bgAnimationPaused) {
         }
     `;
 
-    // Sky dome: same texture, faded by a smoothstep gradient on local height,
-    // matching the original cylinder's onBeforeCompile shader injection.
+    // Sky dome: same texture, faded by a smoothstep gradient (now keyed off
+    // world Z, which is this camera's "up" axis, so it fades near the
+    // horizon and stays hazily visible higher up) plus a slow UV drift that
+    // stands in for the original's slow spin, matching its look without a
+    // per-frame rotation matrix.
     const skyVsSource = `
         attribute vec3 aPosition;
         attribute vec2 aUv;
         uniform mat4 uMvp;
+        uniform float uTime;
         varying vec2 vUv;
         varying float vOpacity;
 
@@ -246,9 +248,8 @@ if (!bgAnimationPaused) {
         }
 
         void main() {
-            float normalizedY = aPosition.y / 60.0;
-            vOpacity = 1.0 - smoothstepCustom(-0.7, 1.1, normalizedY);
-            vUv = aUv * vec2(2.0, 1.0) + vec2(1.0, 1.0);
+            vOpacity = smoothstepCustom(-5.0, 30.0, aPosition.z) * 0.68;
+            vUv = aUv * vec2(2.0, 1.0) + vec2(1.0 + uTime * 0.02, 1.0);
             gl_Position = uMvp * vec4(aPosition, 1.0);
         }
     `;
@@ -260,7 +261,7 @@ if (!bgAnimationPaused) {
         uniform sampler2D uTexture;
 
         void main() {
-            vec4 tex = texture2D(uTexture, fract(vUv));
+            vec4 tex = texture2D(uTexture, vUv);
             gl_FragColor = vec4(tex.rgb, tex.a * vOpacity);
         }
     `;
@@ -312,6 +313,7 @@ if (!bgAnimationPaused) {
     const skyAPosition = gl.getAttribLocation(skyProgram, 'aPosition');
     const skyAUv = gl.getAttribLocation(skyProgram, 'aUv');
     const skyUMvp = gl.getUniformLocation(skyProgram, 'uMvp');
+    const skyUTime = gl.getUniformLocation(skyProgram, 'uTime');
     const skyUTexture = gl.getUniformLocation(skyProgram, 'uTexture');
 
     const texture = gl.createTexture();
@@ -320,8 +322,10 @@ if (!bgAnimationPaused) {
     image.onload = () => {
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        // Texture is 64x64 (power-of-two), so hardware REPEAT wrapping is safe
+        // and gives the sky's UV drift a seamless wrap with no shader tricks.
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         textureReady = true;
     };
@@ -371,10 +375,7 @@ if (!bgAnimationPaused) {
         gl.uniform1i(uTexture, 0);
         gl.drawElements(gl.TRIANGLES, grid.indices.length, gl.UNSIGNED_SHORT, 0);
 
-        // Sky dome
-        const skyModel = multiply(translation(0, 0, 65), multiply(rotationY(-time * 0.0625), rotationX(skyFixedRotationX)));
-        const skyMvp = multiply(viewProjMatrix, skyModel);
-
+        // Sky dome (static mesh; uMvp is just the shared view-projection matrix)
         gl.useProgram(skyProgram);
         gl.bindBuffer(gl.ARRAY_BUFFER, skyPositionBuffer);
         gl.enableVertexAttribArray(skyAPosition);
@@ -383,7 +384,8 @@ if (!bgAnimationPaused) {
         gl.enableVertexAttribArray(skyAUv);
         gl.vertexAttribPointer(skyAUv, 2, gl.FLOAT, false, 0, 0);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skyIndexBuffer);
-        gl.uniformMatrix4fv(skyUMvp, false, skyMvp);
+        gl.uniformMatrix4fv(skyUMvp, false, viewProjMatrix);
+        gl.uniform1f(skyUTime, time);
         gl.uniform1i(skyUTexture, 0);
         gl.drawElements(gl.TRIANGLES, sky.indices.length, gl.UNSIGNED_SHORT, 0);
     }
