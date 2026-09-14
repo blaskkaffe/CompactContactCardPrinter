@@ -248,6 +248,7 @@ if (!bgAnimationPaused) {
         attribute vec3 aPosition;
         attribute vec2 aUv;
         uniform mat4 uMvp;
+        uniform mat4 uModel;
         varying vec2 vUv;
         varying float vOpacity;
 
@@ -257,18 +258,20 @@ if (!bgAnimationPaused) {
         }
 
         void main() {
-            // The original's opacity formula tops out around 0.665, which
-            // barely lightens saturated color when blended over its black
-            // backdrop. Against this page's light gray backdrop the same
-            // formula washes the texture out almost to nothing, so the
-            // ceiling is raised well past what the original needed. A floor
-            // is also added: this approximated tube maps local height to
-            // screen position differently enough from the original's exact
-            // geometry that the formula's near-zero band lands well above
-            // the horizon instead of right at it, leaving a washed-out gap.
-            float normalizedY = aPosition.y / 60.0;
-            float raw = 1.0 - smoothstepCustom(-0.7, 1.1, normalizedY);
-            vOpacity = clamp(max(raw * 3.0, 0.45), 0.0, 1.0);
+            // Opacity keyed off WORLD z (this camera's "up" axis) instead of
+            // the tube's local pre-tilt height: this approximated tube maps
+            // local height to screen position differently enough from the
+            // original's exact geometry that a local-height fade put its
+            // falloff in the wrong place on screen (a washed-out band well
+            // above the horizon, or - once patched with a floor - a hard
+            // edge right at the horizon). A direct, smooth world-z gradient
+            // fades all the way down near the horizon (no floor, no hard
+            // edge) and stays a soft, low-saturation presence higher up
+            // rather than fully opaque, matching the original's own capped
+            // opacity (~0.665) against a light backdrop.
+            vec4 worldPos = uModel * vec4(aPosition, 1.0);
+            float t = smoothstepCustom(0.0, 35.0, worldPos.z);
+            vOpacity = mix(0.0, 0.55, t);
             vUv = aUv * vec2(2.0, 1.0) + vec2(1.0, 1.0);
             gl_Position = uMvp * vec4(aPosition, 1.0);
         }
@@ -333,6 +336,7 @@ if (!bgAnimationPaused) {
     const skyAPosition = gl.getAttribLocation(skyProgram, 'aPosition');
     const skyAUv = gl.getAttribLocation(skyProgram, 'aUv');
     const skyUMvp = gl.getUniformLocation(skyProgram, 'uMvp');
+    const skyUModel = gl.getUniformLocation(skyProgram, 'uModel');
     const skyUTexture = gl.getUniformLocation(skyProgram, 'uTexture');
 
     const texture = gl.createTexture();
@@ -425,6 +429,7 @@ if (!bgAnimationPaused) {
         gl.vertexAttribPointer(skyAUv, 2, gl.FLOAT, false, 0, 0);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skyIndexBuffer);
         gl.uniformMatrix4fv(skyUMvp, false, skyMvp);
+        gl.uniformMatrix4fv(skyUModel, false, skyModel);
         gl.uniform1i(skyUTexture, 0);
         gl.drawElements(gl.TRIANGLES, sky.indices.length, gl.UNSIGNED_SHORT, 0);
     }
