@@ -272,6 +272,24 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
 #groupPanel .sourceMultiUse{display:flex; align-items:center; gap:3px; font-size:10px; color:#555; flex:none; cursor:pointer; user-select:none;}
 #groupPanel .sourceMultiUse input{margin:0;}
 /* ===================== END GROUP PANEL ===================== */
+
+/* ===================== PORTAL PANEL (jump to a card) ===================== */
+/* a real flex sibling of the viewer, not an overlay on top of it -- so it
+   takes its own slice of width instead of ever needing to leave clearance
+   for something floating over the cards (see fitVisibleCards, which no
+   longer has to know this exists). Round, shadowed, spaced-out buttons on
+   the plain page background read as loose floating objects even though
+   the column itself is laid out normally. */
+#portalPanel{flex:0 0 56px; display:flex; flex-direction:column; align-items:center; gap:10px; padding:16px 8px; overflow-y:auto; overflow-x:hidden;}
+#portalPanel .portalBtn{flex:0 0 auto; width:40px; height:40px; border-radius:50%; background:#fff; border:1px solid #999; box-shadow:0 2px 5px rgba(0,0,0,.28); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold; color:#333; cursor:pointer; user-select:none; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
+#portalPanel .portalBtn:hover{background:#f2f2f2;}
+/* the sheet currently shown in the viewer -- a plain visual cue, not a
+   drop-related state */
+#portalPanel .portalBtn.current{border-color:#0080ff; color:#0060c0; box-shadow:0 2px 6px rgba(0,128,255,.45);}
+/* held over mid-drag (see wirePortalPanel) -- bigger + brighter so it
+   reads as "drag here to jump", distinct from .current */
+#portalPanel .portalBtn.dragOver{background:#dff0ff; border-color:#0080ff; color:#0060c0; transform:scale(1.15); box-shadow:0 3px 8px rgba(0,128,255,.5);}
+/* ===================== END PORTAL PANEL ===================== */
 </style>
 <style id="pageSizeStyle"></style>
 </head>
@@ -336,6 +354,13 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
     <div id="viewerContent"></div>
     <div id="emptyViewerOverlay" hidden></div>
   </main>
+  <!-- one round button per printed sheet ("Kort N"), always clickable to
+       jump straight there -- and, held over during an active drag (see
+       wirePortalPanel), a way to reach a card that isn't on screen right
+       now without needing the scroll wheel at all (which Firefox on
+       Windows won't deliver mid-drag -- a real platform limitation, not
+       fixable from here; see wirePortalPanel's own doc comment). -->
+  <aside id="portalPanel"></aside>
 </div>
 
 <div id="dropOverlay" hidden>Släpp en CSV- eller XLSX-fil för att importera kontakter</div>
@@ -2601,6 +2626,7 @@ function renderViewer(){
     lastVisibleCount = 0;
     updateIndicator();
     renderGroupPanel();
+    renderPortalPanel();
     return;
   }
   overlay.hidden = true;
@@ -2633,6 +2659,7 @@ function renderViewer(){
   fitSegmentCapsuleLabels();
   updateIndicator();
   renderGroupPanel();
+  renderPortalPanel();
 }
 
 function updateIndicator(){
@@ -2658,6 +2685,51 @@ function scrollToPage(idx){
 }
 function goPrev(){ scrollToPage(state.currentPage - sidesPerView()); }
 function goNext(){ scrollToPage(state.currentPage + sidesPerView()); }
+
+/* one round button per printed sheet ("Kort N") in #portalPanel -- lets a
+   drag reach a card that isn't on screen right now without the scroll
+   wheel, which Firefox on Windows never delivers while a native drag is
+   held (an OS-level limitation of that drag loop, not something a page
+   can work around by listening harder). Held over during a drag, a
+   portal jumps the viewer straight to its card while the drag stays
+   active -- a native drag session isn't tied to any particular DOM node
+   staying put, so rebuilding the whole viewer under it (renderViewer,
+   same as any other page turn) doesn't interrupt it; dragover just keeps
+   firing on whatever's now under the cursor once the target card is on
+   screen, ready to drop onto. Also a plain click-to-jump button even with
+   nothing being dragged. */
+function renderPortalPanel(){
+  var panel = $("#portalPanel");
+  if(!panel) return;
+  panel.innerHTML = "";
+  if(!state.pages.length) return;
+  var totalPairs = Math.ceil(totalPagesCount()/2);
+  var currentPair = Math.floor(state.currentPage/2);
+  for(var i=0;i<totalPairs;i++){
+    var frontIndex = i*2;
+    var btn = el("div", {
+      class:"portalBtn" + (i===currentPair ? " current" : ""),
+      text:String(i+1),
+      title:"Hoppa till Kort " + (i+1)
+    });
+    wirePortalButton(btn, frontIndex);
+    panel.appendChild(btn);
+  }
+}
+function wirePortalButton(btn, frontIndex){
+  btn.addEventListener("click", function(){ scrollToPage(frontIndex); });
+  btn.addEventListener("dragover", function(e){
+    if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
+    e.preventDefault();
+    btn.classList.add("dragOver");
+    if(state.currentPage !== frontIndex) scrollToPage(frontIndex);
+  });
+  btn.addEventListener("dragleave", function(){ btn.classList.remove("dragOver"); });
+  /* not a real drop target -- dropping here just leaves whatever was
+     being dragged exactly where it already was, same as letting go
+     anywhere else with no valid target underneath. */
+  btn.addEventListener("drop", function(e){ e.preventDefault(); btn.classList.remove("dragOver"); });
+}
 
 var wheelCooldown = false;
 function onWheel(e){
