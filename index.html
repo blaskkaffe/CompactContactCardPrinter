@@ -12,7 +12,7 @@
   --blue:#0080ff; --blue-text:#0060c0; --blue-bg:#dff0ff; --blue-glow:rgba(0,128,255,.6); --danger:#c00;
   --shadow-panel:0 2px 5px rgba(0,0,0,.28); --shadow-soft:rgba(0,0,0,.4);
   --space-1:4px; --space-2:6px; --space-3:8px; --space-4:10px; --space-5:12px;
-  --edge-gap:14px; --panel-radius:calc(var(--pill-radius) + var(--space-4));
+  --edge-gap:14px; --group-panel-w:260px; --panel-radius:calc(var(--pill-radius) + var(--space-4));
   --ui-font:12px; --small-font:10px; --title-font:15px;
   --segmentFontSize:12px; --segmentPillPadY:5px; --segmentLineHeight:1.2;
   --segmentPillHeight:calc(var(--segmentLineHeight)*var(--segmentFontSize) + var(--segmentPillPadY)*2);
@@ -44,18 +44,20 @@ label.tool{display:flex;align-items:center;gap:var(--space-1);flex:0 0 auto;font
 /* Group panel */
 #mainRow{position:relative;display:flex;flex:1 1 auto;overflow:hidden}
 /* floats over the viewer instead of sharing mainRow's layout with it as a
-   column of its own -- the viewer spans the full width underneath (see
-   #viewerContent's own padding, now the same edge-gap on every side
-   instead of relying on this panel's old width to create the left one).
-   position:relative on #mainRow scopes these insets to just its own box
-   (below the toolbar), not the whole viewport. Both of this panel's boxes
-   already carry their own background/shadow (see the shared rule right
-   below), so floating them costs nothing visually -- they read as cards
-   sitting on top of the viewer, the same way a page's own .pageInfoBar
-   floats above its card. z-index puts them above every card/highlight
-   layer in the viewer (the highest of those is 4, see .cardRowHighlightLayer)
-   regardless of DOM order. */
-#groupPanel{position:absolute;top:var(--edge-gap);left:var(--edge-gap);bottom:var(--edge-gap);z-index:5;display:flex;flex-direction:column;gap:var(--space-5);width:260px;color:var(--text);overflow:hidden}
+   column of its own -- position:relative on #mainRow scopes these insets
+   to just its own box (below the toolbar), not the whole viewport. Both
+   of this panel's boxes already carry their own background/shadow (see
+   the shared rule right below), so floating them costs nothing visually
+   -- they read as cards sitting on top of the viewer, the same way a
+   page's own .pageInfoBar floats above its card. z-index puts them above
+   every card/highlight layer in the viewer (the highest of those is 4,
+   see .cardRowHighlightLayer) regardless of DOM order.
+   #viewerContent's own left padding (see below) still reserves this
+   panel's full footprint -- its own edge-gap inset plus --group-panel-w
+   plus another edge-gap of clearance -- so cards shift clear of it
+   instead of being covered by it; only the CSS technique changed, not
+   the space the panel actually occupies on screen. */
+#groupPanel{position:absolute;top:var(--edge-gap);left:var(--edge-gap);bottom:var(--edge-gap);z-index:5;display:flex;flex-direction:column;gap:var(--space-5);width:var(--group-panel-w);color:var(--text);overflow:hidden}
 #groupPanelControls,#groupPanelBody{background:var(--panel);border:1px solid var(--border);border-radius:var(--panel-radius);box-shadow:var(--shadow-panel)}
 #groupPanelControls{display:flex;flex-direction:column;gap:var(--space-3);flex:0 0 auto;padding:var(--space-4)}
 #groupPanelControls .panelControlsGrid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)}
@@ -95,7 +97,11 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
    actually renders, which isn't known until after layout. 0 here is only
    the flash-of-unstyled-content fallback for the instant before that
    first runs. */
-#viewerContent{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:0 var(--edge-gap) var(--edge-gap) var(--edge-gap)}
+/* padding-left clears #groupPanel's own full footprint -- its edge-gap
+   inset from mainRow, plus its own width, plus another edge-gap of
+   clearance beyond it -- the same distance from the panel that the panel
+   itself keeps from mainRow's edge. */
+#viewerContent{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:0 var(--edge-gap) var(--edge-gap) calc(var(--edge-gap)*2 + var(--group-panel-w))}
 #emptyViewerOverlay{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:40px;color:var(--border-dark);font-size:18px;text-align:center}
 #emptyViewerOverlay[hidden]{display:none}
 #emptyViewerOverlay.dragOver{background:var(--blue-bg);color:var(--blue-text)}
@@ -2205,11 +2211,17 @@ function currentPageDims(index){
    the viewer's own width -- no separate view-mode toggle to keep in sync
    with it. Four pages on a large window, two on a medium one, just one
    on a narrow one: simple width tiers rather than anything more
-   elaborate. */
+   elaborate. Measured against the width actually left over for cards,
+   not #viewerContent's raw clientWidth -- the floating group panel's
+   footprint (see GROUP_PANEL_WIDTH_PX/fitVisibleCards) is real padding
+   on #viewerContent now rather than a layout sibling shrinking it for
+   free, so it has to be subtracted here too or these tiers would trigger
+   on window width alone and stop matching how much room cards actually
+   have. */
 var SIDES_LARGE_MIN_PX = 1200;
 var SIDES_MEDIUM_MIN_PX = 640;
 function sidesPerView(){
-  var w = $("#viewerContent").clientWidth;
+  var w = $("#viewerContent").clientWidth - GROUP_PANEL_WIDTH_PX - WINDOW_EDGE_GAP_PX*2;
   if(w >= SIDES_LARGE_MIN_PX) return 4;
   if(w >= SIDES_MEDIUM_MIN_PX) return 2;
   return 1;
@@ -2224,6 +2236,13 @@ function sidesPerView(){
    constant ever sits closer to a window edge than anything else built
    from it. */
 var WINDOW_EDGE_GAP_PX = 14;
+
+/* must match --group-panel-w in the CSS -- the floating group panel's own
+   width, used below (alongside WINDOW_EDGE_GAP_PX) to work out how much
+   of the viewer's left edge it and its clearance actually occupy, since
+   that space is real CSS padding on #viewerContent rather than a layout
+   sibling with a measurable box of its own. */
+var GROUP_PANEL_WIDTH_PX = 260;
 
 /* #viewerContent's own padding-top, kept just tall enough to clear
    whichever .pageInfoBar is tallest among the page(s) actually on screen
@@ -2274,12 +2293,14 @@ function fitVisibleCards(){
      pixel ratios, browser zoom) to tip the actual rendered row a hair
      over its budget. A pixel of slack costs nothing visible and keeps
      the row reliably a hair under its budget instead of exactly on it.
-     Both WINDOW_EDGE_GAP_PX subtracted, not just one: #viewerContent
-     carries that same gap as real padding on both its left and right now
-     (the group panel floats over the viewer instead of sitting beside it
-     as a column that used to create the left one for free -- see
-     #groupPanel), and clientWidth includes padding either way. */
-  var availW = wrap.clientWidth - WINDOW_EDGE_GAP_PX*2 - 1;
+     The left side subtracts the group panel's own width plus two edge
+     gaps (its inset from mainRow, and its clearance from the viewer
+     content beyond it -- see #viewerContent's own padding-left), not
+     just one gap like the right side: that space is real CSS padding on
+     #viewerContent now that the panel floats over the viewer instead of
+     sitting beside it as a column with a measurable box of its own, and
+     clientWidth includes padding either way. */
+  var availW = wrap.clientWidth - (GROUP_PANEL_WIDTH_PX + WINDOW_EDGE_GAP_PX*2) - WINDOW_EDGE_GAP_PX - 1;
   var cw = (availW - fixedW) / pages.length;
 
   function applySizesFor(topClearancePx){
