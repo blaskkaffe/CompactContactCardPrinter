@@ -301,15 +301,25 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    (see contiguousDeptSegments); a plain light gray tab instead. */
 .cardEdgeHandles .segmentCapsule.emptyRowCapsule{background:var(--hover-bg); border-color:var(--border-dark);}
 
-/* custom drag images (see wireCardRowDrag/showSegmentDragGhost) --
-   positioned off-screen rather than display:none, since setDragImage
-   needs them actually rendered to snapshot. */
+/* custom drag images (see wireCardRowDrag/showSegmentDragGhost,
+   wireDragStart/showPanelDragGhost) -- positioned off-screen rather than
+   display:none, since setDragImage needs them actually rendered to
+   snapshot. */
 #rowDragGhost{position:fixed; top:-999px; left:-999px; padding:4px 10px; background:#222; border-radius:4px; color:#fff; font-size:12px; white-space:nowrap; pointer-events:none;}
 /* font/line-height/padding-block share --segment* with .segmentCapsule,
    so the resting tab and this pill always agree on text size, and the
    tab's own width equals this pill's rendered height. Not part of .pill
    above -- that shared font-size would break this match. */
 #segmentDragGhost{position:fixed; top:-999px; left:-999px; padding:var(--segmentPillPadY) 16px; border-radius:var(--pill-radius); box-shadow:0 1px 4px var(--shadow-soft); color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); white-space:nowrap; pointer-events:none;}
+/* a .pill copy of whatever's being dragged out of #groupPanel (a group
+   tile, contact chip, or the empty-row template) -- explicit rather than
+   leaving it to the browser's own default drag-image snapshot, which
+   proved unreliable for a source element nested inside #groupPanel now
+   that it's position:absolute with its own overflow:auto (see
+   #groupPanel): the browser's auto-generated snapshot came out blank in
+   that specific nesting. white-space:nowrap since it's off-screen with
+   no truncate box to wrap within. */
+#panelDragGhost{position:fixed; top:-999px; left:-999px; border:1px solid; white-space:nowrap; pointer-events:none;}
 /* ===================== END SEGMENT TABS / DRAG GHOSTS ===================== */
 
 /* ===================== PER-CARD INFO BAR (viewer) ===================== */
@@ -2302,6 +2312,31 @@ function showSegmentDragGhost(e, text, color){
   e.dataTransfer.setDragImage(segmentDragGhostEl, rect.width, rect.height/2);
 }
 
+/* same idea, for wireDragStart's own sources (group tiles, contact
+   chips, #emptyRowTile) -- copies the dragged node's own label text and
+   colors (background/border/text) onto one reusable .pill-shaped ghost,
+   rather than trusting the browser's default drag-image snapshot of the
+   node itself (see #panelDragGhost's own comment for why). Reads the
+   name from .groupTileName/.contactChipName specifically when present --
+   a group tile/contact chip's own full textContent also picks up its
+   count badge/page badge with no space between them, which reads as one
+   run-together word once it's the only text on the ghost. */
+var panelDragGhostEl = null;
+function showPanelDragGhost(e, node){
+  if(!panelDragGhostEl){
+    panelDragGhostEl = el("div", { class:"pill", id:"panelDragGhost" });
+    document.body.appendChild(panelDragGhostEl);
+  }
+  var label = node.querySelector(".groupTileName, .contactChipName");
+  panelDragGhostEl.textContent = label ? label.textContent : node.textContent.trim();
+  var cs = getComputedStyle(node);
+  panelDragGhostEl.style.background = cs.backgroundColor;
+  panelDragGhostEl.style.borderColor = cs.borderColor;
+  panelDragGhostEl.style.color = cs.color;
+  var rect = panelDragGhostEl.getBoundingClientRect();
+  e.dataTransfer.setDragImage(panelDragGhostEl, rect.width/2, rect.height/2);
+}
+
 /* the actual contacts a drag payload represents, in the order they'll be
    inserted -- lets the dragover preview color each highlighted row by its
    own department instead of one flat color for the whole span (see
@@ -2542,7 +2577,7 @@ function buildCardEdgeHandles(pageIndex){
     capsule.style.top = ((geo.headerFrac + seg.startIdx*geo.rowFrac) * 100) + "%";
     capsule.style.height = ((seg.length*geo.rowFrac) * 100) + "%";
     capsule.addEventListener("dragstart", function(e){ showSegmentDragGhost(e, seg.label, color || "#999"); });
-    wireDragStart(capsule, { type:"segment", fromPage:pageIndex, startIdx:seg.startIdx, length:seg.length });
+    wireDragStart(capsule, { type:"segment", fromPage:pageIndex, startIdx:seg.startIdx, length:seg.length }, true);
     strip.appendChild(capsule);
   });
 
@@ -3244,12 +3279,20 @@ function handlePanelDrop(data, onGroup, onContact, onTemplate){
 /* starts a panel drag carrying `payload` (a {type, fromPage, ...} object
    matching handlePanelDrop's expectations) -- shared by every draggable
    pool tile/chip, which otherwise all repeat the same setData+effectAllowed
-   pair with only the payload differing */
-function wireDragStart(node, payload){
+   pair with only the payload differing. Also shows a custom drag image
+   (see showPanelDragGhost) -- every one of these nodes lives inside
+   #groupPanel, so left to the browser's own default snapshot they'd all
+   share whatever made that come out blank there. hasOwnGhost skips that
+   for the one caller (a segment capsule) that already registers its own,
+   better-tailored ghost (showSegmentDragGhost) on a separate dragstart
+   listener -- without it, this one would fire second and silently
+   replace that ghost with a generic one. */
+function wireDragStart(node, payload, hasOwnGhost){
   node.addEventListener("dragstart", function(e){
     e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify(payload));
     e.dataTransfer.effectAllowed = "move";
     activeDragPayload = payload;
+    if(!hasOwnGhost) showPanelDragGhost(e, node);
   });
 }
 /* dataTransfer's own payload can only be read at dragstart/drop, never
