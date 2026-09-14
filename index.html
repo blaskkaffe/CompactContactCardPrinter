@@ -228,6 +228,9 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    at render time. */
 .cardEdgeHandles .segmentCapsule{position:absolute; right:0; display:flex; justify-content:center; align-items:center; width:var(--segmentPillHeight); border:1px solid; border-radius:var(--pill-radius) 0 0 var(--pill-radius); color:var(--text-soft); font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); text-align:center; writing-mode:vertical-rl; text-orientation:mixed; overflow:hidden; cursor:grab; user-select:none;}
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
+/* a "Tom rad" run -- no department, so no department color and no label
+   (see contiguousDeptSegments); a plain light gray tab instead. */
+.cardEdgeHandles .segmentCapsule.emptyRowCapsule{background:var(--hover-bg); border-color:var(--border-dark);}
 
 /* custom drag images (see wireCardRowDrag/showSegmentDragGhost) --
    positioned off-screen rather than display:none, since setDragImage
@@ -2105,14 +2108,19 @@ function rowFractionsForLayout(layout){
    order -- e.g. if Sales sits at rows 3-5 with IT at rows 0-2 and 6-8,
    this returns three segments (IT, Sales, IT again), not two -- the
    repeat is exactly the thing the segment capsules (see
-   buildCardEdgeHandles) are meant to make visible via a shared color. */
+   buildCardEdgeHandles) are meant to make visible via a shared color.
+   "Tom rad" spacers (isEmptyRow) get their own reserved key rather than
+   sharing deptGroupKey("")'s "(ingen avdelning)" bucket with a real
+   contact whose department field is just blank -- the two mean
+   different things, and buildCardEdgeHandles renders them differently
+   (a spacer's capsule carries no label and no department color). */
 function contiguousDeptSegments(contacts){
   var segments = [];
   contacts.forEach(function(c, i){
-    var key = deptGroupKey(c.department);
+    var key = c.isEmptyRow ? "__emptyRow__" : deptGroupKey(c.department);
     var last = segments[segments.length-1];
     if(last && last.key === key) last.length++;
-    else segments.push({ key:key, label:deptDisplayLabel(c.department), startIdx:i, length:1 });
+    else segments.push({ key:key, label: c.isEmptyRow ? "" : deptDisplayLabel(c.department), isEmptyRow: !!c.isEmptyRow, startIdx:i, length:1 });
   });
   return segments;
 }
@@ -2464,14 +2472,14 @@ function buildCardEdgeHandles(pageIndex){
   var contacts = contactsForPage(pageState);
 
   contiguousDeptSegments(contacts).forEach(function(seg){
-    var color = colorForDeptKey(seg.key);
-    var capsule = el("div", { class:"segmentCapsule", draggable:"true", text:seg.label,
+    var color = seg.isEmptyRow ? null : colorForDeptKey(seg.key);
+    var capsule = el("div", { class:"segmentCapsule" + (seg.isEmptyRow ? " emptyRowCapsule" : ""), draggable:"true", text:seg.label,
       "data-full-label":seg.label,
-      title:seg.label + " -- dra för att flytta hela gruppen (inom sidan eller till en annan sida)" });
-    tintElement(capsule, color);
+      title:(seg.isEmptyRow ? "Tom rad" : seg.label) + " -- dra för att flytta hela gruppen (inom sidan eller till en annan sida)" });
+    if(color) tintElement(capsule, color);
     capsule.style.top = ((geo.headerFrac + seg.startIdx*geo.rowFrac) * 100) + "%";
     capsule.style.height = ((seg.length*geo.rowFrac) * 100) + "%";
-    capsule.addEventListener("dragstart", function(e){ showSegmentDragGhost(e, seg.label, color); });
+    capsule.addEventListener("dragstart", function(e){ showSegmentDragGhost(e, seg.label, color || "#999"); });
     wireDragStart(capsule, { type:"segment", fromPage:pageIndex, startIdx:seg.startIdx, length:seg.length });
     strip.appendChild(capsule);
   });
