@@ -34,6 +34,9 @@
   --blue-glow: rgba(0,128,255,.6);
   --danger: #c00;
   --shadow-soft: rgba(0,0,0,.4);
+  /* the one floating-surface shadow -- group panel boxes, the per-card
+     info bar, and the card itself all use exactly this. */
+  --shadow-panel: 0 2px 5px rgba(0,0,0,.28);
 }
 html,body{height:100%;}
 body{display:flex; flex-direction:column; margin:0; background:var(--bg); color:var(--text); font:14px/1.4 Arial, sans-serif;}
@@ -81,11 +84,12 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
 #portalPanel{display:flex; flex-direction:row; align-items:center; gap:6px; max-width:40vw; padding:2px 0; overflow-x:auto; overflow-y:hidden;}
 #portalPanel .portalBtn{flex:0 0 auto; justify-content:center; background:var(--panel); border:1px solid var(--border-dark); color:var(--text-soft); font-weight:bold; transition:background-color .1s, border-color .1s, transform .08s, box-shadow .08s;}
 #portalPanel .portalBtn:hover{background:var(--hover-bg);}
-/* the page(s) on screen -- falls back to blue only for a page with no
-   contacts to take a color from (see colorForPage); otherwise it's that
-   page's own department color, matching the group panel and the card's
-   own segment capsules. */
-#portalPanel .portalBtn.current{border-color:var(--blue); box-shadow:0 1px 4px var(--blue-glow); color:var(--blue-text);}
+/* the page(s) on screen -- falls back to a flat blue tint only for a
+   page with no contacts to take a color from (see colorForPage);
+   otherwise tintElement fills in that page's own department color
+   (background+border), the same light-tint-plus-border look a placed
+   contact chip or group tile uses. */
+#portalPanel .portalBtn.current{background:var(--blue-bg); border-color:var(--blue);}
 #portalPanel .portalBtn.dragOver{background:var(--blue-bg); border-color:var(--blue); box-shadow:0 2px 6px var(--blue-glow); color:var(--blue-text); transform:scale(1.2);}
 /* ===================== END TOOLBAR ===================== */
 
@@ -96,7 +100,7 @@ label.tool{display:flex; align-items:center; gap:4px; flex:0 0 auto; font-size:1
    them. #groupPanelControls never scrolls/rebuilds, #groupPanelBody does
    (see renderGroupPanel). */
 #groupPanel{display:flex; flex-direction:column; gap:12px; flex:0 0 260px; padding:14px; color:var(--text); overflow:hidden;}
-#groupPanelControls, #groupPanelBody{background:var(--panel); border:1px solid var(--border); border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,.28);}
+#groupPanelControls, #groupPanelBody{background:var(--panel); border:1px solid var(--border); border-radius:8px; box-shadow:var(--shadow-panel);}
 #groupPanelControls{display:flex; flex-direction:column; gap:8px; flex:0 0 auto; padding:10px;}
 /* drop zones + buttons share one grid so the row reads as one cluster. */
 #groupPanelControls .panelControlsGrid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
@@ -174,9 +178,9 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    sub-pixel overflow that #viewerWrap's own overflow:hidden just clips. */
 .pagesRow{display:flex; flex-wrap:nowrap; justify-content:center; align-items:flex-start; gap:24px;}
 
-/* the second shadow sells the card sitting in front of its own
-   edge-handle tab rather than in the same plane as it. */
-.page{position:relative; z-index:2; flex:0 0 auto; background:var(--panel); box-shadow:0 1px 5px var(--shadow-soft), -6px 0 10px -2px rgba(0,0,0,.55);}
+/* same floating-surface shadow as the group panel boxes and the
+   per-card info bar above -- see --shadow-panel. */
+.page{position:relative; z-index:2; flex:0 0 auto; background:var(--panel); box-shadow:var(--shadow-panel);}
 .page canvas{display:block; width:100%; height:100%; cursor:grab;}
 .page canvas:active{cursor:grabbing;}
 /* ===================== END CARD LAYOUT ===================== */
@@ -184,13 +188,17 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
 /* ===================== SEGMENT TABS / DRAG GHOSTS ===================== */
 /* one colored capsule per contiguous same-department run, flush against
    the card's own left edge, front and back alike. Width/font come from
-   the shared --segment* tokens, so the resting tab always matches the
-   pill it turns into mid-drag. */
+   the shared --segment* tokens, so the resting tab is always the same
+   size as the pill it turns into mid-drag (see #segmentDragGhost) --
+   the drag pill stays a solid fill for visibility while it's moving,
+   the resting tab uses the same light-tint-plus-border colors as a
+   placed contact chip / group tile (see tintElement). */
 .cardEdgeHandles{position:relative; z-index:1; flex:0 0 auto; width:var(--segmentPillHeight);}
 /* right:0 anchors the capsule flush against the card; the free (left)
    end gets rounded, radius = half the strip's width for a true half
-   circle cap. */
-.cardEdgeHandles .segmentCapsule{position:absolute; right:0; display:flex; justify-content:center; align-items:center; width:var(--segmentPillHeight); border-radius:calc(var(--segmentPillHeight)/2) 0 0 calc(var(--segmentPillHeight)/2); box-shadow:0 1px 2px rgba(0,0,0,.35); color:#fff; font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); text-align:center; writing-mode:vertical-rl; text-orientation:mixed; overflow:hidden; cursor:grab; user-select:none;}
+   circle cap. border is set with no color here -- tintElement fills in
+   border-color (and background) per department at render time. */
+.cardEdgeHandles .segmentCapsule{position:absolute; right:0; display:flex; justify-content:center; align-items:center; width:var(--segmentPillHeight); border:1px solid; border-radius:calc(var(--segmentPillHeight)/2) 0 0 calc(var(--segmentPillHeight)/2); color:var(--text-soft); font-size:var(--segmentFontSize); font-weight:bold; line-height:var(--segmentLineHeight); text-align:center; writing-mode:vertical-rl; text-orientation:mixed; overflow:hidden; cursor:grab; user-select:none;}
 .cardEdgeHandles .segmentCapsule:active{cursor:grabbing;}
 
 /* custom drag images (see wireCardRowDrag/showSegmentDragGhost) --
@@ -209,7 +217,7 @@ main#viewerWrap{position:relative; flex:1 1 auto; min-width:0; background:var(--
    own in-flow height -- #viewerContent's padding-top leaves room above
    the top row. Holds the used/free count, A-Ö/Ta bort, and the layout/
    color/etc selectors (see buildPageInfoBar). */
-.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; z-index:2; margin-bottom:6px; padding:4px 6px; background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:4px; box-shadow:0 1px 4px rgba(0,0,0,.25); font-size:11px;}
+.pageInfoBar{position:absolute; left:0; right:0; bottom:100%; z-index:2; margin-bottom:6px; padding:4px 6px; background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:4px; box-shadow:var(--shadow-panel); font-size:11px;}
 .pageInfoBar .pageInfoHeader{display:flex; align-items:center; gap:6px; margin-bottom:4px;}
 .pageInfoBar .pageInfoHeader span{flex:1 1 auto; font-size:11px; font-weight:bold;}
 .pageInfoBar .pageInfoHeader span.full{color:#a00;}
@@ -2427,7 +2435,7 @@ function buildCardEdgeHandles(pageIndex){
     var capsule = el("div", { class:"segmentCapsule", draggable:"true", text:seg.label,
       "data-full-label":seg.label,
       title:seg.label + " -- dra för att flytta hela gruppen (inom sidan eller till en annan sida)" });
-    capsule.style.background = color;
+    tintElement(capsule, color);
     capsule.style.top = ((geo.headerFrac + seg.startIdx*geo.rowFrac) * 100) + "%";
     capsule.style.height = ((seg.length*geo.rowFrac) * 100) + "%";
     capsule.addEventListener("dragstart", function(e){ showSegmentDragGhost(e, seg.label, color); });
@@ -2670,11 +2678,7 @@ function renderPortalPanel(){
     });
     if(isCurrent){
       var color = colorForPage(i);
-      if(color){
-        btn.style.borderColor = color;
-        btn.style.color = color;
-        btn.style.boxShadow = "0 1px 4px " + hexToRgba(color, 0.6);
-      }
+      if(color) tintElement(btn, color);
     }
     wirePortalButton(btn, i);
     panel.appendChild(btn);
@@ -2829,6 +2833,28 @@ function colorForDeptKey(key){
 function hexToRgba(hex, alpha){
   var rgb = hexToRgb(hex);
   return "rgba("+rgb.r+","+rgb.g+","+rgb.b+","+alpha+")";
+}
+/* blends a color toward white by `ratio` (1 = the color itself, 0 =
+   white) and returns an OPAQUE rgb() -- not real alpha transparency,
+   which would pick up whatever's actually behind the element (portal
+   buttons sit on the toolbar's dark background, not a white panel like
+   everything else this tints, and true alpha there would composite
+   toward black instead of white, going muddy instead of light). This
+   is the same math as real alpha over a white backdrop, so it looks
+   identical to the alpha version everywhere else it's used. */
+function mixWithWhite(hex, ratio){
+  var rgb = hexToRgb(hex);
+  var mix = function(c){ return Math.round(c*ratio + 255*(1-ratio)); };
+  return "rgb("+mix(rgb.r)+","+mix(rgb.g)+","+mix(rgb.b)+")";
+}
+/* the shared "placed"/"current" look -- a light tint of the element's own
+   department color for its fill, a stronger tint for its border. Used by
+   every pill-shaped or bordered thing that colors itself per department
+   (contact chips, group tiles, portal buttons, segment capsules), so
+   they all read as the same color at a glance no matter which one it is. */
+function tintElement(el, color){
+  el.style.background = mixWithWhite(color, 0.32);
+  el.style.borderColor = mixWithWhite(color, 0.85);
 }
 
 /* which 1-indexed page(s) currently show at least one of this group's
@@ -3137,15 +3163,9 @@ function buildContactList(contacts, fromPage, multiUse){
         : (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till ett kort, \"+ Ny sida\" eller \"✕ Ta bort\" i visaren"
     });
     chip.appendChild(el("span", { class:"contactChipName truncate", text:c.name }));
-    /* a light tint of this contact's own department color instead of a
-       flat "placed" color for every group alike -- same alpha the drag
-       preview highlight uses (see applyDragHighlights) for the fill, and
-       the stronger one for the border/badge text, so "placed" always
-       reads in the same colors as wherever it actually landed. */
     if(placed){
       var chipColor = colorForDeptKey(deptGroupKey(c.department));
-      chip.style.background = hexToRgba(chipColor, 0.32);
-      chip.style.borderColor = hexToRgba(chipColor, 0.85);
+      tintElement(chip, chipColor);
       var pageBadge = el("span", { class:"contactChipPage", text:"s"+pageNums.join(",") });
       pageBadge.style.color = hexToRgba(chipColor, 0.9);
       chip.appendChild(pageBadge);
@@ -3207,15 +3227,9 @@ function renderGroupPanel(){
           ? "Kan dras ut flera gånger -- dra till en sida nedan"
           : (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till en sida nedan"
       });
-      /* a light tint of this group's own color instead of a flat "placed"
-         color for every group alike -- same alpha the drag preview
-         highlight uses (see applyDragHighlights) for the fill, and the
-         stronger one for the border/count text, so "placed" always reads
-         in the same colors as wherever it actually landed. */
       if(placed){
         var tileColor = colorForDeptKey(g.key);
-        tile.style.background = hexToRgba(tileColor, 0.32);
-        tile.style.borderColor = hexToRgba(tileColor, 0.85);
+        tintElement(tile, tileColor);
       }
       var nameRow = el("div", { class:"groupTileNameRow" });
       nameRow.appendChild(buildExpandToggle(expanded, function(){
