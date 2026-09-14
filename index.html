@@ -473,13 +473,12 @@ const LAYOUTS = {
    its own dropdown is how you change it afterward, same as any page */
 const DEFAULT_LAYOUT = "v20";
 
-/* -- header background presets -- 16 hues evenly spaced around the wheel
-   (22.5° apart) at one consistent saturation/lightness, each tuned to
-   land close to the same ~5.8:1 contrast against white header text --
-   picking a color is now just "which hue", not "which hue at which of
-   several different darknesses", the way the old 7-color set (a mix of
-   hand-picked Dracula accents at wildly different contrast ratios) read. */
+/* -- header background presets, exactly 16 (one full 4x4 grid, no overflow
+   row) -- Svart first since it's the default new-page color, the rest
+   hues evenly spaced around the wheel (22.5° apart) at one consistent
+   saturation/lightness so picking a color is just "which hue". */
 const COLOR_PRESETS = [
+  { name:"Svart",    hex:"#000000" },
   { name:"Röd",      hex:"#c52020" },
   { name:"Orange",   hex:"#a14e1a" },
   { name:"Gul",      hex:"#7c6214" },
@@ -494,8 +493,7 @@ const COLOR_PRESETS = [
   { name:"Indigo",   hex:"#503adf" },
   { name:"Lila",     hex:"#8934de" },
   { name:"Magenta",  hex:"#a91fbc" },
-  { name:"Rosa",     hex:"#b71e91" },
-  { name:"Cerise",   hex:"#c11f5b" }
+  { name:"Rosa",     hex:"#b71e91" }
 ];
 
 /* ================= shared utilities ================= */
@@ -1870,17 +1868,12 @@ function hexToRgb(hex){
   return { r:parseInt(hex.slice(0,2),16)||0, g:parseInt(hex.slice(2,4),16)||0, b:parseInt(hex.slice(4,6),16)||0 };
 }
 
-/* per-page header color: the 16 preset swatches, all pre-verified for
-   good contrast with white text -- no free-form color entry anymore (the
-   old R/G/B row was fiddly to use), so isPreset should always be true for
-   anything set through this UI; the fallback only matters for a
-   headerColor from before that row was removed, or set some other way,
-   that doesn't happen to match a current preset -- shown as its own
-   "Anpassad" (custom) swatch rather than silently snapping to one. */
+/* per-page header color: exactly the 16 preset swatches, nothing else --
+   a headerColor that doesn't match one (from before the custom R/G/B row
+   was removed, say) just falls back to showing the first preset (Svart)
+   as current, same as buildSwatchSelect does for any unmatched value. */
 function buildHeaderColorControls(pageState){
   var options = COLOR_PRESETS.map(function(c){ return [c.hex, c.name]; });
-  var isPreset = COLOR_PRESETS.some(function(c){ return c.hex.toLowerCase() === (pageState.headerColor||"").toLowerCase(); });
-  if(!isPreset) options.push([pageState.headerColor, "Anpassad"]);
   return buildSwatchSelect(options, pageState.headerColor, function(v){ pageState.headerColor = v; renderViewer(); }, "Rubrikfärg");
 }
 
