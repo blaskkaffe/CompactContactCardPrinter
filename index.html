@@ -31,7 +31,7 @@ header.toolbar h1{font-size:15px; margin:0 14px 0 0;}
 .toolbarSide.toolbarSideRight{justify-content:flex-end;}
 header.toolbar select, header.toolbar button{font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid #888; background:#fff; cursor:pointer;}
 header.toolbar button:hover{background:#eee;}
-/* the middle grid column -- prev/next + the "Kort X / Y" indicator, one
+/* the middle grid column -- prev/next + the "Sida X / Y" indicator, one
    pill sitting in the toolbar's own dead center regardless of viewport
    width (see header.toolbar above) rather than floating over the cards */
 #viewerNav{display:flex; align-items:center; justify-content:center; gap:8px; background:#fff; color:#111; padding:4px 8px; border-radius:6px;}
@@ -59,8 +59,12 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
    less room below than above. Left/right must match VIEWER_SIDE_PADDING_PX,
    top must match PAGE_INFO_BAR_CLEARANCE_PX, both in the JS -- fitVisibleCards
    sizes cards against this same content box, not the padding along with it,
-   so a row can never size itself out past this inset or need to wrap. */
-#viewerContent{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:80px 32px 32px;}
+   so a row can never size itself out past this inset or need to wrap.
+   Left/right kept down to the same 14px #groupPanel/#portalPanel already
+   use for their own edge, rather than a much wider gap, so the first/last
+   card sits no further from its neighboring panel than that panel sits
+   from the window edge. */
+#viewerContent{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:80px 14px 32px;}
 
 /* shown instead of any page content while there's nothing to display yet
    (no pages exist) -- one message covering the whole viewer, not one
@@ -301,7 +305,7 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
   <div class="toolbarSide">
     <h1>Kompakt kontaktkortsskrivare</h1>
   </div>
-  <!-- prev/next + the "Kort X / Y" indicator, centered on the bar (see
+  <!-- prev/next + the "Sida X / Y" indicator, centered on the bar (see
        header.toolbar's grid in the CSS) instead of floating over the
        viewer -- never wiped by renderViewer(), which only touches
        #viewerContent. Always shown: however many card sides are visible
@@ -356,12 +360,12 @@ main#viewerWrap{flex:1 1 auto; position:relative; overflow:hidden; min-width:0; 
     <div id="viewerContent"></div>
     <div id="emptyViewerOverlay" hidden></div>
   </main>
-  <!-- one round button per printed sheet ("Kort N"), always clickable to
-       jump straight there -- and, held over during an active drag (see
-       wirePortalPanel), a way to reach a card that isn't on screen right
+  <!-- one round button per page ("Sida N"), always clickable to jump
+       straight there -- and, held over during an active drag (see
+       wirePortalButton), a way to reach a card that isn't on screen right
        now without needing the scroll wheel at all (which Firefox on
        Windows won't deliver mid-drag -- a real platform limitation, not
-       fixable from here; see wirePortalPanel's own doc comment). -->
+       fixable from here; see wirePortalButton's own doc comment). -->
   <aside id="portalPanel"></aside>
 </div>
 
@@ -1968,17 +1972,18 @@ function buildPageControls(index){
    A-Ö/Ta bort) and selectors (layout, header color, line 2/numbers,
    empty-page mode -- see buildPageControls, reused unchanged), now living
    right next to the card it actually describes instead of a separate
-   scrolling list. The label always names both "Kort N" (the sheet) and
-   "Sida M" (front/back within it) -- unambiguous whether one side or
-   several pairs are showing at once (see sidesPerView). */
+   scrolling list. Every physical side is its own plainly numbered "Sida
+   N" -- state.pages' own index, 1-based -- with no separate sheet/side
+   pairing in the label; two sides sharing a printed sheet (see
+   partnerPageIndex) is purely a print-time arrangement, not something
+   the numbering needs to expose (see sidesPerView, buildPagePairEl). */
 function buildPageInfoBar(index){
   var bar = el("div", { class:"pageInfoBar" });
   var pageState = state.pages[index];
   if(!pageState) return bar; /* no data yet -- nothing to show/control */
 
-  var sidaNum = index % 2 === 0 ? 1 : 2;
   var cap = layoutRows(pageState.layout), used = contactsForPage(pageState).length, free = Math.max(0, cap-used);
-  var headerText = "Kort " + (Math.floor(index/2)+1) + " Sida " + sidaNum
+  var headerText = "Sida " + (index+1)
     + (pageState.layout === "empty" ? ": tom" : ": " + used + "/" + cap + " använda, " + free + " lediga");
   var headerRow = el("div", { class:"pageInfoHeader" });
   headerRow.appendChild(el("span", { class: free === 0 && pageState.layout !== "empty" ? "full" : "", text:headerText, title:headerText }));
@@ -2521,8 +2526,11 @@ var VIEWER_BOTTOM_MARGIN_PX = 32;
 /* must match #viewerContent's own left/right padding in the CSS -- used
    below to size against the actual content box, not the padding along
    with it (that used to let a row size itself right out to the padded
-   edge, or even wrap when it didn't actually need to -- see fitVisibleCards). */
-var VIEWER_SIDE_PADDING_PX = 32;
+   edge, or even wrap when it didn't actually need to -- see fitVisibleCards).
+   Matches #groupPanel/#portalPanel's own edge padding, so the gap from a
+   panel to its nearest card is no bigger than the gap from that panel to
+   the window edge. */
+var VIEWER_SIDE_PADDING_PX = 14;
 
 /* sizes every currently-rendered .page to fit them all on screen at once,
    side by side, on whichever axis (combined width or height) is tighter
@@ -2580,7 +2588,7 @@ function fitSegmentCapsuleLabels(){
 }
 
 /* however many card sides renderViewer actually put on screen last time
-   -- lets updateIndicator report the right range (e.g. "Kort 1–2 / 3")
+   -- lets updateIndicator report the right range (e.g. "Sida 1–2 / 3")
    without recomputing sidesPerView itself. */
 var lastVisibleCount = 0;
 
@@ -2636,17 +2644,15 @@ function renderViewer(){
   renderPortalPanel();
 }
 
+/* every physical side is its own plainly numbered "Sida N" (see
+   buildPageInfoBar) -- the indicator just names whichever page(s) are
+   actually on screen right now, a single number or a range, with no
+   sheet/side pairing exposed in it. */
 function updateIndicator(){
   var total = totalPagesCount();
-  var totalPairs = Math.ceil(total/2);
-  if(sidesPerView() === 1){
-    var sida = state.currentPage%2===0 ? 1 : 2;
-    $("#pageIndicator").textContent = "Kort " + (Math.floor(state.currentPage/2)+1) + " Sida " + sida + " / " + totalPairs;
-    return;
-  }
-  var firstPair = state.currentPage/2+1;
-  var lastPair = Math.min(totalPairs, firstPair + Math.max(0, lastVisibleCount/2) - 1);
-  $("#pageIndicator").textContent = "Kort " + (firstPair===lastPair ? firstPair : firstPair+"–"+lastPair) + " / " + totalPairs;
+  var first = state.currentPage + 1;
+  var last = Math.min(total, first + Math.max(0, lastVisibleCount - 1));
+  $("#pageIndicator").textContent = "Sida " + (first === last ? first : first + "–" + last) + " / " + total;
 }
 
 /* idx names the page to jump to -- the front of its pair in a multi-side
@@ -2660,43 +2666,53 @@ function scrollToPage(idx){
 function goPrev(){ scrollToPage(state.currentPage - sidesPerView()); }
 function goNext(){ scrollToPage(state.currentPage + sidesPerView()); }
 
-/* one round button per printed sheet ("Kort N") in #portalPanel -- lets a
-   drag reach a card that isn't on screen right now without the scroll
-   wheel, which Firefox on Windows never delivers while a native drag is
-   held (an OS-level limitation of that drag loop, not something a page
-   can work around by listening harder). Held over during a drag, a
-   portal jumps the viewer straight to its card while the drag stays
-   active -- a native drag session isn't tied to any particular DOM node
-   staying put, so rebuilding the whole viewer under it (renderViewer,
-   same as any other page turn) doesn't interrupt it; dragover just keeps
-   firing on whatever's now under the cursor once the target card is on
-   screen, ready to drop onto. Also a plain click-to-jump button even with
-   nothing being dragged. */
+/* one round button per page ("Sida N") in #portalPanel -- lets a drag
+   reach a card that isn't on screen right now without the scroll wheel,
+   which Firefox on Windows never delivers while a native drag is held
+   (an OS-level limitation of that drag loop, not something a page can
+   work around by listening harder). Held over during a drag, a portal
+   jumps the viewer straight to its page while the drag stays active --
+   a native drag session isn't tied to any particular DOM node staying
+   put, so rebuilding the whole viewer under it (renderViewer, same as
+   any other page turn) doesn't interrupt it; dragover just keeps firing
+   on whatever's now under the cursor once the target page is on screen,
+   ready to drop onto. Also a plain click-to-jump button even with
+   nothing being dragged.
+   One button per page, not per printed sheet -- two sides sharing a
+   sheet (see partnerPageIndex) is purely a print-time arrangement, not
+   something the portals need to know about, and addressing pages
+   directly is what actually fixes a portal being unreachable in the
+   narrowest tier: sidesPerView()===1 shows exactly one page, front or
+   back, and jumping straight to that exact index works there same as
+   anywhere else, unlike the old always-jump-to-the-front-of-a-pair
+   version. */
 function renderPortalPanel(){
   var panel = $("#portalPanel");
   if(!panel) return;
   panel.innerHTML = "";
   if(!state.pages.length) return;
-  var totalPairs = Math.ceil(totalPagesCount()/2);
-  var currentPair = Math.floor(state.currentPage/2);
-  for(var i=0;i<totalPairs;i++){
-    var frontIndex = i*2;
+  var total = totalPagesCount();
+  var visibleStart = state.currentPage;
+  var visibleEnd = state.currentPage + Math.max(0, lastVisibleCount-1);
+  for(var i=0;i<total;i++){
     var btn = el("div", {
-      class:"portalBtn" + (i===currentPair ? " current" : ""),
+      class:"portalBtn" + (i>=visibleStart && i<=visibleEnd ? " current" : ""),
       text:String(i+1),
-      title:"Hoppa till Kort " + (i+1)
+      title:"Hoppa till Sida " + (i+1)
     });
-    wirePortalButton(btn, frontIndex);
+    wirePortalButton(btn, i);
     panel.appendChild(btn);
   }
 }
-function wirePortalButton(btn, frontIndex){
-  btn.addEventListener("click", function(){ scrollToPage(frontIndex); });
+function wirePortalButton(btn, pageIndex){
+  btn.addEventListener("click", function(){ scrollToPage(pageIndex); });
   btn.addEventListener("dragover", function(e){
     if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
     e.preventDefault();
     btn.classList.add("dragOver");
-    if(state.currentPage !== frontIndex) scrollToPage(frontIndex);
+    var visibleStart = state.currentPage;
+    var visibleEnd = state.currentPage + Math.max(0, lastVisibleCount-1);
+    if(pageIndex < visibleStart || pageIndex > visibleEnd) scrollToPage(pageIndex);
   });
   btn.addEventListener("dragleave", function(){ btn.classList.remove("dragOver"); });
   /* not a real drop target -- dropping here just leaves whatever was
