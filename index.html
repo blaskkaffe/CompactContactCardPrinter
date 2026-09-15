@@ -8,7 +8,7 @@
 *{box-sizing:border-box}
 :root{
   --bg:#e6e6e6; --panel:#fff; --border:#bbb; --border-dark:#999; --border-light:#ccc;
-  --text:#111; --text-soft:#333; --muted:#777; --muted-dark:#555; --hover-bg:#eee;
+  --text:#111; --text-soft:#333; --muted-dark:#555; --hover-bg:#eee;
   --blue:#0080ff; --blue-text:#0060c0; --blue-bg:#dff0ff; --blue-glow:rgba(0,128,255,.6); --danger:#c00;
   --shadow-panel:0 2px 5px rgba(0,0,0,.28); --shadow-soft:rgba(0,0,0,.4);
   --space-1:4px; --space-2:6px; --space-3:8px; --space-4:10px; --space-5:12px;
@@ -2891,7 +2891,7 @@ function buildContactList(contacts, fromPage, multiUse){
     var pageNums = multiUse ? [] : pageNumbersForContact(c);
     var placed = pageNums.length > 0;
     var chip = el("div", {
-      class: "pill contactChip" + (placed ? " placed" : "") + (multiUse ? " reusable" : ""),
+      class: "pill contactChip" + (multiUse ? " reusable" : ""),
       draggable: "true",
       title: multiUse
         ? "Kan dras ut flera gånger -- dra till ett kort eller \"+ Ny sida\" i visaren"
@@ -2956,7 +2956,7 @@ function renderGroupPanel(){
       var pageNums = source.multiUse ? [] : pageNumbersForGroup(g);
       var placed = pageNums.length > 0;
       var tile = el("div", {
-        class: "pill groupTile" + (placed ? " placed" : "") + (source.multiUse ? " reusable" : ""),
+        class: "pill groupTile" + (source.multiUse ? " reusable" : ""),
         draggable: "true",
         title: source.multiUse
           ? "Kan dras ut flera gånger -- dra till en sida nedan"
