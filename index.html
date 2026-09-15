@@ -1712,7 +1712,7 @@ function buildPageInfoBar(index){
     });
     headerRow.appendChild(sortBtn);
   }
-  var removeBtn = el("button", { type:"button", class:"removeBtn", text:"×", title:"Ta bort den här sidan" });
+  var removeBtn = el("button", { type:"button", class:"removeBtn", text:"✕", title:"Ta bort den här sidan" });
   removeBtn.addEventListener("click", function(){ removePage(index); });
   headerRow.appendChild(removeBtn);
   bar.appendChild(headerRow);
