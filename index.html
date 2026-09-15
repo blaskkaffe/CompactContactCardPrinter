@@ -13,8 +13,9 @@
   --shadow-panel:0 2px 5px rgba(0,0,0,.28); --shadow-soft:rgba(0,0,0,.4);
   --space-1:4px; --space-2:6px; --space-3:8px; --space-4:10px; --space-5:12px;
   --edge-gap:14px; --group-panel-w:260px; --panel-radius:calc(var(--pill-radius) + var(--space-4));
-  --ui-font:12px; --small-font:10px; --title-font:15px;
-  --segmentFontSize:12px; --segmentPillPadY:5px; --segmentLineHeight:1.2;
+  --micro-font:9px; --small-font:10px; --ui-font:12px; --title-font:15px;
+  --overlay-font:18px; --dropzone-font:28px;
+  --segmentFontSize:var(--ui-font); --segmentPillPadY:5px; --segmentLineHeight:1.2;
   --segmentPillHeight:calc(var(--segmentLineHeight)*var(--segmentFontSize) + var(--segmentPillPadY)*2);
   --pill-radius:calc(var(--segmentPillHeight)/2);
 }
@@ -22,7 +23,7 @@ html,body{height:100%}
 body{display:flex;flex-direction:column;margin:0;background:var(--bg);color:var(--text);font:14px/1.4 Arial,sans-serif}
 
 /* Shared UI */
-.pill{display:flex;align-items:center;height:var(--segmentPillHeight);min-width:calc(var(--segmentPillHeight)*2);padding:0 var(--space-4);border-radius:var(--pill-radius);font-size:10.5px;cursor:pointer;user-select:none}
+.pill{display:flex;align-items:center;height:var(--segmentPillHeight);min-width:calc(var(--segmentPillHeight)*2);padding:0 var(--space-4);border-radius:var(--pill-radius);font-size:var(--small-font);cursor:pointer;user-select:none}
 .truncate{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* Toolbar */
@@ -82,15 +83,15 @@ label.tool{display:flex;align-items:center;gap:var(--space-1);flex:0 0 auto;font
 #groupPanel .groupTileNameRow{display:flex;align-items:center;gap:3px;flex:1;min-width:0}
 #groupPanel .groupTileName{flex:1;font-weight:bold}
 #groupPanel .groupTileCount{flex:none;color:var(--muted);font-size:var(--small-font);white-space:nowrap}
-#groupPanel .groupTileToggle{flex:none;padding:0 1px;color:var(--border-dark);font-size:9px;cursor:pointer;user-select:none}
+#groupPanel .groupTileToggle{flex:none;padding:0 1px;color:var(--border-dark);font-size:var(--micro-font);cursor:pointer;user-select:none}
 #groupPanel .groupTileToggle:hover{color:var(--text-soft)}
 #groupPanel .contactList{display:flex;flex-direction:column;gap:3px;margin-top:-2px;padding:2px 0 var(--space-1) var(--space-2);border-left:2px solid var(--hover-bg)}
-#groupPanel .contactChipPage{flex:none;font-size:9.5px}
+#groupPanel .contactChipPage{flex:none;font-size:var(--micro-font)}
 #groupPanel .emptyNote{color:var(--muted);font-style:italic}
 #groupPanel .groupTile.reusable,#groupPanel .contactChip.reusable{border-style:dashed;border-color:var(--border-dark)}
 #groupPanel .sourceSection{margin-bottom:14px}
 #groupPanel .sourceHeader{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid var(--border-light)}
-#groupPanel .sourceName{flex:1;font-size:11px;font-weight:bold}
+#groupPanel .sourceName{flex:1;font-size:var(--ui-font);font-weight:bold}
 #groupPanel .sourceMultiUse{display:flex;align-items:center;gap:3px;flex:none;color:var(--muted-dark);font-size:var(--small-font);cursor:pointer;user-select:none}
 #groupPanel .sourceMultiUse input{margin:0}
 
@@ -106,7 +107,7 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
    clearance beyond it -- the same distance from the panel that the panel
    itself keeps from mainRow's edge. */
 #viewerContent{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:0 var(--edge-gap) var(--edge-gap) calc(var(--edge-gap)*2 + var(--group-panel-w))}
-#emptyViewerOverlay{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:40px;color:var(--border-dark);font-size:18px;text-align:center}
+#emptyViewerOverlay{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:40px;color:var(--border-dark);font-size:var(--overlay-font);text-align:center}
 #emptyViewerOverlay[hidden]{display:none}
 #emptyViewerOverlay.dragOver{background:var(--blue-bg);color:var(--blue-text)}
 .cardRowHighlightLayer{position:absolute;inset:0;z-index:4;pointer-events:none}
@@ -128,11 +129,11 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
 #segmentDragGhost{position:fixed;top:-999px;left:-999px;padding:var(--segmentPillPadY) 16px;border-radius:var(--pill-radius);box-shadow:0 1px 4px var(--shadow-soft);color:#fff;font-size:var(--segmentFontSize);font-weight:bold;line-height:var(--segmentLineHeight);white-space:nowrap;pointer-events:none}
 
 /* Per-card info bar */
-.pageInfoBar{position:absolute;left:0;right:0;bottom:100%;z-index:2;padding:var(--space-4);background:var(--panel);border:1px solid var(--border);border-radius:var(--panel-radius) var(--panel-radius) 0 0;font-size:11px}
+.pageInfoBar{position:absolute;left:0;right:0;bottom:100%;z-index:2;padding:var(--space-4);background:var(--panel);border:1px solid var(--border);border-radius:var(--panel-radius) var(--panel-radius) 0 0;font-size:var(--ui-font)}
 .pageInfoBar .pageInfoHeader{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-1)}
-.pageInfoBar .pageInfoHeader span{flex:1 1 auto;font-size:11px;font-weight:bold}
+.pageInfoBar .pageInfoHeader span{flex:1 1 auto;font-weight:bold}
 .pageInfoBar .pageInfoHeader span.full{color:#a00}
-.pageInfoBar .pageInfoHeader button{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:var(--segmentPillHeight);height:var(--segmentPillHeight);padding:0;background:var(--panel);border:1px solid var(--border);border-radius:var(--pill-radius);font-size:9px;font-weight:bold;cursor:pointer}
+.pageInfoBar .pageInfoHeader button{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:var(--segmentPillHeight);height:var(--segmentPillHeight);padding:0;background:var(--panel);border:1px solid var(--border);border-radius:var(--pill-radius);font-size:var(--micro-font);font-weight:bold;cursor:pointer}
 .pageInfoBar .pageInfoHeader button.removeBtn{font-size:13px}
 .pageInfoBar .pageInfoHeader button.removeBtn:hover{border-color:var(--danger);color:var(--danger)}
 .pageInfoBar .pageControls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1)}
@@ -151,7 +152,7 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
 .pageInfoBar .swatchSelect .swatchItem:hover,.pageInfoBar .swatchSelect .swatchItem.active{border-color:var(--blue)}
 
 /* Overlays / print */
-#dropOverlay{position:fixed;inset:0;z-index:1000;display:flex;justify-content:center;align-items:center;background:rgba(20,20,20,.75);color:#fff;font-size:28px;font-weight:bold;pointer-events:none}
+#dropOverlay{position:fixed;inset:0;z-index:1000;display:flex;justify-content:center;align-items:center;background:rgba(20,20,20,.75);color:#fff;font-size:var(--dropzone-font);font-weight:bold;pointer-events:none}
 #dropOverlay[hidden]{display:none}
 #printArea{display:none}
 @media(max-width:560px){header.toolbar h1{display:none}}
