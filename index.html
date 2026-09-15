@@ -977,10 +977,33 @@ function measureMiddleColWidth(ctx, dpi, fontPt, maxChars, hasChiefPrefix, allow
   return Math.max(capped, fits);
 }
 
+/* lays out one printed line as a flexible text column -- it gets whatever
+   width the fixed-width columns after it don't need -- followed by zero or
+   more of those fixed columns, each offset from whatever precedes it by its
+   own gapBefore. This is the one piece of math both row layouts below
+   actually share (v20's single row, and v10's per-line Normal/Wide column
+   sets): "the flexible field absorbs the leftover width", solved once
+   instead of once per layout. padRight reserves the same trailing margin
+   the row's left edge (x0) already carries. */
+function layoutFlexRow(x0, wPx, padRight, flexPt, flexKey, trailing){
+  var usedByTrailing = trailing.reduce(function(sum, t){ return sum + t.gapBefore + t.w; }, 0);
+  var flexW = Math.max(0, wPx - x0 - padRight - usedByTrailing);
+  var cols = [{ x:x0, w:flexW, pt:flexPt, key:flexKey }];
+  var x = x0 + flexW;
+  trailing.forEach(function(t){
+    x += t.gapBefore;
+    cols.push({ x:x, w:t.w, pt:t.pt, key:t.key, align:t.align });
+    x += t.w;
+  });
+  return cols;
+}
+
 /* name gets all the width the phone column and (if shown) the middle
    column don't need. The department-to-phone gap is narrower than the
    other gaps (department is the least important field), handing the
-   difference back to name. */
+   difference back to name. layout.phones is always 1 here -- the only
+   layout that reaches this function (v20) never shows more than one phone
+   per row; v10's two phones are handled by layoutDoubleRowColumns instead. */
 function layoutRowColumns(ctx, wPx, dpi, layout){
   var pad = mmToPx(CELL_PADDING_MM, dpi);
   var gap = pad/2;
@@ -988,23 +1011,16 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
   var deptCharW = ctx.measureText("0").width; /* one extra character of breathing room before the phone column */
   var deptPhoneGap = gap * 0.5 + deptCharW;
   var phoneW = maxFormattedPhoneWidth(ctx, dpi) + pad*0.5;
-  var phoneCount = layout.phones;
   var middleW = layout.showDept ? (measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, DEPT_MAX_CHARS, true, true) + pad*0.5) : 0;
-  var totalGaps = layout.showDept ? (gap + deptPhoneGap) : gap;
-  var nameW = Math.max(0, wPx - pad*2 - phoneW*phoneCount - middleW - totalGaps);
-
-  var cols = [];
-  var x = pad;
   var nameFontPt = layout.showDept ? NAME_FONT_PT_TIGHT : NAME_FONT_PT;
-  cols.push({ x:x, w:nameW, pt:nameFontPt, key:"name" }); x += nameW + gap;
-  if(layout.showDept){
-    /* stays physically between name and phone, but right-aligned so its
-       text hugs the phone column (visually grouped with it) instead of
-       sitting flush against the gap after name */
-    cols.push({ x:x, w:middleW, pt:DEPT_FONT_PT, key:"department", align:"right" }); x += middleW + deptPhoneGap;
-  }
-  cols.push({ x:x, w:phoneW, pt:PHONE_FONT_PT, key:"phone" });
-  return cols;
+  /* stays physically between name and phone, but right-aligned so its text
+     hugs the phone column (visually grouped with it) instead of sitting
+     flush against the gap after name */
+  var trailing = layout.showDept
+    ? [{ w:middleW, pt:DEPT_FONT_PT, key:"department", align:"right", gapBefore:gap },
+       { w:phoneW, pt:PHONE_FONT_PT, key:"phone", gapBefore:deptPhoneGap }]
+    : [{ w:phoneW, pt:PHONE_FONT_PT, key:"phone", gapBefore:gap }];
+  return layoutFlexRow(pad, wPx, pad, nameFontPt, "name", trailing);
 }
 
 /* the 10-contact double-row layout, six boxes per contact:
@@ -1044,17 +1060,16 @@ function layoutDoubleRowColumns(ctx, wPx, dpi, showNumbers){
   var numberW = showNumbers ? measureMiddleColWidth(ctx, dpi, DEPT_FONT_PT, 2, false, false) + numberPad*2 : 0;
   var x0 = showNumbers ? numberW + numberPad : pad;
 
-  var narrowW = Math.max(0, wPx - x0 - pad - phoneW - middleW - gap*2);
-  var wideW = Math.max(0, wPx - x0 - pad - phoneW - gap);
-
   function normalCols(fontPt){
-    var x = x0;
-    var wide = { x:x, w:narrowW, pt:fontPt }; x += narrowW + gap;
-    var mid = { x:x, w:middleW, pt:DEPT_FONT_PT }; x += middleW + gap;
-    return [wide, mid, { x:x, w:phoneW, pt:PHONE_FONT_PT }];
+    return layoutFlexRow(x0, wPx, pad, fontPt, null, [
+      { w:middleW, pt:DEPT_FONT_PT, gapBefore:gap },
+      { w:phoneW, pt:PHONE_FONT_PT, gapBefore:gap }
+    ]);
   }
   function wideCols(fontPt){
-    return [{ x:x0, w:wideW, pt:fontPt }, { x:x0 + wideW + gap, w:phoneW, pt:PHONE_FONT_PT }];
+    return layoutFlexRow(x0, wPx, pad, fontPt, null, [
+      { w:phoneW, pt:PHONE_FONT_PT, gapBefore:gap }
+    ]);
   }
 
   return {
