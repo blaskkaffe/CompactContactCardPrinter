@@ -34,7 +34,6 @@ header.toolbar h1{margin:0 var(--space-4) 0 0;font-size:var(--title-font);white-
 header.toolbar select,header.toolbar button:not(.pill){flex:0 0 auto;height:30px;padding:0 var(--space-3);background:var(--panel);border:1px solid var(--border-dark);border-radius:4px;font-size:var(--ui-font);cursor:pointer}
 header.toolbar button:hover{background:var(--hover-bg)}
 #printBtn{flex:0 0 auto;background:var(--panel);border:1px solid var(--border-dark);cursor:pointer}
-label.tool{display:flex;align-items:center;gap:var(--space-1);flex:0 0 auto;font-size:var(--ui-font);white-space:nowrap}
 /* no max-width of its own -- header.toolbar's grid track (minmax(52px,1fr))
    already caps this at whatever's actually left over between the title
    and the print button; overflow-x:auto scrolls internally once even
@@ -139,7 +138,7 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
 .pageInfoBar .pageControls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1)}
 .pageInfoBar .pageControls select,.pageInfoBar .pageControls button,.pageInfoBar .pageControls input{height:30px;padding:0 6px;background:var(--panel);border:1px solid var(--border);border-radius:3px;font-size:var(--small-font);cursor:pointer}
 .pageInfoBar .pageControls>select{width:76px}
-.pageInfoBar .pageControls label.tool{display:flex;align-items:center;gap:3px;font-size:var(--small-font);white-space:nowrap;cursor:pointer}
+.pageInfoBar .pageControls label.tool{display:flex;align-items:center;gap:3px;flex:0 0 auto;font-size:var(--small-font);white-space:nowrap;cursor:pointer}
 .pageInfoBar .pageControls input[type=checkbox]{height:auto;padding:0}
 .pageInfoBar .swatchSelect{position:relative;min-width:0}
 .pageInfoBar .swatchSelect .swatchBtn{display:flex;align-items:center;gap:5px;width:76px;min-width:0;height:30px;padding:0 6px;background:var(--panel);border:1px solid var(--border);border-radius:3px;font-size:var(--small-font);cursor:pointer}
