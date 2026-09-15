@@ -36,10 +36,9 @@ header.toolbar button:hover{background:var(--hover-bg)}
 label.tool{display:flex;align-items:center;gap:var(--space-1);flex:0 0 auto;font-size:var(--ui-font);white-space:nowrap}
 /* no max-width of its own -- header.toolbar's grid track (minmax(52px,1fr))
    already caps this at whatever's actually left over between the title
-   and the print button, which is normally far more than a flat 40vw
-   would have allowed; overflow-x:auto still scrolls internally once even
-   that real leftover space runs out, instead of clipping a pill mid-way
-   the way the old, tighter cap could. */
+   and the print button; overflow-x:auto scrolls internally once even
+   that real leftover space runs out, rather than clipping a pill
+   mid-way. */
 #portalPanel{display:flex;align-items:center;gap:var(--space-2);padding:2px 0;overflow-x:auto;overflow-y:hidden}
 #portalPanel .portalBtn{flex:0 0 auto;justify-content:center;background:var(--panel);border:1px solid var(--border-dark);color:var(--text-soft);font-weight:bold;transition:background-color .1s,border-color .1s,transform .08s,box-shadow .08s}
 #portalPanel .portalBtn:hover{background:var(--hover-bg)}
@@ -172,24 +171,19 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
     <h1>Kompakt kontaktkortsskrivare</h1>
   </div>
   <!-- one round button per page ("Sida N"), centered on the bar (see
-       header.toolbar's grid in the CSS) -- the whole nav, now that prev/
-       next and the indicator are gone: click one to jump straight there,
-       or hold a drag over one to jump while the drag stays active (see
-       wirePortalButton). Rebuilt by renderPortalPanel on every render,
-       same as before it lived here. -->
+       header.toolbar's grid in the CSS): click one to jump straight
+       there, or hold a drag over one to jump while the drag stays active
+       (see wirePortalButton). Rebuilt by renderPortalPanel on every
+       render. -->
   <div id="portalPanel"></div>
   <div class="toolbarSide toolbarSideRight">
     <!-- everything about a page ITSELF (layout, header color, ...) lives
-         on the card in the viewer now, see .pageInfoBar/buildPageInfoBar --
-         print is the only page-wide setting left up here -- paper size
-         used to be a select next to it, but everything always prints on
-         A4 (see PAGE_W_MM/PAGE_H_MM), so there was never really a choice
-         to make. Import status used to show here too (as #dataStatus),
-         but which files loaded is already visible in the group panel's
-         own source list below -- see renderGroupPanel -- so it was
-         redundant, and its text could grow long enough to squeeze
-         #portalPanel's pills out of room (see header.toolbar's grid in
-         the CSS) -- setStatus now just logs instead of touching the DOM. -->
+         on the card in the viewer, see .pageInfoBar/buildPageInfoBar --
+         print is the only page-wide action left up here; every page
+         prints on A4 (see PAGE_W_MM/PAGE_H_MM), so there's no paper size
+         to choose. Import status is logged to the console (setStatus)
+         rather than shown here -- which files loaded is already visible
+         in the group panel's own source list, see renderGroupPanel. -->
     <button id="printBtn" class="pill">Skriv ut</button>
   </div>
 </header>
@@ -243,19 +237,14 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
    spacing "distances" used throughout the card layout, card/paper
    geometry, and the column header names recognized when importing
    a CSV/XLSX. Edit values here instead of hunting for a magic
-   number elsewhere in the file -- there's no in-app settings UI
-   (there used to be a debug panel exposing these as live inputs;
-   removed once the values stopped needing regular tuning).
+   number elsewhere in the file -- there's no in-app settings UI.
    ============================================================ */
 
 /* -- rendering -- */
-/* 600 caused real print failures (jobs that reached the OS print dialog
-   but never actually printed) -- each A4 canvas at 600dpi is ~35 megapixels,
-   and 4 of those in one job is a lot of raster data for a print driver/
-   spooler to accept, especially over a network printer. 300dpi is the
-   standard "high quality" print resolution and is plenty crisp for card
-   text at this physical size, at a quarter of the pixels. Raise it here and
-   test on your printer if you want to push it back up. */
+/* resolution (dots per inch) every card canvas is rasterized at, both for
+   the on-screen preview and the print output -- see mmToPx/ptToPx, which
+   every drawing/layout function goes through to turn a physical mm or pt
+   size into actual pixels at this density. */
 const RENDER_DPI = 300;
 const FONT_FAMILY = '"Cascadia Code", "Cascadia Mono", monospace';
 
@@ -304,10 +293,9 @@ const CARD_W_MM = 53.98; /* ISO/IEC 7810 ID-1 credit card -- always the VERTICAL
 const CARD_H_MM = 85.60;
 const MARGIN_MM = 10;    /* printer-unsafe border kept clear on every edge */
 
-/* the only paper size ever printed on -- there used to be a picker
-   (A3/A4/A5), but everything's always gone out on A4 in practice, so the
-   choice was removed rather than kept as a UI element with one real
-   answer. See pickPageOrientation/pageSizeCssValue. */
+/* the paper size every page prints on, A4 -- see pickPageOrientation
+   (chooses portrait or landscape per page) and pageSizeCssValue (the
+   matching @page CSS size for print). */
 const PAGE_W_MM = 210;
 const PAGE_H_MM = 297;
 
@@ -336,14 +324,13 @@ const DEFAULT_LAYOUT = "v20";
 /* -- header background presets, exactly 16 (one full 4x4 grid, no overflow
    row) -- Svart first since it's the default new-page color, the rest
    hues evenly spaced around the wheel (24° apart). Bold/near-fully
-   saturated (92%) rather than muted -- distinct, easy-to-print colors
-   were the actual goal, and desaturating every hue toward gray (an
-   earlier version of this palette) made them all read as similar murky
-   browns/olives instead. Each still lands close to the same ~4.8:1
-   contrast against the white header text drawn on top of it (headerColor,
-   see drawCard) -- true bright yellow can't hit that and still be legible
-   under fixed white text, so Gul reads as a dark gold/olive rather than a
-   light canary yellow; every other hue stays clearly primary/secondary. */
+   saturated (92%) rather than muted, so the presets stay distinct from
+   each other instead of reading as similar murky browns/olives. Each
+   lands close to the same ~4.8:1 contrast against the white header text
+   drawn on top of it (headerColor, see drawCard) -- true bright yellow
+   can't hit that and still be legible under fixed white text, so Gul
+   reads as a dark gold/olive rather than a light canary yellow; every
+   other hue stays clearly primary/secondary. */
 const COLOR_PRESETS = [
   { name:"Svart",    hex:"#000000" },
   { name:"Röd",      hex:"#e40909" },
@@ -590,9 +577,9 @@ async function readXlsxParts(buf){
         commentLen = view.getUint16(offset+32, true), localOffset = view.getUint32(offset+42, true);
     var name = new TextDecoder().decode(new Uint8Array(buf, offset+46, nameLen));
     var sheetMatch = /^xl\/worksheets\/sheet(\d+)\.xml$/.exec(name);
-    /* numeric comparison, not the previous alphabetical Object.keys().sort()
-       -- "sheet10.xml" sorts before "sheet2.xml" as a STRING, which used to
-       pick the wrong sheet on any workbook with 10+ sheets */
+    /* compares the extracted sheet number, not the filename string --
+       "sheet10.xml" sorts before "sheet2.xml" as a STRING, which would
+       pick the wrong lowest-numbered sheet on a workbook with 10+ sheets */
     var wanted = name === "xl/sharedStrings.xml" ? "sharedStrings" : (sheetMatch && +sheetMatch[1] < sheetNum) ? "sheet" : null;
     if(wanted && view.getUint32(localOffset, true) === 0x04034b50){
       var lhNameLen = view.getUint16(localOffset+26, true), lhExtraLen = view.getUint16(localOffset+28, true);
@@ -695,11 +682,9 @@ function blankPage(layout, contacts){
    chunk of an oversized one) largest-first, and place each into the
    first bin it still fits in, opening a new bin only when none do.
    FFD is not always mathematically optimal, but it's simple, it never
-   pointlessly splits a group that fits somewhere whole, and it matches
-   what was actually asked for: prefer leaving empty rows on a page over
-   splitting a department across two, and use as few pages as it can
-   while keeping that rule. Plain sequential/list-order chunking (the
-   previous behavior) ignored department boundaries entirely. */
+   pointlessly splits a group that fits somewhere whole, and it prefers
+   leaving empty rows on a page over splitting a department across two,
+   using as few pages as it can while keeping that rule. */
 function packContactsIntoPages(contacts, capacity){
   if(capacity <= 0) return [];
   var items = [];
@@ -777,10 +762,10 @@ function reflowFromPage(index){
    alongside the first's instead of wiping it out, each kept in its own
    section so a department name repeated across files is never merged
    with another file's (see groupContactsBySourceAndDepartment). Only the
-   very first file dropped auto-fills the pages, matching the previous
-   single-file behavior; anything dropped after that just joins the pool
-   until "Fördela" (see renderGroupPanel) is clicked to redo the automatic
-   distribution across everything collected so far. */
+   very first file dropped auto-fills the pages; anything dropped after
+   that just joins the pool until "Fördela" (see renderGroupPanel) is
+   clicked to redo the automatic distribution across everything collected
+   so far. */
 async function handleFile(file){
   try{
     var rows;
@@ -810,12 +795,10 @@ async function handleFile(file){
 async function handleFiles(files){
   for(var i=0;i<files.length;i++){ await handleFile(files[i]); }
 }
-/* used to write into a toolbar status span -- removed since which files
-   loaded is already visible in the group panel's own source list, and
-   the span's text could grow long enough to squeeze the portal pills out
-   of room. Kept as a thin console log rather than touched at every call
-   site, so an actual failure (a bad CSV, an unreadable drop, a page that
-   failed to print) still leaves a trace somewhere. */
+/* logs an import/print status or error message -- which files loaded is
+   already visible in the group panel's own source list, so there's no
+   on-screen status display; this just leaves a console trace for actual
+   failures (a bad CSV, an unreadable drop, a page that failed to print). */
 function setStatus(text){ console.log(text); }
 
 /* true for a real file drag (dataTransfer always advertises the "Files"
@@ -969,7 +952,7 @@ function pickLine2Field(contact, mode){
 /* the phone column is always exactly wide enough for the 10-digit grouped
    format -- that's the longest a number can ever be, so there's nothing to
    measure per-dataset. Cached per PHONE_FONT_PT since it only depends on
-   the debug-panel font size, not on the loaded contacts. */
+   that constant, not on the loaded contacts. */
 var _phoneWidthCache = { pt:null, width:0 };
 function maxFormattedPhoneWidth(ctx, dpi){
   if(_phoneWidthCache.pt === PHONE_FONT_PT) return _phoneWidthCache.width;
@@ -1626,9 +1609,9 @@ function hexToRgb(hex){
 }
 
 /* per-page header color: exactly the 16 preset swatches, nothing else --
-   a headerColor that doesn't match one (from before the custom R/G/B row
-   was removed, say) just falls back to showing the first preset (Svart)
-   as current, same as buildSwatchSelect does for any unmatched value. */
+   a headerColor that doesn't match one of them falls back to showing the
+   first preset (Svart) as current, same as buildSwatchSelect does for
+   any unmatched value. */
 function buildHeaderColorControls(pageState){
   var options = COLOR_PRESETS.map(function(c){ return [c.hex, c.name]; });
   return buildSwatchSelect(options, pageState.headerColor, function(v){ pageState.headerColor = v; renderViewer(); }, "Rubrikfärg");
@@ -1686,12 +1669,9 @@ function buildPageControls(index){
 }
 
 /* the thin control strip floating directly above a card in the viewer --
-   what used to be a "Sidor" list entry's own header (used/free count,
-   A-Ö/Ta bort) and selectors (layout, header color, line 2/numbers,
-   empty-page mode -- see buildPageControls, reused unchanged), now living
-   right next to the card it actually describes instead of a separate
-   scrolling list. Every page is its own plainly numbered "Sida N" --
-   state.pages' own index, 1-based. */
+   used/free count, sort/remove buttons, and this page's own layout/color/
+   etc selectors (see buildPageControls). Every page is its own plainly
+   numbered "Sida N" -- state.pages' own index, 1-based. */
 function buildPageInfoBar(index){
   var bar = el("div", { class:"pageInfoBar" });
   var barColor = colorForPage(index);
@@ -1804,8 +1784,8 @@ function cardRowGeometry(canvas, index, clientY){
      (top half) or idx+1 (bottom half). Everything that needs to agree on
      where a drop lands -- the highlight preview and the actual
      cross-page/new-placement drop -- uses this same value instead of
-     each re-deriving its own boundary from idx/belowMidpoint, which is
-     what let the old preview and the real drop fall out of sync. */
+     each re-deriving its own boundary from idx/belowMidpoint, so the two
+     can never disagree. */
   return { idx: idx, topFrac: rowTopFrac, hFrac: geo.rowFrac, belowMidpoint: belowMidpoint, insertRow: idx + (belowMidpoint ? 1 : 0) };
 }
 
@@ -1843,11 +1823,10 @@ function contiguousDeptSegments(contacts){
 }
 
 /* moves one contact already on this page to sit right where a drag
-   landed -- reuses reorderWithinPage (the same function the v10 sidebar
-   list already reorders with), just computing its target/insertAfter
-   from a card row instead of a list row. targetContact is null when the
-   drop landed past the last real contact (an empty trailing row), which
-   reorderWithinPage has no target for -- treated as "move to the end". */
+   landed -- reuses reorderWithinPage, computing its target/insertAfter
+   from a card row. targetContact is null when the drop landed past the
+   last real contact (an empty trailing row), which reorderWithinPage has
+   no target for -- treated as "move to the end". */
 function reorderContactOnCard(pageIndex, contactId, targetContact, insertAfter){
   if(targetContact){ reorderWithinPage(pageIndex, contactId, targetContact.id, insertAfter); return; }
   var contacts = contactsForPage(state.pages[pageIndex] || {});
@@ -1899,9 +1878,8 @@ function removeSegmentFromPage(pageIndex, startIdx, length){
    while a plain click still reaches onCanvasClick for inline editing:
    dragstart only fires once the browser sees real drag motion, and a
    click never fires after a drag starts, so the two never conflict.
-   Produces the exact same {type:"contact", fromPage, contactId} payload
-   the old per-row grip used, so wireCardDropTarget's drop handling needed
-   no changes at all. */
+   Produces the same {type:"contact", fromPage, contactId} payload every
+   other contact drag does, so wireCardDropTarget handles it identically. */
 function wireCardRowDrag(canvas, pageIndex){
   canvas.addEventListener("dragstart", function(e){
     var pageState = state.pages[pageIndex];
@@ -1940,11 +1918,10 @@ function showRowDragGhost(e, text){
    horizontal pill in the segment's own color (the capsule itself is a
    vertical strip with sideways text -- not something you'd want to see
    dragging around) with the cursor pinned to its right edge, so the pill
-   trails to the LEFT of the cursor -- matching where the tab itself
-   always sits relative to its card now that every strip is on the left.
-   Width is read back off the element itself after the text/color are
-   set, so the pill always sizes to whatever's being dragged rather than
-   a fixed box. */
+   trails to the LEFT of the cursor, matching where the capsule's own
+   strip sits relative to its card (see .cardEdgeHandles). Width is read
+   back off the element itself after the text/color are set, so the pill
+   always sizes to whatever's being dragged rather than a fixed box. */
 var segmentDragGhostEl = null;
 function showSegmentDragGhost(e, text, color){
   if(!segmentDragGhostEl){
@@ -2091,17 +2068,13 @@ function clearDragHighlights(){
   document.querySelectorAll(".cardRowHighlightLayer").forEach(function(l){ l.innerHTML = ""; });
 }
 
-/* lets a group/contact tile dragged from the sidebar's "Dra till kortet"
-   pool be dropped directly onto a row of the card itself, landing
+/* lets a group/contact tile dragged from the group panel's "Dra till
+   kortet" pool be dropped directly onto a row of the card itself, landing
    exactly there via moveMatchingBetweenPagesAt instead of always
    appending. Also accepts a drag started on the card's own row
-   (wireCardRowDrag) or its group capsule (buildCardEdgeHandles, single
-   view only) -- same MIME, "contact"/"segment" payloads carrying
-   fromPage -- and reorders in place instead, when the drag and drop are
-   on the same page. Works in both view modes: "Alla" cards are smaller
-   thumbnails, so landing on an exact row is less precise there, but
-   moving a contact/department onto a different card is exactly as
-   useful at that size. */
+   (wireCardRowDrag) or its group capsule (buildCardEdgeHandles) -- same
+   MIME, "contact"/"segment" payloads carrying fromPage -- and reorders in
+   place instead, when the drag and drop are on the same page. */
 function wireCardDropTarget(canvas, index){
   canvas.addEventListener("dragover", function(e){
     if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
@@ -2160,7 +2133,6 @@ function wireCardDropTarget(canvas, index){
       return;
     }
     /* a genuinely new placement (from the pool, or a different page) --
-       same as dropping onto this page's own card in the sidebar list:
        overflow cascades onto the next page (reflowFromPage, inside
        moveMatchingBetweenPagesAt), opening a new one at DEFAULT_LAYOUT
        ("v20") if it needs to, instead of being refused. */
@@ -2171,14 +2143,11 @@ function wireCardDropTarget(canvas, index){
   });
 }
 
-/* the colored capsule strip standing directly against the card: one per
-   contiguous same-department run, drag to move that whole block (see
-   contiguousDeptSegments/reorderSegmentOnCard). Per-contact dragging no
-   longer needs a dedicated handle here -- the card itself is draggable
-   row-by-row (see wireCardRowDrag) -- so this strip only ever holds group
-   capsules now. Always sits on the card's own left, front and back
-   alike -- there's no longer an outer/inner distinction to pick a side
-   for. */
+/* the colored capsule strip standing directly against the card's left
+   edge: one capsule per contiguous same-department run, drag to move
+   that whole block (see contiguousDeptSegments/reorderSegmentOnCard).
+   Per-contact dragging uses the card itself instead (see
+   wireCardRowDrag), so this strip only ever holds group capsules. */
 function buildCardEdgeHandles(pageIndex){
   var strip = el("div", { class:"cardEdgeHandles" });
   var pageState = state.pages[pageIndex];
@@ -2244,8 +2213,7 @@ function sidesPerView(){
 /* the one distance every floating thing keeps from the window's own edge
    -- must match --edge-gap in the CSS. Reused below both as the viewer's
    own left/right/bottom padding (matching #groupPanel's own inset from
-   mainRow's edges in the CSS, now that it floats over the viewer instead
-   of sitting beside it) and as the gap kept above the tallest
+   mainRow's edges in the CSS) and as the gap kept above the tallest
    currently-visible per-card info bar, so nothing built from this
    constant ever sits closer to a window edge than anything else built
    from it. */
@@ -2278,10 +2246,10 @@ var viewerTopClearancePx = 80 + WINDOW_EDGE_GAP_PX;
    global), so a single scale computed from the total width covers all of
    them. Reads the fixed (non-card) width straight from the DOM instead of
    assuming it -- every edge-handles strip's actual rendered width, and
-   the 24px gap between page units (both from the CSS) -- so it never
-   under-counts the strips (which used to leave rows a bit too wide for
-   their own budget, forcing an unwanted wrap into a second row that then
-   overflowed the viewer's own height).
+   the 24px gap between page units (both from the CSS) -- so an inexact
+   guess can never leave the row a bit too wide for its own budget,
+   forcing an unwanted wrap into a second row that overflows the viewer's
+   own height.
    Runs the sizing twice: the first pass applies whatever top clearance is
    already in effect (carried over from the last render, so usually
    already close) so the cards reach their real on-screen width -- and so
@@ -2311,9 +2279,9 @@ function fitVisibleCards(){
      gaps (its inset from mainRow, and its clearance from the viewer
      content beyond it -- see #viewerContent's own padding-left), not
      just one gap like the right side: that space is real CSS padding on
-     #viewerContent now that the panel floats over the viewer instead of
-     sitting beside it as a column with a measurable box of its own, and
-     clientWidth includes padding either way. */
+     #viewerContent (the floating panel has no box of its own inside the
+     grid/flex flow to measure), and clientWidth includes padding either
+     way. */
   var availW = wrap.clientWidth - (GROUP_PANEL_WIDTH_PX + WINDOW_EDGE_GAP_PX*2) - WINDOW_EDGE_GAP_PX - 1;
   var cw = (availW - fixedW) / pages.length;
 
@@ -2660,9 +2628,9 @@ function activateContentPage(index){
 }
 
 /* ---- shared drag/drop placement engine for both a whole department group
-   and a single contact -- the two used to be fully separate (but identical)
-   function families; unified here behind a match-predicate since the only
-   real difference was "match by deptGroupKey" vs "match by id". ---- */
+   and a single contact -- unified behind a match-predicate, since the only
+   real difference between the two is "match by deptGroupKey" vs "match by
+   id". ---- */
 
 /* removes and returns every contact matching `matches` from one page's
    contacts -- never touches state.contacts itself, so a contact is only
@@ -2689,7 +2657,7 @@ function takeMatchingOffAllPages(matches, layoutKey){
 /* the unplaced pool (department tiles, expanded contact rows) is draggable
    too, and isn't tied to any one page -- its drags carry fromPage:null.
    Dragging an actual page's chip (fromPage a real index) always just moves
-   that one page's portion, as before, regardless of layout.
+   that one page's portion, regardless of layout.
 
    Pool drags depend on the destination layout: v20 is the one general-
    purpose directory, so it consolidates -- a contact never ends up on two
@@ -3010,7 +2978,7 @@ function renderGroupPanel(){
       tile.appendChild(nameRow);
       if(source.multiUse) wireDragStart(tile, { type:"template", fromPage:null, templates:g.contacts.map(contactFields) });
       /* fromPage:null marks this as a drag from the unplaced-pool grid
-         (as opposed to a specific page's chip) -- see takeGroup() */
+         (as opposed to a specific page's chip) -- see takeMatching() */
       else wireDragStart(tile, { type:"group", fromPage:null, groupKey:g.key, sourceId:source.id });
       grid.appendChild(tile);
       if(expanded) grid.appendChild(buildContactList(g.contacts, null, source.multiUse));
