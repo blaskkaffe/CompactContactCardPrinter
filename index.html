@@ -2282,7 +2282,7 @@ function initEvents(){
     regeneratePages();
     renderViewer();
   });
-  wireDragStart($("#emptyRowTile"), { type:"template", fromPage:null, templates:[emptyRowTemplate()] });
+  wireDragStart($("#emptyRowTile"), { type:"template", fromPage:null, templates:[emptyRowTemplate()] }, "Tom rad", "#999");
   /* dropping a group/contact on the empty-viewer overlay (shown only when
      state.pages is empty) creates the first page, same as "+ Ny sida" --
      otherwise there's nowhere on screen yet to drop onto. */
@@ -2636,11 +2636,16 @@ function handlePanelDrop(data, onGroup, onContact, onTemplate){
 /* starts a panel drag carrying `payload` (a {type, fromPage, ...} object
    matching handlePanelDrop's expectations) -- shared by every draggable
    pool tile/chip, which otherwise all repeat the same setData+effectAllowed
-   pair with only the payload differing */
-function wireDragStart(node, payload){
+   pair with only the payload differing. ghostText/ghostColor, when given,
+   show the same pill drag image a card row or segment capsule drag uses
+   (see showDragGhost) -- the pool's own tiles/chips are wide, multi-line
+   boxes that make poor default drag images, so every draggable thing in
+   this app ends up using the same compact pill instead. */
+function wireDragStart(node, payload, ghostText, ghostColor){
   node.addEventListener("dragstart", function(e){
     e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify(payload));
     e.dataTransfer.effectAllowed = "move";
+    if(ghostText) showDragGhost(e, ghostText, ghostColor);
   });
 }
 
@@ -2693,15 +2698,15 @@ function buildContactList(contacts, fromPage, multiUse){
         : (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till ett kort, \"+ Ny sida\" eller \"✕ Ta bort\" i visaren"
     });
     chip.appendChild(el("span", { class:"contactChipName truncate", text:c.name }));
+    var chipColor = colorForDeptKey(deptGroupKey(c.department));
     if(placed){
-      var chipColor = colorForDeptKey(deptGroupKey(c.department));
       tintElement(chip, chipColor);
       var pageBadge = el("span", { class:"contactChipPage", text:"s"+pageNums.join(",") });
       pageBadge.style.color = hexToRgba(chipColor, 0.9);
       chip.appendChild(pageBadge);
     }
-    if(multiUse) wireDragStart(chip, { type:"template", fromPage:null, templates:[contactFields(c)] });
-    else wireDragStart(chip, { type:"contact", fromPage:fromPage, contactId:c.id });
+    if(multiUse) wireDragStart(chip, { type:"template", fromPage:null, templates:[contactFields(c)] }, c.name, chipColor);
+    else wireDragStart(chip, { type:"contact", fromPage:fromPage, contactId:c.id }, c.name, chipColor);
     list.appendChild(chip);
   });
   return list;
@@ -2757,8 +2762,8 @@ function renderGroupPanel(){
           ? "Kan dras ut flera gånger -- dra till en sida nedan"
           : (placed ? ("På sid" + (pageNums.length>1 ? "orna " : "an ") + pageNums.join(", ")) : "Inte placerad än") + " -- dra till en sida nedan"
       });
+      var tileColor = colorForDeptKey(g.key);
       if(placed){
-        var tileColor = colorForDeptKey(g.key);
         tintElement(tile, tileColor);
       }
       var nameRow = el("div", { class:"groupTileNameRow" });
@@ -2771,10 +2776,10 @@ function renderGroupPanel(){
       if(placed) countSpan.style.color = hexToRgba(tileColor, 0.9);
       nameRow.appendChild(countSpan);
       tile.appendChild(nameRow);
-      if(source.multiUse) wireDragStart(tile, { type:"template", fromPage:null, templates:g.contacts.map(contactFields) });
+      if(source.multiUse) wireDragStart(tile, { type:"template", fromPage:null, templates:g.contacts.map(contactFields) }, g.label, tileColor);
       /* fromPage:null marks this as a drag from the unplaced-pool grid
          (as opposed to a specific page's chip) -- see takeMatching() */
-      else wireDragStart(tile, { type:"group", fromPage:null, groupKey:g.key, sourceId:source.id });
+      else wireDragStart(tile, { type:"group", fromPage:null, groupKey:g.key, sourceId:source.id }, g.label, tileColor);
       grid.appendChild(tile);
       if(expanded) grid.appendChild(buildContactList(g.contacts, null, source.multiUse));
     });
