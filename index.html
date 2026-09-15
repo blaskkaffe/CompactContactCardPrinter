@@ -142,7 +142,7 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
 .cardEdgeHandles .segmentCapsule.emptyRowCapsule{background:var(--hover-bg);border-color:var(--border-dark)}
 
 /* the shared drag-image pill (see showDragGhost) */
-#dragGhost{position:fixed;top:-999px;left:-999px;padding:var(--pill-pad-y) 16px;border-radius:var(--pill-radius);box-shadow:0 1px 4px var(--shadow-soft);color:#fff;font-size:var(--pill-font-size);font-weight:bold;line-height:var(--pill-line-height);white-space:nowrap;pointer-events:none}
+#dragGhost{position:fixed;top:0;left:0;display:none;z-index:1000;padding:var(--pill-pad-y) 16px;border-radius:var(--pill-radius);box-shadow:0 1px 4px var(--shadow-soft);color:#fff;font-size:var(--pill-font-size);font-weight:bold;line-height:var(--pill-line-height);white-space:nowrap;pointer-events:none}
 
 /* Per-card info bar */
 .pageInfoBar{position:absolute;left:0;right:0;bottom:100%;z-index:2;padding:var(--space-4);background:var(--panel);border:1px solid var(--border);border-radius:var(--panel-radius) var(--panel-radius) 0 0;font-size:var(--ui-font)}
@@ -1415,14 +1415,29 @@ function buildCardField(contact, key, formatter){
   return span;
 }
 
-/* one pill-shaped drag image for every drag that starts on the card
-   itself -- a single contact row (its name) or a whole department segment
-   (its label) -- trailing to the LEFT of the cursor (the cursor is pinned
-   to the pill's own right edge via setDragImage) so the pill never covers
-   whatever's under the cursor, which is the whole point of looking at it
-   mid-drag. Reuses one hidden element across every drag rather than
-   creating/discarding a node each time. */
+/* one pill-shaped drag image for every drag that starts on this app's own
+   content -- a card row/segment (see wireRowDragAndDrop/
+   buildCardEdgeHandles) or a panel tile/chip/template (see wireDragStart)
+   -- trailing to the LEFT of the cursor. Positioned by hand, tracking the
+   cursor on every native "drag" event, rather than via
+   dataTransfer.setDragImage(): that API hands the actual image rendering
+   off to the browser/OS compositor, which is inconsistent across
+   platforms and can silently fall back to a plain screenshot of the
+   dragged element instead of the custom image -- a manually-positioned
+   fixed element updated on "drag" works identically everywhere. The
+   native default drag image is suppressed with a blank 1x1 image so nothing
+   shows twice. dragGhostBlankImg is created once, eagerly, at load --
+   not lazily on first use -- so it's already decoded and ready well
+   before any drag could possibly start. */
 var dragGhostEl = null;
+var dragGhostBlankImg = new Image();
+dragGhostBlankImg.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7";
+function positionDragGhost(clientX, clientY){
+  if(!dragGhostEl) return;
+  var rect = dragGhostEl.getBoundingClientRect();
+  dragGhostEl.style.left = (clientX - rect.width) + "px";
+  dragGhostEl.style.top = (clientY - rect.height/2) + "px";
+}
 function showDragGhost(e, text, color){
   if(!dragGhostEl){
     dragGhostEl = el("div", { id:"dragGhost" });
@@ -1430,9 +1445,20 @@ function showDragGhost(e, text, color){
   }
   dragGhostEl.textContent = text;
   dragGhostEl.style.background = color || "#222";
-  var rect = dragGhostEl.getBoundingClientRect();
-  e.dataTransfer.setDragImage(dragGhostEl, rect.width, rect.height/2);
+  dragGhostEl.style.display = "block";
+  e.dataTransfer.setDragImage(dragGhostBlankImg, 0, 0);
+  positionDragGhost(e.clientX, e.clientY);
 }
+/* "drag" fires repeatedly on the source element throughout the drag (like
+   mousemove, but for a drag gesture) -- clientX/clientY are occasionally
+   both 0 on the very last event right before drop, which would otherwise
+   snap the pill to the corner for one frame, so that case is ignored. */
+document.addEventListener("drag", function(e){
+  if(e.clientX || e.clientY) positionDragGhost(e.clientX, e.clientY);
+});
+document.addEventListener("dragend", function(){
+  if(dragGhostEl) dragGhostEl.style.display = "none";
+});
 
 /* wires one row (a v20 row, or a v10 line) as both a drag source (when it
    holds a real contact) and a drop target -- native HTML5 drag/drop, the
