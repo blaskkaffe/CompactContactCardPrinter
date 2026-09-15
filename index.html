@@ -15,15 +15,15 @@
   --edge-gap:14px; --group-panel-w:260px; --panel-radius:calc(var(--pill-radius) + var(--space-4));
   --micro-font:9px; --ui-font:12px; --title-font:15px;
   --overlay-font:18px; --dropzone-font:28px;
-  --segmentFontSize:var(--ui-font); --segmentPillPadY:5px; --segmentLineHeight:1.2;
-  --segmentPillHeight:calc(var(--segmentLineHeight)*var(--segmentFontSize) + var(--segmentPillPadY)*2);
-  --pill-radius:calc(var(--segmentPillHeight)/2);
+  --pill-font-size:var(--ui-font); --pill-pad-y:5px; --pill-line-height:1.2;
+  --pill-height:calc(var(--pill-line-height)*var(--pill-font-size) + var(--pill-pad-y)*2);
+  --pill-radius:calc(var(--pill-height)/2);
 }
 html,body{height:100%}
 body{display:flex;flex-direction:column;margin:0;background:var(--bg);color:var(--text);font:14px/1.4 Arial,sans-serif}
 
 /* Shared UI */
-.pill{display:flex;align-items:center;height:var(--segmentPillHeight);min-width:calc(var(--segmentPillHeight)*2);padding:0 var(--space-4);border-radius:var(--pill-radius);font-size:var(--ui-font);cursor:pointer;user-select:none}
+.pill{display:flex;align-items:center;height:var(--pill-height);min-width:calc(var(--pill-height)*2);padding:0 var(--space-4);border-radius:var(--pill-radius);font-size:var(--ui-font);cursor:pointer;user-select:none}
 .truncate{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* Toolbar */
@@ -54,8 +54,7 @@ header.toolbar button:hover{background:var(--hover-bg)}
    the shared rule right below), so floating them costs nothing visually
    -- they read as cards sitting on top of the viewer, the same way a
    page's own .pageInfoBar floats above its card. z-index puts them above
-   every card/highlight layer in the viewer (the highest of those is 4,
-   see .cardRowHighlightLayer) regardless of DOM order.
+   every card in the viewer regardless of DOM order.
    #viewerContent's own left padding (see below) still reserves this
    panel's full footprint -- its own edge-gap inset plus --group-panel-w
    plus another edge-gap of clearance -- so cards shift clear of it
@@ -109,23 +108,27 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
 #emptyViewerOverlay{position:absolute;inset:0;display:flex;justify-content:center;align-items:center;padding:40px;color:var(--border-dark);font-size:var(--overlay-font);text-align:center}
 #emptyViewerOverlay[hidden]{display:none}
 #emptyViewerOverlay.dragOver{background:var(--blue-bg);color:var(--blue-text)}
-.cardRowHighlightLayer{position:absolute;inset:0;z-index:4;pointer-events:none}
-.cardRowHighlightLayer .cardRowHighlight{position:absolute;left:0;right:0}
-
 /* Card layout */
-.pageUnit{display:flex}
 .pagesRow{display:flex;flex-wrap:nowrap;justify-content:center;align-items:flex-start;gap:var(--edge-gap)}
 .page{position:relative;z-index:2;flex:0 0 auto;background:var(--panel);box-shadow:var(--shadow-panel)}
-.page canvas{display:block;width:100%;height:100%;cursor:grab}
-.page canvas:active{cursor:grabbing}
 
-/* Segment tabs / drag ghosts */
-.cardEdgeHandles{position:relative;z-index:1;flex:0 0 auto;width:var(--segmentPillHeight)}
-.cardEdgeHandles .segmentCapsule{position:absolute;right:0;display:flex;justify-content:center;align-items:center;width:var(--segmentPillHeight);border:1px solid;border-radius:var(--pill-radius) 0 0 var(--pill-radius);color:var(--text);font-size:var(--segmentFontSize);font-weight:bold;line-height:var(--segmentLineHeight);text-align:center;writing-mode:vertical-rl;text-orientation:mixed;overflow:hidden;cursor:grab;user-select:none}
-.cardEdgeHandles .segmentCapsule:active{cursor:grabbing}
-.cardEdgeHandles .segmentCapsule.emptyRowCapsule{background:var(--hover-bg);border-color:var(--border-dark)}
-#rowDragGhost{position:fixed;top:-999px;left:-999px;padding:4px var(--space-4);background:#222;border-radius:4px;color:#fff;font-size:var(--ui-font);white-space:nowrap;pointer-events:none}
-#segmentDragGhost{position:fixed;top:-999px;left:-999px;padding:var(--segmentPillPadY) 16px;border-radius:var(--pill-radius);box-shadow:0 1px 4px var(--shadow-soft);color:#fff;font-size:var(--segmentFontSize);font-weight:bold;line-height:var(--segmentLineHeight);white-space:nowrap;pointer-events:none}
+/* the interactive on-screen card (see buildCardBody) -- real DOM instead of
+   a canvas image, sized to its .page box, with column widths and font
+   sizes expressed as percentages of its own inline size (cqw) so they
+   scale for free as .page is resized (see fitVisibleCards) */
+.cardBody{position:relative;display:flex;flex-direction:column;width:100%;height:100%;container-type:inline-size;background:#fff;border:1px solid #000;overflow:hidden;font-family:"Cascadia Code","Cascadia Mono",monospace}
+.cardEmptyMsg{display:flex;align-items:center;justify-content:center;height:100%;padding:8px;color:#999;font-family:Arial,sans-serif;font-size:var(--ui-font);text-align:center}
+.cardHeader{position:relative;flex:0 0 auto;display:flex;align-items:center;gap:4px;padding:0 3cqw;color:#fff;overflow:hidden}
+.cardHeaderDate{flex:none;white-space:nowrap;font-size:2.6cqw}
+.cardHeaderLegend{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;font-size:2.6cqw;cursor:text}
+.cardRow,.cardSlot{position:relative;flex:1 1 0;min-height:0;border-top:1px solid rgba(0,0,0,.15)}
+.cardRow:first-child,.cardSlot:first-child{border-top:none}
+.cardSlot{display:flex;flex-direction:column}
+.cardSlot .cardLine{position:relative;flex:1 1 0;min-height:0}
+.cardSlotNumber{position:absolute;left:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#000}
+.cardField{position:absolute;top:0;bottom:0;display:flex;align-items:center;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#000;cursor:text}
+.cardFieldInput{width:100%;height:100%;border:1px solid var(--blue);font:inherit;padding:0 1px;box-sizing:border-box}
+.cardRow.dragOver,.cardSlot.dragOver{background:var(--blue-bg)}
 
 /* Per-card info bar */
 .pageInfoBar{position:absolute;left:0;right:0;bottom:100%;z-index:2;padding:var(--space-4);background:var(--panel);border:1px solid var(--border);border-radius:var(--panel-radius) var(--panel-radius) 0 0;font-size:var(--ui-font)}
@@ -394,8 +397,8 @@ function layoutRows(key){
   return 0;
 }
 
-/* shared by drawCard and getEditableRegions so hit-testing always matches
-   what's actually drawn. Solves headerH = k*rowH where
+/* shared by drawCard and buildCardBody so the on-screen card's header
+   proportion always matches print. Solves headerH = k*rowH where
    rowH = (hPx-headerH)/rowUnits. */
 function computeHeaderH(hPx, layout){
   var capacity = layoutRows(layout.key);
@@ -938,7 +941,7 @@ function formatPhoneNumber(raw){
                      (v10 otherwise never shows department -- showDept is
                      false for its LAYOUTS entry -- so this is the only way
                      to surface it on a v10 card)
-   Shared by drawCard and getEditableRegions so a click always edits
+   Shared by drawCard and buildCardBody so a click always edits
    whichever field is actually on screen. */
 var LINE2_MODES = { email:"E-post", empty:"Tom", username:"Användarnamn", department:"Grupp" };
 function pickLine2Field(contact, mode){
@@ -1034,8 +1037,9 @@ function layoutRowColumns(ctx, wPx, dpi, layout){
    column for a label that isn't there. Since that's a per-contact,
    per-render decision (not a fixed per-card one), this returns BOTH
    column sets for each line -- "Normal" (3 boxes, label shown) and
-   "Wide" (2 boxes, label-less) -- and drawCard/getEditableRegions pick
-   between them per row, per line, based on that row's own data.
+   "Wide" (2 boxes, label-less) -- and drawCard picks between them per row,
+   per line, based on that row's own data (the on-screen card always shows
+   the Normal set -- see buildDoubleRowSlot).
 
    showNumbers (pageState.showNumbers -- an optional per-page toggle)
    reserves a small gutter at the very left, ahead of every other column
@@ -1156,8 +1160,8 @@ function drawCard(ctx, xPx, yPx, wPx, hPx, contacts, dpi, layout, headerColor, l
   ctx.fillText(dateStr, xPx+pad, yPx+headerH/2);
   ctx.restore();
 
-  /* the header's right side is always editable (see getEditableRegions) --
-     a custom legendOverride wins outright on any layout; otherwise a
+  /* the header's right side is always editable on screen (see buildCardBody)
+     -- a custom legendOverride wins outright on any layout; otherwise a
      department-showing card falls back to the auto-built summary and
      everything else falls back to its layout's default legend, if any */
   var headerRightText = legendOverride ? legendOverride
@@ -1273,16 +1277,15 @@ function drawCropMarks(ctx, pageWpx, pageHpx, blockX, blockY, blockW, blockH, dp
 
 function totalPagesCount(){ return state.pages.length || 1; }
 
-/* `preview` (the on-screen viewer) draws exactly one copy of the card at
-   its own size -- every copy on a printed sheet is identical (see
-   contactsForPage), so one is all there is to see while editing. Print
-   (preview omitted) still renders the full sheet tiled with grid.count
-   copies, unchanged. */
-function renderCardsOntoCanvas(canvas, pageIndex, preview){
+/* renders the full print sheet (every tiled copy of the card, grid.count of
+   them) onto `canvas` -- the only remaining caller is doPrint; the on-screen
+   viewer shows an interactive DOM card instead (see buildCardBody) rather
+   than a second, preview-sized copy of this same canvas render. */
+function renderCardsOntoCanvas(canvas, pageIndex){
   var pageState = state.pages[pageIndex];
   var layoutKey = pageState ? pageState.layout : "v20";
   var geo = pageGeometryForIndex(pageIndex);
-  var dims = preview ? geo.cardDims : geo.pageDims;
+  var dims = geo.pageDims;
   canvas.width = Math.round(mmToPx(dims.w, RENDER_DPI));
   canvas.height = Math.round(mmToPx(dims.h, RENDER_DPI));
   var ctx = canvas.getContext("2d");
@@ -1298,10 +1301,6 @@ function renderCardsOntoCanvas(canvas, pageIndex, preview){
   }
   var cardContacts = contactsForPage(pageState);
 
-  if(preview){
-    drawCard(ctx, 0, 0, canvas.width, canvas.height, cardContacts, RENDER_DPI, geo.layout, pageState.headerColor, pageState.headerLegend, pageState.line2Mode, pageState.showNumbers);
-    return;
-  }
   if(geo.grid.count <= 0){
     drawCenteredMessage(ctx, canvas.width, canvas.height, "Korten får inte plats på sidan med nuvarande storleks-/marginalinställningar");
     return;
@@ -1323,142 +1322,222 @@ function renderCardsOntoCanvas(canvas, pageIndex, preview){
   drawCropMarks(ctx, canvas.width, canvas.height, mmToPx(startXmm,RENDER_DPI), mmToPx(startYmm,RENDER_DPI), mmToPx(blockWmm,RENDER_DPI), mmToPx(blockHmm,RENDER_DPI), RENDER_DPI);
 }
 
-/* ---------------- click-to-edit ---------------- */
-/* every editable field's box within ONE card, relative to that card's own
-   top-left corner -- shared by both drawing (implicitly, via the same
-   column-layout functions) and click hit-testing */
-function getEditableRegions(ctx, wPx, hPx, dpi, layout, contacts, line2Mode, showNumbers){
-  var regions = [];
-  var headerH = computeHeaderH(hPx, layout);
-  var bodyY = headerH, bodyH = hPx - headerH;
-  var capacity = layoutRows(layout.key);
-  /* the right side of the header is always free text -- a department-
-     showing card defaults to the auto-built summary, v10 defaults to a
-     legend (phoneRowLegend), but both are editable the same way.
-     Page-level field (contactIndex:-1), not tied to any one contact.
-     Matches drawCard's leftW/rightW split
-     exactly (the date only claims as much width as it needs). */
-  ctx.font = ptToPx(HEADER_FONT_PT, dpi) + "px " + FONT_FAMILY;
-  var dateW = ctx.measureText(new Date().toISOString().slice(0,10)).width + mmToPx(CELL_PADDING_MM, dpi)*2;
-  regions.push({ contactIndex:-1, field:"headerLegend", x:dateW, y:0, w:wPx-dateW, h:headerH, pt:HEADER_FONT_PT });
-  if(layout.doubleRow){
-    var subRowH = bodyH / (capacity*2);
-    var colSet = layoutDoubleRowColumns(ctx, wPx, dpi, showNumbers);
-    for(var i=0;i<capacity;i++){
-      var top1 = bodyY + subRowH*2*i, top2 = top1 + subRowH;
-      var contact = contacts && contacts[i];
-      /* must match drawCard's own per-row Normal/Wide choice exactly, so
-         a click always edits whichever field is actually on screen */
-      var hasLabel1 = contact && formatLabelForRow(contact.label1);
-      var cols1 = hasLabel1 ? colSet.line1Normal : colSet.line1Wide;
-      var fields1 = hasLabel1 ? ["name","label1","phone"] : ["name","phone"];
-      cols1.forEach(function(col, ci){ regions.push({ contactIndex:i, field:fields1[ci], x:col.x, y:top1, w:col.w, h:subRowH, pt:col.pt }); });
-
-      /* 2a's field depends on the page's line2Mode (see pickLine2Field) --
-         "empty" mode has no field backing it, so that column isn't
-         clickable at all (nothing to edit into). */
-      var hasLabel2 = contact && formatLabelForRow(contact.phone2Label);
-      var cols2 = hasLabel2 ? colSet.line2Normal : colSet.line2Wide;
-      var wideKey = contact ? pickLine2Field(contact, line2Mode).key : "email";
-      var fields2 = hasLabel2 ? [wideKey, "phone2Label", "phone2"] : [wideKey, "phone2"];
-      cols2.forEach(function(col, ci){
-        if(fields2[ci] == null) return;
-        regions.push({ contactIndex:i, field:fields2[ci], x:col.x, y:top2, w:col.w, h:subRowH, pt:col.pt });
-      });
-    }
-  } else {
-    var rowH = bodyH / capacity;
-    var cols2 = layoutRowColumns(ctx, wPx, dpi, layout);
-    for(var j=0;j<capacity;j++){
-      var top = bodyY + rowH*j;
-      cols2.forEach(function(col){ regions.push({ contactIndex:j, field:col.key, x:col.x, y:top, w:col.w, h:rowH, pt:col.pt }); });
-    }
-  }
-  return regions;
+/* ---------------- interactive on-screen card (DOM) ---------------- */
+/* the viewer's on-screen card is real HTML, not a second canvas render --
+   clicking, editing and dragging are then just ordinary DOM behavior
+   instead of needing separate hit-testing math to reverse-engineer what a
+   canvas draw put where. Column x/w and font pt still come from the exact
+   same layoutRowColumns/layoutDoubleRowColumns/computeHeaderH functions
+   drawCard itself uses (via measureCtx, a canvas kept only for
+   ctx.measureText -- never drawn to), called once against a fixed
+   reference width (CARD_W_MM at RENDER_DPI) and expressed as percentages
+   of the card's own on-screen width via CSS container query units
+   (cqPercent) -- a ratio, so it's exactly as size-independent as the
+   canvas math already is. Only the actual printed OUTPUT still goes
+   through drawCard/renderCardsOntoCanvas, unchanged. */
+var measureCanvasEl = null;
+function measureCtx(){
+  if(!measureCanvasEl) measureCanvasEl = document.createElement("canvas");
+  return measureCanvasEl.getContext("2d");
+}
+function cqPercent(pxAtRenderDpi){
+  return (pxAtRenderDpi / mmToPx(CARD_W_MM, RENDER_DPI)) * 100;
+}
+function positionField(fieldEl, col){
+  fieldEl.style.left = cqPercent(col.x) + "%";
+  fieldEl.style.width = cqPercent(col.w) + "%";
+  fieldEl.style.fontSize = cqPercent(ptToPx(col.pt, RENDER_DPI)) + "cqw";
+  if(col.align === "right"){ fieldEl.style.textAlign = "right"; fieldEl.style.justifyContent = "flex-end"; }
 }
 
-function openEditOverlay(pageEl, target, field, left, top, width, height, initialValue, fontPx){
-  var existing = pageEl.querySelector(".editOverlayInput");
-  if(existing) existing.remove();
+/* what the header's right side actually shows when no custom legend has
+   been typed -- the auto-built department summary, or the layout's own
+   default legend -- shared by the display and the value editing starts
+   from, so what you see is what you'd start editing from. */
+function headerLegendDisplayValue(pageState, layout, contacts){
+  if(pageState.headerLegend) return pageState.headerLegend;
+  return layout.showDept ? collectDeptNames(contacts).join(" ") : (layout.phoneRowLegend || "");
+}
+
+/* swaps a field span for a plain text input in place -- no overlay
+   positioning math needed, the input just fills the element it replaces */
+function startFieldEdit(fieldEl, target, key, initialValueOverride){
+  if(fieldEl.querySelector("input")) return;
   var input = document.createElement("input");
-  input.className = "editOverlayInput";
   input.type = "text";
-  input.value = initialValue != null ? initialValue : (target[field] || "");
-  input.style.position = "absolute";
-  input.style.left = left + "px";
-  input.style.top = top + "px";
-  input.style.width = Math.max(width, 50) + "px";
-  input.style.height = Math.max(height, 16) + "px";
-  input.style.fontFamily = FONT_FAMILY;
-  input.style.fontSize = (fontPx || 12) + "px";
-  input.style.zIndex = "10";
-  input.style.border = "2px solid #0080ff";
-  input.style.padding = "0 2px";
-  input.style.boxSizing = "border-box";
+  input.className = "cardFieldInput";
+  input.value = initialValueOverride != null ? initialValueOverride : (target[key] || "");
+  fieldEl.textContent = "";
+  fieldEl.appendChild(input);
+  input.addEventListener("mousedown", function(e){ e.stopPropagation(); });
+  input.focus();
+  input.select();
   var committed = false;
   function commit(){
     if(committed) return;
     committed = true;
-    target[field] = input.value.trim();
-    input.remove();
+    target[key] = input.value.trim();
     renderViewer();
   }
   input.addEventListener("blur", commit);
   input.addEventListener("keydown", function(e){
+    e.stopPropagation();
     if(e.key === "Enter"){ e.preventDefault(); input.blur(); }
-    else if(e.key === "Escape"){ e.preventDefault(); committed = true; input.remove(); }
+    else if(e.key === "Escape"){ e.preventDefault(); committed = true; renderViewer(); }
   });
-  pageEl.appendChild(input);
-  input.focus();
-  input.select();
 }
 
-/* the viewer canvas always shows exactly one card now (see
-   renderCardsOntoCanvas's preview mode), so a click maps straight into
-   card-relative coordinates -- no grid/block math needed to figure out
-   which of several tiled copies was clicked. */
-function onCanvasClick(e, canvas, pageIndex){
-  var pageState = state.pages[pageIndex];
-  if(!pageState || pageState.layout === "empty") return;
-  var geo = pageGeometryForIndex(pageIndex);
+/* one field's on-screen box -- editable (click to type into it) whenever
+   there's a real contact and field key backing it; a blank row slot or a
+   line-2 field with no key (line2Mode "Tom", see pickLine2Field) shows
+   empty and isn't clickable, same as those cases weren't hit-testable
+   before either. */
+function buildCardField(contact, key, formatter){
+  var raw = (contact && key != null) ? (contact[key] || "") : "";
+  var span = el("span", { class:"cardField", text: formatter ? formatter(raw) : raw });
+  if(!contact || key == null) return span;
+  span.tabIndex = 0;
+  span.addEventListener("click", function(e){ e.stopPropagation(); startFieldEdit(span, contact, key); });
+  return span;
+}
 
-  var rect = canvas.getBoundingClientRect();
-  var scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
-  var xInCard = (e.clientX - rect.left) * scaleX, yInCard = (e.clientY - rect.top) * scaleY;
-  var cardWpx = canvas.width, cardHpx = canvas.height;
-
-  var ctx = canvas.getContext("2d");
-  var cardContacts = contactsForPage(pageState);
-  var regions = getEditableRegions(ctx, cardWpx, cardHpx, RENDER_DPI, geo.layout, cardContacts, pageState.line2Mode, pageState.showNumbers);
-  var hit = regions.find(function(r){ return xInCard>=r.x && xInCard<r.x+r.w && yInCard>=r.y && yInCard<r.y+r.h; });
-  if(!hit) return;
-
-  var target, initialValue;
-  if(hit.contactIndex === -1){
-    /* page-level field (the header legend), not tied to a contact -- an
-       empty/never-set override means "no custom text yet", so editing
-       starts from whatever's actually showing (the auto dept summary, or
-       the layout's default legend) instead of a blank box */
-    target = pageState;
-    initialValue = pageState.headerLegend
-      ? pageState.headerLegend
-      : (geo.layout.showDept ? collectDeptNames(cardContacts).join(" ") : (geo.layout.phoneRowLegend || ""));
-  } else {
-    target = cardContacts[hit.contactIndex];
-    if(!target) return;
-    initialValue = null;
+/* wires one row (a v20 row, or a v10 line) as both a drag source (when it
+   holds a real contact) and a drop target -- native HTML5 drag/drop, the
+   exact same PANEL_DRAG_MIME payload contract and mutation functions the
+   side panel already uses (see wireDragStart/handlePanelDrop), so a card
+   row is just another drop target rather than a second, custom-built drag
+   system. Dropping in the row's top half inserts before it, bottom half
+   after -- reorderContactOnCard/moveMatchingBetweenPagesAt already handle
+   "landed past the last real contact" (targetContact null) as "move to
+   the end", same as every other placement in this app. */
+function wireRowDragAndDrop(rowEl, pageIndex, slotIdx, contact){
+  if(contact){
+    rowEl.draggable = true;
+    rowEl.addEventListener("dragstart", function(e){
+      var payload = { type:"contact", fromPage:pageIndex, contactId:contact.id };
+      e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify(payload));
+      e.dataTransfer.effectAllowed = "move";
+    });
   }
+  rowEl.addEventListener("dragover", function(e){
+    if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
+    e.preventDefault();
+    rowEl.classList.add("dragOver");
+  });
+  rowEl.addEventListener("dragleave", function(){ rowEl.classList.remove("dragOver"); });
+  rowEl.addEventListener("drop", function(e){
+    e.preventDefault();
+    rowEl.classList.remove("dragOver");
+    var raw = e.dataTransfer.getData(PANEL_DRAG_MIME);
+    if(!raw) return;
+    var data = JSON.parse(raw);
+    var rect = rowEl.getBoundingClientRect();
+    var insertAfter = (e.clientY - rect.top) > rect.height/2;
+    var targetContact = contactsForPage(state.pages[pageIndex])[slotIdx] || null;
 
-  var cssScale = rect.width / canvas.width;
-  /* the input's font must match the exact size the field is drawn at on
-     the card -- ptToPx converts the field's own point size to canvas-
-     internal pixels at RENDER_DPI, then cssScale shrinks that down the
-     same way the canvas itself is displayed smaller than its internal
-     resolution. Editing then looks like typing directly into the card,
-     not a differently-sized text box floating over it. */
-  var fontPx = ptToPx(hit.pt, RENDER_DPI) * cssScale;
-  openEditOverlay(canvas.parentElement, target, hit.field,
-    hit.x*cssScale, hit.y*cssScale, hit.w*cssScale, hit.h*cssScale, initialValue, fontPx);
+    if(data.type === "contact" && data.fromPage === pageIndex){
+      reorderContactOnCard(pageIndex, data.contactId, targetContact, insertAfter);
+      return;
+    }
+    var insertRow = slotIdx + (insertAfter ? 1 : 0);
+    handlePanelDrop(data,
+      function(fromPage, groupKey, sourceId){ moveMatchingBetweenPagesAt(fromPage, pageIndex, groupMatcher(sourceId, groupKey), insertRow); },
+      function(fromPage, contactId){ moveMatchingBetweenPagesAt(fromPage, pageIndex, contactMatcher(contactId), insertRow); },
+      function(templates){ addTemplatesAt(pageIndex, insertRow, templates); });
+  });
+}
+
+function buildRowLine(contact, cols, fieldSpecs){
+  var line = el("div", { class:"cardLine" });
+  cols.forEach(function(col, i){
+    var spec = fieldSpecs[i] || {};
+    var field = buildCardField(contact, spec.key, spec.formatter);
+    positionField(field, col);
+    line.appendChild(field);
+  });
+  return line;
+}
+
+function buildSingleRow(pageIndex, rowIdx, contact, cols){
+  var row = el("div", { class:"cardRow" });
+  wireRowDragAndDrop(row, pageIndex, rowIdx, contact);
+  cols.forEach(function(col){
+    var formatter = col.key === "department" ? formatDeptForRow : col.key === "phone" ? formatPhoneNumber : null;
+    var field = buildCardField(contact, col.key, formatter);
+    positionField(field, col);
+    row.appendChild(field);
+  });
+  return row;
+}
+
+/* one v10 contact's two printed lines, wrapped together so an optional
+   running number (showNumbers) can sit vertically centered across both --
+   always the "Normal" (label column shown) proportions on screen, even for
+   a row whose label is currently blank, unlike print's own per-row Normal/
+   Wide space-reclaiming (see drawCard): the on-screen card only has to be
+   a close, fully editable proxy, not a pixel-identical preview, so every
+   field always has a visible, clickable home here regardless of whether
+   print would currently be reclaiming its column's width for something
+   else. */
+function buildDoubleRowSlot(pageIndex, slotIdx, contact, colSet, pageState){
+  var slot = el("div", { class:"cardSlot" });
+  wireRowDragAndDrop(slot, pageIndex, slotIdx, contact);
+  if(pageState.showNumbers){
+    var numSpan = el("span", { class:"cardSlotNumber", text: contact ? String(slotIdx+1)+"." : "" });
+    numSpan.style.width = cqPercent(colSet.numberW) + "%";
+    numSpan.style.fontSize = cqPercent(ptToPx(DEPT_FONT_PT, RENDER_DPI)) + "cqw";
+    slot.appendChild(numSpan);
+  }
+  var line2Key = contact ? pickLine2Field(contact, pageState.line2Mode).key : null;
+  slot.appendChild(buildRowLine(contact, colSet.line1Normal, [
+    { key:"name" }, { key:"label1", formatter:formatLabelForRow }, { key:"phone", formatter:formatPhoneNumber }
+  ]));
+  slot.appendChild(buildRowLine(contact, colSet.line2Normal, [
+    { key:line2Key }, { key:"phone2Label", formatter:formatLabelForRow }, { key:"phone2", formatter:formatPhoneNumber }
+  ]));
+  return slot;
+}
+
+/* the on-screen unit shown for one page, regardless of how many are on
+   screen at once (see sidesPerView) -- replaces what used to be a canvas
+   showing one preview-sized copy of the card. */
+function buildCardBody(pageIndex){
+  var pageState = state.pages[pageIndex];
+  var body = el("div", { class:"cardBody" });
+  if(!pageState){
+    body.appendChild(el("div", { class:"cardEmptyMsg", text:"Släpp en CSV- eller XLSX-fil för att börja" }));
+    return body;
+  }
+  var layout = LAYOUTS[pageState.layout] || LAYOUTS.v20;
+  if(layout.key === "empty") return body; /* blank card -- nothing to lay out or drop onto */
+  var contacts = contactsForPage(pageState);
+  var capacity = layoutRows(layout.key);
+  var ctx = measureCtx();
+  var refWpx = mmToPx(CARD_W_MM, RENDER_DPI);
+
+  var header = el("div", { class:"cardHeader" });
+  header.style.flexBasis = (computeHeaderH(1000, layout)/1000 * 100) + "%";
+  header.style.background = pageState.headerColor || "#000000";
+  header.appendChild(el("span", { class:"cardHeaderDate", text: new Date().toISOString().slice(0,10) }));
+  var legendVal = headerLegendDisplayValue(pageState, layout, contacts);
+  var legendSpan = el("span", { class:"cardHeaderLegend", text: legendVal });
+  legendSpan.tabIndex = 0;
+  legendSpan.addEventListener("click", function(e){ e.stopPropagation(); startFieldEdit(legendSpan, pageState, "headerLegend", legendVal); });
+  header.appendChild(legendSpan);
+  body.appendChild(header);
+
+  if(layout.doubleRow){
+    var colSet = layoutDoubleRowColumns(ctx, refWpx, RENDER_DPI, pageState.showNumbers);
+    for(var i=0;i<capacity;i++){
+      body.appendChild(buildDoubleRowSlot(pageIndex, i, contacts[i], colSet, pageState));
+    }
+  } else {
+    var cols = layoutRowColumns(ctx, refWpx, RENDER_DPI, layout);
+    for(var j=0;j<capacity;j++){
+      body.appendChild(buildSingleRow(pageIndex, j, contacts[j], cols));
+    }
+  }
+  return body;
 }
 
 /* ---------------- print ---------------- */
@@ -1530,10 +1609,10 @@ function doPrint(){
    MENU / VIEWER UI
    Toolbar, per-page controls, the page viewer/scroller, and the
    department-grouping sidebar. Everything in this section builds
-   DOM and wires up events; the actual card drawing is delegated
-   to the render engine above (renderCardsOntoCanvas, onCanvasClick).
-   Edit here for anything about how controls look or are laid out
-   -- it doesn't touch card layout/drawing logic.
+   DOM and wires up events; the actual interactive card and its print
+   output are delegated to the render engine above (buildCardBody,
+   renderCardsOntoCanvas). Edit here for anything about how controls
+   look or are laid out -- it doesn't touch card layout/drawing logic.
    ============================================================ */
 
 /* builds a <select> from an array of [value,text] option pairs -- every
@@ -1736,105 +1815,15 @@ function buildPageInfoBar(index){
   return bar;
 }
 
-/* one card's worth of preview -- the on-screen unit shown regardless of
-   how many are on screen at once (see sidesPerView). */
+/* one page's worth of on-screen unit: its info bar plus its interactive
+   DOM card (see buildCardBody). renderViewer places as many of these side
+   by side as fit the viewer's width (see sidesPerView) -- there's no
+   pairing of pages into printed sheets to account for here. */
 function buildPageEl(index){
   var page = el("div", { class:"page", "data-index":String(index) });
   page.appendChild(buildPageInfoBar(index));
-  var canvas = document.createElement("canvas");
-  canvas.addEventListener("click", function(e){ onCanvasClick(e, canvas, index); });
-  canvas.draggable = true;
-  wireCardRowDrag(canvas, index);
-  page.appendChild(canvas);
-  renderCardsOntoCanvas(canvas, index, true);
-
-  /* the rows a drag is currently over would occupy, highlighted -- see
-     wireCardDropTarget/applyDragHighlights. A plain DOM overlay rather
-     than redrawing the canvas: much simpler, and it's purely visual
-     (never part of what actually gets printed). Every page gets one so
-     a cascade reaching this page (even when it's not the one under the
-     cursor) has somewhere to show it. */
-  page.appendChild(el("div", { class:"cardRowHighlightLayer" }));
-  wireCardDropTarget(canvas, index);
-
+  page.appendChild(buildCardBody(index));
   return page;
-}
-
-/* the on-screen unit for one page: its edge-handle strip (segment
-   capsules, see .cardEdgeHandles) immediately to its own left, then the
-   card itself. renderViewer places as many of these side by side as fit
-   the viewer's width (see sidesPerView) -- there's no pairing of pages
-   into printed sheets to account for here. */
-function buildPageUnitEl(index){
-  var unit = el("div", { class:"pageUnit", "data-index":String(index) });
-  unit.appendChild(buildCardEdgeHandles(index));
-  unit.appendChild(buildPageEl(index));
-  return unit;
-}
-
-/* which row (0-indexed, capacity-based -- one v10 contact block counts as
-   a single row even though it's two printed lines) a client Y coordinate
-   falls on for a given canvas -- shared by the dragover highlight and the
-   drop handler so they always agree on the same row. Returns null for a
-   page with nothing to drop onto (no data yet, or "empty" layout).
-   belowMidpoint says whether the point falls in the row's bottom half
-   (used to decide insertAfter for a reorder landing on an occupied row). */
-/* built on rowFractionsForLayout's own fraction math (below) rather than
-   recomputing headerH/rowH in pixels itself -- computeHeaderH is a pure
-   ratio of hPx, so the fractions it derives at an arbitrary unit apply
-   just as well against the real clientY/rect.height fraction here. */
-function cardRowGeometry(canvas, index, clientY){
-  var pageState = state.pages[index];
-  if(!pageState || pageState.layout === "empty") return null;
-  var layout = pageGeometryForIndex(index).layout;
-  var geo = rowFractionsForLayout(layout);
-  if(geo.capacity <= 0) return null;
-  var rect = canvas.getBoundingClientRect();
-  if(rect.height <= 0) return null;
-  var yFrac = (clientY - rect.top) / rect.height;
-  var idx = Math.max(0, Math.min(geo.capacity - 1, Math.floor((yFrac - geo.headerFrac) / geo.rowFrac)));
-  var rowTopFrac = geo.headerFrac + idx*geo.rowFrac;
-  var belowMidpoint = (yFrac - rowTopFrac) > geo.rowFrac/2;
-  /* the one canonical "insert before this row" index -- idx itself
-     (top half) or idx+1 (bottom half). Everything that needs to agree on
-     where a drop lands -- the highlight preview and the actual
-     cross-page/new-placement drop -- uses this same value instead of
-     each re-deriving its own boundary from idx/belowMidpoint, so the two
-     can never disagree. */
-  return { idx: idx, topFrac: rowTopFrac, hFrac: geo.rowFrac, belowMidpoint: belowMidpoint, insertRow: idx + (belowMidpoint ? 1 : 0) };
-}
-
-/* same header/row-height math as cardRowGeometry and getEditableRegions,
-   expressed as plain fractions (0..1) of the card's own height,
-   independent of any actual pixel size -- shared by cardRowGeometry
-   above and buildCardEdgeHandles' own strip positioning. */
-function rowFractionsForLayout(layout){
-  var capacity = layoutRows(layout.key);
-  if(capacity <= 0) return { headerFrac:0, rowFrac:0, capacity:0 };
-  var hUnit = 1000; /* computeHeaderH is a pure ratio of hPx, so any unit works */
-  var headerH = computeHeaderH(hUnit, layout);
-  return { headerFrac: headerH/hUnit, rowFrac: (hUnit-headerH)/hUnit/capacity, capacity: capacity };
-}
-
-/* one contiguous run of same-department rows within a page's own contact
-   order -- e.g. if Sales sits at rows 3-5 with IT at rows 0-2 and 6-8,
-   this returns three segments (IT, Sales, IT again), not two -- the
-   repeat is exactly the thing the segment capsules (see
-   buildCardEdgeHandles) are meant to make visible via a shared color.
-   "Tom rad" spacers (isEmptyRow) get their own reserved key rather than
-   sharing deptGroupKey("")'s "(ingen avdelning)" bucket with a real
-   contact whose department field is just blank -- the two mean
-   different things, and buildCardEdgeHandles renders them differently
-   (a spacer's capsule carries no label and no department color). */
-function contiguousDeptSegments(contacts){
-  var segments = [];
-  contacts.forEach(function(c, i){
-    var key = c.isEmptyRow ? "__emptyRow__" : deptGroupKey(c.department);
-    var last = segments[segments.length-1];
-    if(last && last.key === key) last.length++;
-    else segments.push({ key:key, label: c.isEmptyRow ? "" : deptDisplayLabel(c.department), isEmptyRow: !!c.isEmptyRow, startIdx:i, length:1 });
-  });
-  return segments;
 }
 
 /* moves one contact already on this page to sit right where a drag
@@ -1850,352 +1839,14 @@ function reorderContactOnCard(pageIndex, contactId, targetContact, insertAfter){
   reorderWithinPage(pageIndex, contactId, last.id, true);
 }
 
-/* same idea as reorderContactOnCard, but for a whole segment (a
-   contiguous block, see contiguousDeptSegments) dragged by its capsule
-   handle -- there's no existing shared helper for this (reorderWithinPage
-   only ever moves one contact), so this is its own splice-out/splice-in.
-   Segments are only ever dragged within their own page (see
-   wireCardDropTarget), so pageIndex always matches where startIdx/length
-   were computed from. */
-function reorderSegmentOnCard(pageIndex, startIdx, length, targetContact, insertAfter){
-  var pageState = state.pages[pageIndex];
-  if(!pageState) return;
-  var contacts = pageState.contacts;
-  if(startIdx < 0 || startIdx+length > contacts.length) return;
-  var block = contacts.slice(startIdx, startIdx+length);
-  if(targetContact && block.some(function(c){ return c.id === targetContact.id; })) return; /* dropped on itself */
-  var rest = contacts.slice(0, startIdx).concat(contacts.slice(startIdx+length));
-  var insertAt;
-  if(!targetContact){
-    insertAt = rest.length;
-  } else {
-    var targetIdx = rest.findIndex(function(c){ return c.id === targetContact.id; });
-    if(targetIdx === -1) return;
-    insertAt = insertAfter ? targetIdx+1 : targetIdx;
-  }
-  pageState.contacts = rest.slice(0, insertAt).concat(block, rest.slice(insertAt));
-  renderViewer();
-}
 
-/* unassigns a whole dragged segment (see reorderSegmentOnCard) from its
-   page in one go -- dropped onto #cardRemoveZone. Contacts are never
-   deleted, only unplaced, same as every other removal in this app. */
-function removeSegmentFromPage(pageIndex, startIdx, length){
-  var pageState = state.pages[pageIndex];
-  if(!pageState) return;
-  if(startIdx < 0 || startIdx+length > pageState.contacts.length) return;
-  pageState.contacts = pageState.contacts.slice(0, startIdx).concat(pageState.contacts.slice(startIdx+length));
-  renderViewer();
-}
-
-/* makes the card itself draggable, one row at a time -- press anywhere on
-   a contact's row (not just a dedicated handle) and drag to move it,
-   while a plain click still reaches onCanvasClick for inline editing:
-   dragstart only fires once the browser sees real drag motion, and a
-   click never fires after a drag starts, so the two never conflict.
-   Produces the same {type:"contact", fromPage, contactId} payload every
-   other contact drag does, so wireCardDropTarget handles it identically. */
-function wireCardRowDrag(canvas, pageIndex){
-  canvas.addEventListener("dragstart", function(e){
-    var pageState = state.pages[pageIndex];
-    if(!pageState || pageState.layout === "empty"){
-      e.preventDefault(); return;
-    }
-    var geo = rowFractionsForLayout(pageGeometryForIndex(pageIndex).layout);
-    var rect = canvas.getBoundingClientRect();
-    var yFrac = rect.height > 0 ? (e.clientY - rect.top) / rect.height : -1;
-    if(geo.capacity <= 0 || yFrac < geo.headerFrac){ e.preventDefault(); return; } /* header area: not a row */
-    var idx = Math.min(geo.capacity - 1, Math.floor((yFrac - geo.headerFrac) / geo.rowFrac));
-    var contact = contactsForPage(pageState)[idx];
-    if(!contact){ e.preventDefault(); return; }
-    var payload = { type:"contact", fromPage:pageIndex, contactId:contact.id };
-    e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify(payload));
-    e.dataTransfer.effectAllowed = "move";
-    activeDragPayload = payload;
-    showRowDragGhost(e, contact.name);
-  });
-}
-/* a small floating label instead of the browser's default drag image
-   (a screenshot of the whole card, misleading when only one row is
-   actually moving) -- reuses one hidden element across every drag rather
-   than creating/discarding a node each time. */
-var rowDragGhostEl = null;
-function showRowDragGhost(e, text){
-  if(!rowDragGhostEl){
-    rowDragGhostEl = el("div", { id:"rowDragGhost" });
-    document.body.appendChild(rowDragGhostEl);
-  }
-  rowDragGhostEl.textContent = text;
-  e.dataTransfer.setDragImage(rowDragGhostEl, -12, 14);
-}
-
-/* same idea as showRowDragGhost, but for a dragged segment capsule: a
-   horizontal pill in the segment's own color (the capsule itself is a
-   vertical strip with sideways text -- not something you'd want to see
-   dragging around) with the cursor pinned to its right edge, so the pill
-   trails to the LEFT of the cursor, matching where the capsule's own
-   strip sits relative to its card (see .cardEdgeHandles). Width is read
-   back off the element itself after the text/color are set, so the pill
-   always sizes to whatever's being dragged rather than a fixed box. */
-var segmentDragGhostEl = null;
-function showSegmentDragGhost(e, text, color){
-  if(!segmentDragGhostEl){
-    segmentDragGhostEl = el("div", { id:"segmentDragGhost" });
-    document.body.appendChild(segmentDragGhostEl);
-  }
-  segmentDragGhostEl.textContent = text;
-  segmentDragGhostEl.style.background = color;
-  var rect = segmentDragGhostEl.getBoundingClientRect();
-  e.dataTransfer.setDragImage(segmentDragGhostEl, rect.width, rect.height/2);
-}
-
-/* the actual contacts a drag payload represents, in the order they'll be
-   inserted -- lets the dragover preview color each highlighted row by its
-   own department instead of one flat color for the whole span (see
-   simulateInsertHighlights/contiguousDeptRuns). A segment is already one
-   contiguous same-department run (contiguousDeptSegments), so its own
-   page's slice is enough; a group sweeps every matching contact
-   regardless of page, the same set moveMatchingBetweenPagesAt will
-   actually take. */
-function resolveDraggedContacts(data){
-  if(!data) return [];
-  if(data.type === "segment"){
-    var fromPageState = state.pages[data.fromPage];
-    return fromPageState ? contactsForPage(fromPageState).slice(data.startIdx, data.startIdx + data.length) : [];
-  }
-  if(data.type === "group") return state.contacts.filter(function(c){ return c.sourceId === data.sourceId && deptGroupKey(c.department) === data.groupKey; });
-  /* a multi-use source's contact/group, or the "Tom rad" spacer -- these
-     are cloned fresh on drop (see instantiateTemplates) rather than moved
-     out of the pool, so there's no existing contact object to look up;
-     the payload already carries everything the preview needs. */
-  if(data.type === "template") return data.templates || [];
-  var contact = state.contacts.find(function(c){ return c.id === data.contactId; });
-  return contact ? [contact] : [];
-}
-
-/* one contiguous run of same-department contacts, in relative order --
-   like contiguousDeptSegments, but without a startIdx: the highlight
-   preview only ever needs the runs within whatever window it's drawing
-   (see applyDragHighlights), not their absolute position on a page. */
-function contiguousDeptRuns(contacts){
-  var runs = [];
-  contacts.forEach(function(c){
-    var key = deptGroupKey(c.department);
-    var last = runs[runs.length-1];
-    if(last && last.key === key) last.length++;
-    else runs.push({ key:key, length:1 });
-  });
-  return runs;
-}
-
-/* reordering a contact/segment within its OWN page never cascades (the
-   page's total count doesn't change), but the dragged block is already
-   sitting somewhere else in that same array -- so a raw "insert before
-   this index" position, measured against the array that still contains
-   it, needs the same self-removal shift reorderWithinPage/
-   reorderSegmentOnCard apply internally (removing the block first shifts
-   everything after it back by its own length). Without this, the preview
-   shows the move landing one row later than it actually will whenever the
-   drop point sits right after the dragged block's own current position. */
-function selfShiftInsertRow(srcStart, srcLen, rawInsertRow){
-  if(rawInsertRow <= srcStart) return rawInsertRow;
-  return Math.max(srcStart, rawInsertRow - srcLen);
-}
-
-/* dry-run of reflowFromPage's own cascade math, without mutating state:
-   given `draggedContacts` landing at `atRow` on `pageIndex`, works out
-   which existing rows shift onto which later pages, so a drag's dragover
-   preview can highlight every affected card, not just the one under the
-   cursor. Each highlight carries the actual contiguous department runs
-   that will occupy it, so the color always matches what actually lands
-   there -- the dragged contacts' own department for the primary landing
-   spot, and whichever departments were already there for anything it
-   pushes further down the cascade (which can easily be a mix, e.g.
-   inserting 4 IT contacts might push 1 unrelated Support contact off the
-   end onto the next page). Approximate for the rare case where the
-   dragged group already sits partly on another v20 page -- takeMatching's
-   own consolidation is more precise than a hover preview needs to be. */
-function simulateInsertHighlights(pageIndex, atRow, draggedContacts){
-  var highlights = [{ pageIndex:pageIndex, startRow:atRow, runs:contiguousDeptRuns(draggedContacts) }];
-  var page = state.pages[pageIndex];
-  if(!page) return highlights;
-  var existing = contactsForPage(page);
-  var cap = layoutRows(page.layout);
-  var overflow = existing.slice(0, atRow).concat(draggedContacts, existing.slice(atRow)).slice(cap);
-  var idx = pageIndex + 1;
-  while(overflow.length){
-    var next = state.pages[idx];
-    if(!next || next.layout === "empty"){
-      highlights.push({ pageIndex:idx, startRow:0, runs:contiguousDeptRuns(overflow) });
-      break;
-    }
-    var nextCap = layoutRows(next.layout);
-    /* only the incoming overflow itself is highlighted here (clamped to
-       this page's own capacity) -- not the whole kept portion, which
-       would also cover this page's own pre-existing rows that simply
-       shifted down within their own page, nothing a drag preview needs
-       to call out. */
-    highlights.push({ pageIndex:idx, startRow:0, runs:contiguousDeptRuns(overflow.slice(0, nextCap)) });
-    overflow = overflow.concat(contactsForPage(next)).slice(nextCap);
-    idx++;
-  }
-  return highlights;
-}
-
-/* shows the highlight on every affected, CURRENTLY RENDERED card (a page
-   reachable by the cascade but not in the DOM right now just has nowhere
-   to show it, which is the best any preview can do) -- a page not in the
-   list just has its layer emptied. Each highlight's `runs` becomes one
-   colored block per contiguous department run, positioned back to back
-   starting at startRow, so a span that mixes departments (cascade
-   spillover) reads as distinct colored bands instead of one flat block. */
-function applyDragHighlights(highlights){
-  var byIndex = {};
-  highlights.forEach(function(h){ byIndex[h.pageIndex] = h; });
-  document.querySelectorAll(".page").forEach(function(pageEl){
-    var idx = parseInt(pageEl.getAttribute("data-index"), 10);
-    var layer = pageEl.querySelector(".cardRowHighlightLayer");
-    var pageState = state.pages[idx];
-    var h = byIndex[idx];
-    if(!layer) return;
-    layer.innerHTML = "";
-    if(!h || !pageState) return;
-    var geo = rowFractionsForLayout(pageGeometryForIndex(idx).layout);
-    if(geo.capacity <= 0) return;
-    var row = h.startRow;
-    h.runs.forEach(function(run){
-      var rowCount = Math.min(run.length, geo.capacity - row);
-      if(rowCount > 0){
-        var color = colorForDeptKey(run.key);
-        var block = el("div", { class:"cardRowHighlight" });
-        block.style.background = hexToRgba(color, 0.32);
-        block.style.borderTop = "2px solid " + hexToRgba(color, 0.85);
-        block.style.borderBottom = block.style.borderTop;
-        block.style.top = ((geo.headerFrac + row*geo.rowFrac) * 100) + "%";
-        block.style.height = (rowCount * geo.rowFrac * 100) + "%";
-        layer.appendChild(block);
-      }
-      row += run.length;
-    });
-  });
-}
-function clearDragHighlights(){
-  document.querySelectorAll(".cardRowHighlightLayer").forEach(function(l){ l.innerHTML = ""; });
-}
-
-/* lets a group/contact tile dragged from the group panel's "Dra till
-   kortet" pool be dropped directly onto a row of the card itself, landing
-   exactly there via moveMatchingBetweenPagesAt instead of always
-   appending. Also accepts a drag started on the card's own row
-   (wireCardRowDrag) or its group capsule (buildCardEdgeHandles) -- same
-   MIME, "contact"/"segment" payloads carrying fromPage -- and reorders in
-   place instead, when the drag and drop are on the same page. */
-function wireCardDropTarget(canvas, index){
-  canvas.addEventListener("dragover", function(e){
-    if(e.dataTransfer.types.indexOf(PANEL_DRAG_MIME) === -1) return;
-    var geom = cardRowGeometry(canvas, index, e.clientY);
-    if(!geom) return;
-    e.preventDefault();
-
-    /* a same-page reorder never changes this page's own total count, so
-       it never cascades; anything else (a different page, or straight
-       from the pool) might, hence the dry-run. Both branches anchor on
-       geom.insertRow -- the same value the drop handler below uses --
-       so the preview always matches where the drop actually lands; the
-       sameCard branch additionally corrects for the dragged block still
-       sitting in the array insertRow indexes into (see
-       selfShiftInsertRow's own doc comment for why that matters). */
-    var contacts = resolveDraggedContacts(activeDragPayload);
-    if(!contacts.length) return;
-    var sameCard = activeDragPayload && activeDragPayload.fromPage === index &&
-      (activeDragPayload.type === "segment" || activeDragPayload.type === "contact");
-    if(sameCard){
-      var srcStart = activeDragPayload.type === "segment" ? activeDragPayload.startIdx
-        : contactsForPage(state.pages[index]).findIndex(function(c){ return c.id === activeDragPayload.contactId; });
-      applyDragHighlights([{ pageIndex:index, startRow:selfShiftInsertRow(srcStart, contacts.length, geom.insertRow), runs:contiguousDeptRuns(contacts) }]);
-    } else {
-      applyDragHighlights(simulateInsertHighlights(index, geom.insertRow, contacts));
-    }
-  });
-  canvas.addEventListener("dragleave", function(){ clearDragHighlights(); });
-  canvas.addEventListener("drop", function(e){
-    clearDragHighlights();
-    var geom = cardRowGeometry(canvas, index, e.clientY);
-    if(!geom) return;
-    e.preventDefault();
-    var raw = e.dataTransfer.getData(PANEL_DRAG_MIME);
-    if(!raw) return;
-    var data = JSON.parse(raw);
-    var targetContact = contactsForPage(state.pages[index])[geom.idx] || null;
-
-    if(data.type === "segment"){
-      if(data.fromPage === index){
-        reorderSegmentOnCard(index, data.startIdx, data.length, targetContact, geom.belowMidpoint);
-        return;
-      }
-      /* cross-page: move this exact contiguous run (by id, not by
-         department) to the target page -- matching by department alone
-         would also sweep up a second, non-contiguous run of the same
-         dept still left behind on the source page, if there is one. */
-      var fromPageState = state.pages[data.fromPage];
-      var segIds = fromPageState ? contactsForPage(fromPageState).slice(data.startIdx, data.startIdx + data.length).map(function(c){ return c.id; }) : [];
-      if(!segIds.length) return;
-      moveMatchingBetweenPagesAt(data.fromPage, index, idsMatcher(segIds), geom.insertRow);
-      return;
-    }
-    if(data.type === "contact" && data.fromPage === index){
-      reorderContactOnCard(index, data.contactId, targetContact, geom.belowMidpoint);
-      return;
-    }
-    /* a genuinely new placement (from the pool, or a different page) --
-       overflow cascades onto the next page (reflowFromPage, inside
-       moveMatchingBetweenPagesAt), opening a new one at DEFAULT_LAYOUT
-       ("v20") if it needs to, instead of being refused. */
-    handlePanelDrop(data,
-      function(fromPage, groupKey, sourceId){ moveMatchingBetweenPagesAt(fromPage, index, groupMatcher(sourceId, groupKey), geom.insertRow); },
-      function(fromPage, contactId){ moveMatchingBetweenPagesAt(fromPage, index, contactMatcher(contactId), geom.insertRow); },
-      function(templates){ addTemplatesAt(index, geom.insertRow, templates); });
-  });
-}
-
-/* the colored capsule strip standing directly against the card's left
-   edge: one capsule per contiguous same-department run, drag to move
-   that whole block (see contiguousDeptSegments/reorderSegmentOnCard).
-   Per-contact dragging uses the card itself instead (see
-   wireCardRowDrag), so this strip only ever holds group capsules. */
-function buildCardEdgeHandles(pageIndex){
-  var strip = el("div", { class:"cardEdgeHandles" });
-  var pageState = state.pages[pageIndex];
-  if(!pageState || pageState.layout === "empty") return strip;
-  var layout = pageGeometryForIndex(pageIndex).layout;
-  var geo = rowFractionsForLayout(layout);
-  if(geo.capacity <= 0) return strip;
-  var contacts = contactsForPage(pageState);
-
-  contiguousDeptSegments(contacts).forEach(function(seg){
-    var color = seg.isEmptyRow ? null : colorForDeptKey(seg.key);
-    var capsule = el("div", { class:"segmentCapsule" + (seg.isEmptyRow ? " emptyRowCapsule" : ""), draggable:"true", text:seg.label,
-      "data-full-label":seg.label,
-      title:(seg.isEmptyRow ? "Tom rad" : seg.label) + " -- dra för att flytta hela gruppen (inom sidan eller till en annan sida)" });
-    if(color) tintElement(capsule, color);
-    capsule.style.top = ((geo.headerFrac + seg.startIdx*geo.rowFrac) * 100) + "%";
-    capsule.style.height = ((seg.length*geo.rowFrac) * 100) + "%";
-    capsule.addEventListener("dragstart", function(e){ showSegmentDragGhost(e, seg.label, color || "#999"); });
-    wireDragStart(capsule, { type:"segment", fromPage:pageIndex, startIdx:seg.startIdx, length:seg.length });
-    strip.appendChild(capsule);
-  });
-
-  return strip;
-}
-
-/* a "remove from page" drop target for a contact/segment dragged straight
-   off a card's own edge handles -- lives in #groupPanelControls, next to
-   #newPageZone (its opposite-action counterpart), not over the viewer.
-   Reuses wireDropTarget's own dragover/dragleave/drop wiring instead of
+/* a "remove from page" drop target for a contact/group dragged straight
+   off a card row -- lives in #groupPanelControls, next to #newPageZone
+   (its opposite-action counterpart), not over the viewer. Reuses
+   wireDropTarget's own dragover/dragleave/drop wiring instead of
    repeating it. */
 function wireCardRemoveZone(zone){
   wireDropTarget(zone, function(data){
-    if(data.type === "segment"){ removeSegmentFromPage(data.fromPage, data.startIdx, data.length); return; }
     handlePanelDrop(data, removeGroupFromPage, removeContactFromPage);
   });
 }
@@ -2259,12 +1910,9 @@ var viewerTopClearancePx = 80 + WINDOW_EDGE_GAP_PX;
    side by side, on whichever axis (combined width or height) is tighter
    -- every card shares one physical size (CARD_W_MM/CARD_H_MM are
    global), so a single scale computed from the total width covers all of
-   them. Reads the fixed (non-card) width straight from the DOM instead of
-   assuming it -- every edge-handles strip's actual rendered width, and
-   the WINDOW_EDGE_GAP_PX gap between page units (.pagesRow's own CSS gap,
-   same --edge-gap variable used everywhere else) -- so an inexact guess
-   can never leave the row a bit too wide for its own budget, forcing an
-   unwanted wrap into a second row that overflows the viewer's own height.
+   them. The card's own internal layout (columns, font sizes) scales for
+   free with this via CSS container query units (see buildCardBody) --
+   this only has to size the .page box itself.
    Runs the sizing twice: the first pass applies whatever top clearance is
    already in effect (carried over from the last render, so usually
    already close) so the cards reach their real on-screen width -- and so
@@ -2276,13 +1924,9 @@ var viewerTopClearancePx = 80 + WINDOW_EDGE_GAP_PX;
 function fitVisibleCards(){
   var wrap = $("#viewerContent");
   var pages = wrap.querySelectorAll(".page");
-  var units = wrap.querySelectorAll(".pageUnit");
   if(!pages.length) return;
   var dims = pageGeometryForIndex(state.currentPage).cardDims;
-  var stripEl = wrap.querySelector(".cardEdgeHandles");
-  var stripW = stripEl ? stripEl.getBoundingClientRect().width : 0;
-  var rowGaps = Math.max(0, units.length - 1) * WINDOW_EDGE_GAP_PX;
-  var fixedW = units.length*stripW + rowGaps;
+  var rowGaps = Math.max(0, pages.length - 1) * WINDOW_EDGE_GAP_PX;
   /* the 1px below is deliberate slack, not part of the real budget --
      this math is otherwise exact (solves cw so the row's own width comes
      out to precisely availW), but "exact" sitting right on the boundary
@@ -2298,7 +1942,7 @@ function fitVisibleCards(){
      grid/flex flow to measure), and clientWidth includes padding either
      way. */
   var availW = wrap.clientWidth - (GROUP_PANEL_WIDTH_PX + WINDOW_EDGE_GAP_PX*2) - WINDOW_EDGE_GAP_PX - 1;
-  var cw = (availW - fixedW) / pages.length;
+  var cw = (availW - rowGaps) / pages.length;
 
   function applySizesFor(topClearancePx){
     wrap.style.paddingTop = topClearancePx + "px";
@@ -2318,26 +1962,6 @@ function fitVisibleCards(){
     viewerTopClearancePx = neededClearance;
     applySizesFor(viewerTopClearancePx);
   }
-}
-
-/* a segment capsule's label runs top-to-bottom (writing-mode:vertical-rl,
-   see .segmentCapsule) inside a pill whose length is fixed by however
-   many rows that department run covers -- a short run (as little as one
-   row) only has room for a couple of characters before the label would
-   wrap into a second column and spill out of the pill's own fixed width.
-   Only knowable once the page (and so the capsule, which stretches to
-   match it) has its real pixel height, i.e. after fitVisibleCards --
-   truncates each one to however many characters its own actual height
-   fits, roughly one character per font-size's worth of vertical room. */
-function fitSegmentCapsuleLabels(){
-  document.querySelectorAll(".segmentCapsule").forEach(function(capsule){
-    var full = capsule.dataset.fullLabel;
-    if(full == null) return;
-    var heightPx = capsule.getBoundingClientRect().height;
-    var fontPx = parseFloat(getComputedStyle(capsule).fontSize) || 12;
-    var maxChars = Math.max(1, Math.floor(heightPx / fontPx));
-    capsule.textContent = full.length > maxChars ? full.slice(0, maxChars) : full;
-  });
 }
 
 /* however many card sides renderViewer actually put on screen last time
@@ -2373,13 +1997,12 @@ function renderViewer(){
 
   var row = el("div", { class:"pagesRow" });
   for(var i=0;i<pagesToShow;i++){
-    row.appendChild(buildPageUnitEl(state.currentPage + i));
+    row.appendChild(buildPageEl(state.currentPage + i));
   }
   wrap.appendChild(row);
   lastVisibleCount = pagesToShow;
 
   fitVisibleCards();
-  fitSegmentCapsuleLabels();
   renderGroupPanel();
   renderPortalPanel();
 }
@@ -2564,17 +2187,16 @@ function groupContactsBySourceAndDepartment(contacts){
 }
 
 /* Svart is only meant for header text/background choices, not something
-   a department should ever be auto-assigned -- a black segment capsule
-   or drag-highlight tint would be unreadable (white capsule text) and
-   easy to mistake for "no color at all". */
+   a department should ever be auto-assigned -- a black group tile or
+   contact chip tint would be unreadable (white text) and easy to mistake
+   for "no color at all". */
 var DEPT_COLOR_PRESETS = COLOR_PRESETS.filter(function(c){ return c.hex.toLowerCase() !== "#000000"; });
-/* consistent color for a department, shared by the segment capsules
-   (buildCardEdgeHandles) and the drag-preview highlight
-   (applyDragHighlights) -- same key, same color, so a purple IT capsule
-   and a purple highlighted row obviously mean the same department. Order
-   comes from computeDepartmentGroups (first-seen in the full roster),
-   cycling through DEPT_COLOR_PRESETS if there are more departments than
-   presets. */
+/* consistent color for a department, shared by everything that tints
+   itself per department (group tiles, contact chips, page info bars,
+   portal buttons) -- same key, same color, so they all read as the same
+   department at a glance. Order comes from computeDepartmentGroups
+   (first-seen in the full roster), cycling through DEPT_COLOR_PRESETS if
+   there are more departments than presets. */
 function colorForDeptKey(key){
   var deptOrder = computeDepartmentGroups().map(function(g){ return g.key; });
   var idx = deptOrder.indexOf(key);
@@ -2700,9 +2322,8 @@ function takeMatching(fromPage, matches, destLayoutKey){
 }
 
 /* inserts every matching contact into another page starting at a specific
-   row -- used when dropping
-   directly onto a row of the card in the viewer itself (see
-   wireCardDropTarget), where the row you're over is the whole point.
+   row -- used when dropping directly onto a row of the card in the viewer
+   itself (see wireRowDragAndDrop), where the row you're over is the whole point.
    Pool drags (fromPage:null) onto a v20 page they're already on still
    work out as an in-place reorder for free: takeMatching's v20
    consolidation removes the contact from every v20 page it's on
@@ -2848,21 +2469,8 @@ function wireDragStart(node, payload){
   node.addEventListener("dragstart", function(e){
     e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify(payload));
     e.dataTransfer.effectAllowed = "move";
-    activeDragPayload = payload;
   });
 }
-/* dataTransfer's own payload can only be read at dragstart/drop, never
-   during dragover (a deliberate HTML5 DnD restriction, so a page can't
-   snoop on a drag before the user commits to dropping) -- mirrored here
-   instead so a dragover handler can know what's actually being dragged
-   (which contacts, in particular -- see resolveDraggedContacts) for the
-   multi-row preview below. Every drag in this app originates from its own
-   code, so
-   this side channel is always accurate for it. Cleared on dragend, which
-   always fires on the source element once the drag operation ends,
-   dropped or not. */
-var activeDragPayload = null;
-document.addEventListener("dragend", function(){ activeDragPayload = null; });
 
 /* every 1-indexed page currently showing this exact contact -- normally at
    most one v20 page, but the same contact can legitimately sit on several
