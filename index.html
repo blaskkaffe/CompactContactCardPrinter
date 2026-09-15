@@ -109,6 +109,7 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
 #emptyViewerOverlay[hidden]{display:none}
 #emptyViewerOverlay.dragOver{background:var(--blue-bg);color:var(--blue-text)}
 /* Card layout */
+.pageUnit{display:flex}
 .pagesRow{display:flex;flex-wrap:nowrap;justify-content:center;align-items:flex-start;gap:var(--edge-gap)}
 .page{position:relative;z-index:2;flex:0 0 auto;background:var(--panel);box-shadow:var(--shadow-panel)}
 
@@ -129,6 +130,19 @@ main#viewerWrap{position:relative;flex:1 1 auto;min-width:0;background:var(--bg)
 .cardField{position:absolute;top:0;bottom:0;display:flex;align-items:center;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#000;cursor:text}
 .cardFieldInput{width:100%;height:100%;border:1px solid var(--blue);font:inherit;padding:0 1px;box-sizing:border-box}
 .cardRow.dragOver,.cardSlot.dragOver{background:var(--blue-bg)}
+
+/* segment capsules (see buildCardEdgeHandles) -- a vertical strip standing
+   against the card's own left edge, one capsule per contiguous same-
+   department run, sized with flexbox to match the card's own row
+   proportions exactly */
+.cardEdgeHandles{position:relative;z-index:1;flex:0 0 auto;display:flex;flex-direction:column;width:var(--pill-height)}
+.cardEdgeSpacer{flex:0 0 auto}
+.cardEdgeHandles .segmentCapsule{display:flex;justify-content:center;align-items:center;min-height:0;border:1px solid;border-radius:var(--pill-radius) 0 0 var(--pill-radius);color:var(--text);font-size:var(--pill-font-size);font-weight:bold;line-height:var(--pill-line-height);text-align:center;writing-mode:vertical-rl;text-orientation:mixed;overflow:hidden;cursor:grab;user-select:none}
+.cardEdgeHandles .segmentCapsule:active{cursor:grabbing}
+.cardEdgeHandles .segmentCapsule.emptyRowCapsule{background:var(--hover-bg);border-color:var(--border-dark)}
+
+/* the shared drag-image pill (see showDragGhost) */
+#dragGhost{position:fixed;top:-999px;left:-999px;padding:var(--pill-pad-y) 16px;border-radius:var(--pill-radius);box-shadow:0 1px 4px var(--shadow-soft);color:#fff;font-size:var(--pill-font-size);font-weight:bold;line-height:var(--pill-line-height);white-space:nowrap;pointer-events:none}
 
 /* Per-card info bar */
 .pageInfoBar{position:absolute;left:0;right:0;bottom:100%;z-index:2;padding:var(--space-4);background:var(--panel);border:1px solid var(--border);border-radius:var(--panel-radius) var(--panel-radius) 0 0;font-size:var(--ui-font)}
@@ -1401,15 +1415,37 @@ function buildCardField(contact, key, formatter){
   return span;
 }
 
+/* one pill-shaped drag image for every drag that starts on the card
+   itself -- a single contact row (its name) or a whole department segment
+   (its label) -- trailing to the LEFT of the cursor (the cursor is pinned
+   to the pill's own right edge via setDragImage) so the pill never covers
+   whatever's under the cursor, which is the whole point of looking at it
+   mid-drag. Reuses one hidden element across every drag rather than
+   creating/discarding a node each time. */
+var dragGhostEl = null;
+function showDragGhost(e, text, color){
+  if(!dragGhostEl){
+    dragGhostEl = el("div", { id:"dragGhost" });
+    document.body.appendChild(dragGhostEl);
+  }
+  dragGhostEl.textContent = text;
+  dragGhostEl.style.background = color || "#222";
+  var rect = dragGhostEl.getBoundingClientRect();
+  e.dataTransfer.setDragImage(dragGhostEl, rect.width, rect.height/2);
+}
+
 /* wires one row (a v20 row, or a v10 line) as both a drag source (when it
    holds a real contact) and a drop target -- native HTML5 drag/drop, the
    exact same PANEL_DRAG_MIME payload contract and mutation functions the
    side panel already uses (see wireDragStart/handlePanelDrop), so a card
    row is just another drop target rather than a second, custom-built drag
-   system. Dropping in the row's top half inserts before it, bottom half
-   after -- reorderContactOnCard/moveMatchingBetweenPagesAt already handle
-   "landed past the last real contact" (targetContact null) as "move to
-   the end", same as every other placement in this app. */
+   system. Also accepts a whole segment dragged by its capsule handle (see
+   buildCardEdgeHandles) -- same MIME, "segment" payload carrying fromPage
+   -- and reorders it in place instead, when the drag and drop are on the
+   same page. Dropping in the row's top half inserts before it, bottom
+   half after -- reorderContactOnCard/moveMatchingBetweenPagesAt already
+   handle "landed past the last real contact" (targetContact null) as
+   "move to the end", same as every other placement in this app. */
 function wireRowDragAndDrop(rowEl, pageIndex, slotIdx, contact){
   if(contact){
     rowEl.draggable = true;
@@ -1417,6 +1453,7 @@ function wireRowDragAndDrop(rowEl, pageIndex, slotIdx, contact){
       var payload = { type:"contact", fromPage:pageIndex, contactId:contact.id };
       e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify(payload));
       e.dataTransfer.effectAllowed = "move";
+      showDragGhost(e, contact.name, colorForDeptKey(deptGroupKey(contact.department)));
     });
   }
   rowEl.addEventListener("dragover", function(e){
@@ -1435,6 +1472,21 @@ function wireRowDragAndDrop(rowEl, pageIndex, slotIdx, contact){
     var insertAfter = (e.clientY - rect.top) > rect.height/2;
     var targetContact = contactsForPage(state.pages[pageIndex])[slotIdx] || null;
 
+    if(data.type === "segment"){
+      if(data.fromPage === pageIndex){
+        reorderSegmentOnCard(pageIndex, data.startIdx, data.length, targetContact, insertAfter);
+        return;
+      }
+      /* cross-page: move this exact contiguous run (by id, not by
+         department) to the target page -- matching by department alone
+         would also sweep up a second, non-contiguous run of the same
+         dept still left behind on the source page, if there is one. */
+      var fromPageState = state.pages[data.fromPage];
+      var segIds = fromPageState ? contactsForPage(fromPageState).slice(data.startIdx, data.startIdx + data.length).map(function(c){ return c.id; }) : [];
+      if(!segIds.length) return;
+      moveMatchingBetweenPagesAt(data.fromPage, pageIndex, idsMatcher(segIds), slotIdx + (insertAfter ? 1 : 0));
+      return;
+    }
     if(data.type === "contact" && data.fromPage === pageIndex){
       reorderContactOnCard(pageIndex, data.contactId, targetContact, insertAfter);
       return;
@@ -1826,6 +1878,16 @@ function buildPageEl(index){
   return page;
 }
 
+/* the on-screen unit for one page: its edge-handle strip (segment
+   capsules, see buildCardEdgeHandles) immediately to its own left, then
+   the card itself. */
+function buildPageUnitEl(index){
+  var unit = el("div", { class:"pageUnit", "data-index":String(index) });
+  unit.appendChild(buildCardEdgeHandles(index));
+  unit.appendChild(buildPageEl(index));
+  return unit;
+}
+
 /* moves one contact already on this page to sit right where a drag
    landed -- reuses reorderWithinPage, computing its target/insertAfter
    from a card row. targetContact is null when the drop landed past the
@@ -1839,14 +1901,114 @@ function reorderContactOnCard(pageIndex, contactId, targetContact, insertAfter){
   reorderWithinPage(pageIndex, contactId, last.id, true);
 }
 
+/* one contiguous run of same-department rows within a page's own contact
+   order -- e.g. if Sales sits at rows 3-5 with IT at rows 0-2 and 6-8,
+   this returns three segments (IT, Sales, IT again), not two -- the
+   repeat is exactly the thing the segment capsules (see
+   buildCardEdgeHandles) are meant to make visible via a shared color.
+   "Tom rad" spacers (isEmptyRow) get their own reserved key rather than
+   sharing deptGroupKey("")'s "(ingen avdelning)" bucket with a real
+   contact whose department field is just blank -- the two mean
+   different things, and buildCardEdgeHandles renders them differently
+   (a spacer's capsule carries no label and no department color). */
+function contiguousDeptSegments(contacts){
+  var segments = [];
+  contacts.forEach(function(c, i){
+    var key = c.isEmptyRow ? "__emptyRow__" : deptGroupKey(c.department);
+    var last = segments[segments.length-1];
+    if(last && last.key === key) last.length++;
+    else segments.push({ key:key, label: c.isEmptyRow ? "" : deptDisplayLabel(c.department), isEmptyRow: !!c.isEmptyRow, startIdx:i, length:1 });
+  });
+  return segments;
+}
 
-/* a "remove from page" drop target for a contact/group dragged straight
-   off a card row -- lives in #groupPanelControls, next to #newPageZone
-   (its opposite-action counterpart), not over the viewer. Reuses
-   wireDropTarget's own dragover/dragleave/drop wiring instead of
+/* same idea as reorderContactOnCard, but for a whole segment (a
+   contiguous block, see contiguousDeptSegments) dragged by its capsule
+   handle -- there's no existing shared helper for this (reorderWithinPage
+   only ever moves one contact), so this is its own splice-out/splice-in.
+   Segments are only ever dragged within their own page (see
+   wireRowDragAndDrop), so pageIndex always matches where startIdx/length
+   were computed from. */
+function reorderSegmentOnCard(pageIndex, startIdx, length, targetContact, insertAfter){
+  var pageState = state.pages[pageIndex];
+  if(!pageState) return;
+  var contacts = pageState.contacts;
+  if(startIdx < 0 || startIdx+length > contacts.length) return;
+  var block = contacts.slice(startIdx, startIdx+length);
+  if(targetContact && block.some(function(c){ return c.id === targetContact.id; })) return; /* dropped on itself */
+  var rest = contacts.slice(0, startIdx).concat(contacts.slice(startIdx+length));
+  var insertAt;
+  if(!targetContact){
+    insertAt = rest.length;
+  } else {
+    var targetIdx = rest.findIndex(function(c){ return c.id === targetContact.id; });
+    if(targetIdx === -1) return;
+    insertAt = insertAfter ? targetIdx+1 : targetIdx;
+  }
+  pageState.contacts = rest.slice(0, insertAt).concat(block, rest.slice(insertAt));
+  renderViewer();
+}
+
+/* unassigns a whole dragged segment (see reorderSegmentOnCard) from its
+   page in one go -- dropped onto #cardRemoveZone. Contacts are never
+   deleted, only unplaced, same as every other removal in this app. */
+function removeSegmentFromPage(pageIndex, startIdx, length){
+  var pageState = state.pages[pageIndex];
+  if(!pageState) return;
+  if(startIdx < 0 || startIdx+length > pageState.contacts.length) return;
+  pageState.contacts = pageState.contacts.slice(0, startIdx).concat(pageState.contacts.slice(startIdx+length));
+  renderViewer();
+}
+
+/* the colored capsule strip standing directly against the card's left
+   edge: one capsule per contiguous same-department run, drag to move
+   that whole block (see contiguousDeptSegments/reorderSegmentOnCard).
+   Per-contact dragging uses the card row itself instead (see
+   wireRowDragAndDrop), so this strip only ever holds group capsules.
+   Sized with flexbox rather than absolute fraction math: a spacer
+   matching the header's own height share, then one flex item per segment
+   sized proportional to its row length -- since every row is equal height
+   already (see buildCardBody), that reproduces the exact same proportions
+   the card's own rows use, for free. */
+function buildCardEdgeHandles(pageIndex){
+  var strip = el("div", { class:"cardEdgeHandles" });
+  var pageState = state.pages[pageIndex];
+  if(!pageState || pageState.layout === "empty") return strip;
+  var layout = LAYOUTS[pageState.layout] || LAYOUTS.v20;
+  var capacity = layoutRows(layout.key);
+  if(capacity <= 0) return strip;
+  var contacts = contactsForPage(pageState);
+
+  var spacer = el("div", { class:"cardEdgeSpacer" });
+  spacer.style.flexBasis = (computeHeaderH(1000, layout)/1000 * 100) + "%";
+  strip.appendChild(spacer);
+
+  contiguousDeptSegments(contacts).forEach(function(seg){
+    var color = seg.isEmptyRow ? null : colorForDeptKey(seg.key);
+    var capsule = el("div", { class:"segmentCapsule" + (seg.isEmptyRow ? " emptyRowCapsule" : ""), draggable:"true", text:seg.label,
+      title:(seg.isEmptyRow ? "Tom rad" : seg.label) + " -- dra för att flytta hela gruppen (inom sidan eller till en annan sida)" });
+    capsule.style.flex = seg.length + " " + seg.length + " 0";
+    if(color) tintElement(capsule, color);
+    capsule.addEventListener("dragstart", function(e){
+      var payload = { type:"segment", fromPage:pageIndex, startIdx:seg.startIdx, length:seg.length };
+      e.dataTransfer.setData(PANEL_DRAG_MIME, JSON.stringify(payload));
+      e.dataTransfer.effectAllowed = "move";
+      showDragGhost(e, seg.label, color || "#999");
+    });
+    strip.appendChild(capsule);
+  });
+
+  return strip;
+}
+
+/* a "remove from page" drop target for a contact/group/segment dragged
+   straight off a card -- lives in #groupPanelControls, next to
+   #newPageZone (its opposite-action counterpart), not over the viewer.
+   Reuses wireDropTarget's own dragover/dragleave/drop wiring instead of
    repeating it. */
 function wireCardRemoveZone(zone){
   wireDropTarget(zone, function(data){
+    if(data.type === "segment"){ removeSegmentFromPage(data.fromPage, data.startIdx, data.length); return; }
     handlePanelDrop(data, removeGroupFromPage, removeContactFromPage);
   });
 }
@@ -1912,7 +2074,13 @@ var viewerTopClearancePx = 80 + WINDOW_EDGE_GAP_PX;
    global), so a single scale computed from the total width covers all of
    them. The card's own internal layout (columns, font sizes) scales for
    free with this via CSS container query units (see buildCardBody) --
-   this only has to size the .page box itself.
+   this only has to size the .page box itself. Reads the fixed (non-card)
+   width straight from the DOM instead of assuming it -- every edge-handles
+   strip's actual rendered width, and the WINDOW_EDGE_GAP_PX gap between
+   page units (.pagesRow's own CSS gap, same --edge-gap variable used
+   everywhere else) -- so an inexact guess can never leave the row a bit
+   too wide for its own budget, forcing an unwanted wrap into a second row
+   that overflows the viewer's own height.
    Runs the sizing twice: the first pass applies whatever top clearance is
    already in effect (carried over from the last render, so usually
    already close) so the cards reach their real on-screen width -- and so
@@ -1924,9 +2092,13 @@ var viewerTopClearancePx = 80 + WINDOW_EDGE_GAP_PX;
 function fitVisibleCards(){
   var wrap = $("#viewerContent");
   var pages = wrap.querySelectorAll(".page");
+  var units = wrap.querySelectorAll(".pageUnit");
   if(!pages.length) return;
   var dims = pageGeometryForIndex(state.currentPage).cardDims;
-  var rowGaps = Math.max(0, pages.length - 1) * WINDOW_EDGE_GAP_PX;
+  var stripEl = wrap.querySelector(".cardEdgeHandles");
+  var stripW = stripEl ? stripEl.getBoundingClientRect().width : 0;
+  var rowGaps = Math.max(0, units.length - 1) * WINDOW_EDGE_GAP_PX;
+  var fixedW = units.length*stripW + rowGaps;
   /* the 1px below is deliberate slack, not part of the real budget --
      this math is otherwise exact (solves cw so the row's own width comes
      out to precisely availW), but "exact" sitting right on the boundary
@@ -1942,7 +2114,7 @@ function fitVisibleCards(){
      grid/flex flow to measure), and clientWidth includes padding either
      way. */
   var availW = wrap.clientWidth - (GROUP_PANEL_WIDTH_PX + WINDOW_EDGE_GAP_PX*2) - WINDOW_EDGE_GAP_PX - 1;
-  var cw = (availW - rowGaps) / pages.length;
+  var cw = (availW - fixedW) / pages.length;
 
   function applySizesFor(topClearancePx){
     wrap.style.paddingTop = topClearancePx + "px";
@@ -1997,7 +2169,7 @@ function renderViewer(){
 
   var row = el("div", { class:"pagesRow" });
   for(var i=0;i<pagesToShow;i++){
-    row.appendChild(buildPageEl(state.currentPage + i));
+    row.appendChild(buildPageUnitEl(state.currentPage + i));
   }
   wrap.appendChild(row);
   lastVisibleCount = pagesToShow;
